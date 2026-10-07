@@ -91,4 +91,5 @@ def send(today: dict, dry: bool = False) -> bool:
         if not r.ok:
             log.warning("Telegram lỗi: %s", r.text[:300])
             return False
+    log.info("Telegram: đã gửi %d tin", len(chunks))
     return True
