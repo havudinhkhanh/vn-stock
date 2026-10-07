@@ -24,7 +24,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write   # chỉ để đẩy log chạy lên nhánh `status`
 
 jobs:
   run:
@@ -66,7 +66,9 @@ jobs:
           if [ "${{ inputs.backtest }}" = "true" ]; then ARGS="$ARGS --backtest"; fi
           if [ -n "${{ inputs.only }}" ]; then ARGS="$ARGS --only ${{ inputs.only }}"; fi
           if [ -n "$TELEGRAM_BOT_TOKEN" ]; then ARGS="$ARGS --notify"; fi
-          python run.py all $ARGS
+          mkdir -p data
+          python run.py all $ARGS 2>&1 | tee data/run.log
+          exit ${PIPESTATUS[0]}
 
       - name: Lưu dữ liệu cho lần chạy sau
         if: always()
@@ -90,6 +92,10 @@ jobs:
             echo "$GH_DISPATCH_TOKEN" | npx --yes wrangler@3 pages secret put GH_TOKEN --project-name vn-stock || true
           fi
           npx --yes wrangler@3 pages deploy --project-name vn-stock --branch main --commit-dirty=true
+
+      - name: Đẩy log chạy lên nhánh status
+        if: always()
+        run: bash scripts/publish_status.sh daily data/run.log data/meta.json site/data/meta.json data/probe_report.json
 
       - name: Lưu bản web để tải về xem (khi chưa có Cloudflare)
         if: always()

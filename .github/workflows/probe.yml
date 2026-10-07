@@ -4,12 +4,16 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write   # để đẩy báo cáo lên nhánh `status`
 
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    env:
+      VNSTOCK_DATA: probe_out
+      VNSTOCK_RETRIES: "1"
+      PYTHONUNBUFFERED: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -18,11 +22,10 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - name: Thử từng nguồn (VCI, TCBS, Yahoo)
-        run: python run.py probe
-        env:
-          VNSTOCK_DATA: probe_out
-      - uses: actions/upload-artifact@v4
+        run: |
+          mkdir -p probe_out
+          python run.py probe 2>&1 | tee probe_out/probe.log
+          exit ${PIPESTATUS[0]}
+      - name: Đẩy báo cáo lên nhánh status
         if: always()
-        with:
-          name: probe-report
-          path: probe_out/probe_report.json
+        run: bash scripts/publish_status.sh probe probe_out/probe_report.json probe_out/probe.log
