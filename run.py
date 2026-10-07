@@ -52,7 +52,8 @@ def main() -> None:
         update.run(force_fin=a.fin, only=only)
     if a.cmd in ("all", "build"):
         from app import build
-        res = build.run(skip_backtest=a.no_backtest, force_backtest=a.backtest, only=only)
+        # chạy thử vài mã: không chạy backtest để khỏi ghi đè kết quả của lần chạy đầy đủ
+        res = build.run(skip_backtest=a.no_backtest or bool(only), force_backtest=a.backtest and not only, only=only)
         if a.notify or a.cmd == "all":
             from app import notify
             notify.send(res["today"], dry=not a.notify)

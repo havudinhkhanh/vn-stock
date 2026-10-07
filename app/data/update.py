@@ -159,7 +159,7 @@ def _fin_one(sym: str, ctype: str) -> tuple[list[pd.DataFrame], str]:
     return [], "FAIL"
 
 
-def update_financials(listing: pd.DataFrame, symbols: list[str], workers: int = 4) -> None:
+def update_financials(listing: pd.DataFrame, symbols: list[str], workers: int = 4, mark: bool = True) -> None:
     ctype = dict(zip(listing["symbol"], listing.get("com_type", "CT")))
     frames, used = [], Counter()
     with ThreadPoolExecutor(max_workers=workers) as ex:
@@ -174,11 +174,12 @@ def update_financials(listing: pd.DataFrame, symbols: list[str], workers: int = 
         allf = normalize.finalize(pd.concat(frames, ignore_index=True))
         store.upsert("fin_q", allf[allf["quarter"] > 0], ["symbol", "year", "quarter"])
         store.upsert("fin_y", allf[allf["quarter"] == 0], ["symbol", "year", "quarter"])
-    store.touch("financials", sources=dict(used), symbols=len(symbols))
+    if mark:
+        store.touch("financials", sources=dict(used), symbols=len(symbols))
     log.info("BCTC xong: %s", dict(used))
 
 
-def update_dividends(symbols: list[str], workers: int = 4) -> None:
+def update_dividends(symbols: list[str], workers: int = 4, mark: bool = True) -> None:
     frames, used = [], Counter()
 
     def one(s):
@@ -195,7 +196,8 @@ def update_dividends(symbols: list[str], workers: int = 4) -> None:
     if frames:
         new = pd.concat(frames, ignore_index=True).dropna(subset=["ex_date"])
         store.upsert("dividends", new, ["symbol", "ex_date", "method"])
-    store.touch("dividends", sources=dict(used))
+    if mark:
+        store.touch("dividends", sources=dict(used))
     log.info("Cổ tức: %s", dict(used))
 
 
@@ -225,8 +227,8 @@ def run(force_fin: bool = False, only: list[str] | None = None) -> None:
         if only:
             fin_syms = [s for s in syms if s in only]
         log.info("Tải BCTC cho %d mã", len(fin_syms))
-        update_financials(listing, fin_syms)
-        update_dividends(fin_syms)
+        update_financials(listing, fin_syms, mark=not only)
+        update_dividends(fin_syms, mark=not only)
     else:
         log.info("Chưa tới lịch tải BCTC (cập nhật gần nhất %.1f ngày trước)",
                  store.age_days("financials"))

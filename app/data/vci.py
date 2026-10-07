@@ -5,6 +5,7 @@ Không cần tài khoản. Có thể thay đổi bất cứ lúc nào: mọi hà
 """
 from __future__ import annotations
 
+import re
 import time
 from datetime import datetime, timedelta
 
@@ -229,6 +230,11 @@ def parse_dividends(symbol: str, raw: pd.DataFrame) -> pd.DataFrame:
         except (TypeError, ValueError):
             ratio = None
         is_cash = code.startswith("DIV") and "ISS" not in code
+        if not is_cash:
+            title = f"{r.get('eventTitleVi') or ''} {r.get('eventTitleEn') or ''}".lower()
+            # chỉ tính cổ tức bằng cổ phiếu / cổ phiếu thưởng; bỏ ESOP, chào bán, phát hành riêng lẻ
+            if not re.search(r"cổ tức|thưởng|bonus|stock dividend|dividend", title):
+                continue
         if val is not None and val > 50:          # đồng / cổ phiếu
             pct = val / 10000
         elif ratio is not None:

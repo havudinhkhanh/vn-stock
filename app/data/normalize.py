@@ -91,8 +91,8 @@ def normalize_tcbs(symbol: str, is_df, bs_df, cf_df, ratio_df, yearly: bool) -> 
 # ------------------------------------------------------------------ nhận diện chỉ tiêu theo tên
 # (chỉ tiêu chuẩn, mẫu tên tiếng Anh, mẫu tên tiếng Việt, mẫu loại trừ)  – so khớp trên tên đã làm sạch
 RULES = [
-    ("revenue", r"^net (sales|revenue)s?$|^revenue$|^net revenue from sales|^net (operating )?revenue$|^net revenue from (insurance|operating)",
-     r"^doanh thu thuần( về bán hàng và cung cấp dịch vụ| về hoạt động kinh doanh| hoạt động kinh doanh bảo hiểm)?$",
+    ("revenue", r"^net (sales|revenue)s?$|^revenue$|^net revenue from sales|^net (operating )?revenue$|^net sales from insurance business$",
+     r"^doanh thu thuần( về bán hàng và cung cấp dịch vụ| về hoạt động kinh doanh| từ hoạt động kinh doanh bảo hiểm)?$",
      r"growth|tăng trưởng"),
     ("cogs", r"^cost of (goods sold|sales)$", r"^giá vốn hàng bán$", r""),
     ("gross_profit", r"^gross profit$", r"^lợi nhuận gộp( về bán hàng và cung cấp dịch vụ)?$", r""),
