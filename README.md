@@ -98,9 +98,11 @@ Chưa làm bước này thì nút trên web sẽ dẫn anh sang trang GitHub Act
   - Đèn thị trường, và số % vốn được phép nắm cổ phiếu.
   - Danh sách MUA, mỗi mã có vùng giá mua, điểm cắt lỗ, mục tiêu và số cổ phiếu.
   - Việc cần làm với danh mục đang nắm.
+- **Ngành:** chọn một ngành (hoặc nhóm ngành con) bên trái, rồi chọn **phương án**: Tốt nhất ngành (đã kiểm chứng), GARP, Tăng trưởng, Giá trị, Chất lượng, Cổ tức, Phòng thủ, Dòng tiền thông minh, Động lượng, hoặc Tuỳ chỉnh. Mã được xếp hạng so với chính các mã cùng ngành. Trang còn có biểu đồ xoay vòng ngành (RRG), P/E ngành so với lịch sử và kết quả backtest chọn mã trong ngành đó.
+- **Bộ lọc:** nút "chiều nhìn" (Tổng quan, Định giá, Chất lượng, Tăng trưởng, Cổ tức, Kỹ thuật, Tạo lập & dòng tiền, Điểm phương pháp) đổi bộ cột; có nút tải CSV.
 - **Danh mục:** nhập số vốn và các mã đang nắm (mã, khối lượng, giá vốn). Dữ liệu đồng bộ giữa mọi thiết bị.
 - **Telegram:** chỉ nhắn khi có việc. Ngày nào không có tin nghĩa là không cần làm gì.
-- **Bấm vào một mã** để xem biểu đồ, toàn bộ chỉ báo, sóng Elliott/Wyckoff, báo cáo tài chính, dự phóng 5 năm, định giá và so sánh cùng ngành.
+- **Bấm vào một mã** để xem biểu đồ, toàn bộ chỉ báo, sóng Elliott/Wyckoff, SMC (BOS/CHoCH, Order Block, FVG), VSA, Order Flow (footprint), báo cáo tài chính, dự phóng 5 năm, định giá và so sánh cùng ngành.
 - **Sửa giả định dự phóng:** trong trang mã → tab **Dự phóng & định giá**, sửa tăng trưởng, biên lợi nhuận… Giá trị hợp lý tính lại ngay. Bấm **Lưu giả định** thì từ lần chạy sau, tín hiệu mua/bán sẽ dùng giả định của anh.
 
 ## Chỉnh cách hệ thống chọn mã
