@@ -7,6 +7,10 @@ import pandas as pd
 from . import indicators as ind
 
 
+
+# % vốn được nắm cổ phiếu theo đèn (ghi đè bằng khẩu vị trên web)
+EXPOSURE = {"green": 100, "yellow": 60, "red": 30}
+
 def _r(x, nd=2):
     try:
         x = float(x)
@@ -60,12 +64,13 @@ def regime(idx: pd.DataFrame, br: pd.DataFrame) -> dict:
         (f"Cách đỉnh 52 tuần {dd * 100:.1f}% (cần > -15%)", dd > -0.15, 1),
     ]
     score = sum(w for _, ok, w in checks if ok)
+    ex = EXPOSURE
     if score >= 5:
-        light, exposure, text = "green", 100, "Thị trường thuận lợi – được giải ngân tối đa theo kế hoạch."
+        light, exposure, text = "green", ex["green"], "Thị trường thuận lợi – được giải ngân tối đa theo kế hoạch."
     elif score >= 3:
-        light, exposure, text = "yellow", 60, "Thị trường trung tính – giải ngân từng phần, ưu tiên mã mạnh, cổ tức."
+        light, exposure, text = "yellow", ex["yellow"], "Thị trường trung tính – giải ngân từng phần, ưu tiên mã mạnh, cổ tức."
     else:
-        light, exposure, text = "red", 30, ("Thị trường xấu – hạn chế mua mới, chỉ giữ/mua mã cổ tức & phòng thủ "
+        light, exposure, text = "red", ex["red"], ("Thị trường xấu – hạn chế mua mới, chỉ giữ/mua mã cổ tức & phòng thủ "
                                             "định giá rất rẻ, giữ nhiều tiền mặt.")
     return {"light": light, "exposure": exposure, "score": score, "max_score": len(checks),
             "text": text, "checks": [{"name": n, "ok": bool(ok)} for n, ok, _ in checks],

@@ -59,6 +59,13 @@ jobs:
           key: data-${{ github.run_id }}
           restore-keys: data-
 
+      - name: Khôi phục nhật ký tín hiệu thực tế (nếu bộ nhớ đệm bị mất)
+        run: |
+          mkdir -p data
+          if [ ! -f data/fwd_log.parquet ]; then
+            (git fetch -q --depth 1 origin status && git show FETCH_HEAD:keep/fwd_log.parquet > data/fwd_log.parquet) 2>/dev/null || rm -f data/fwd_log.parquet
+          fi
+
       - name: Kết nối Cloudflare KV (nơi lưu danh mục của anh)
         if: env.CF_API_TOKEN != ''
         run: python scripts/cloudflare.py kv >> "$GITHUB_ENV"
@@ -109,6 +116,7 @@ jobs:
         run: |
           python scripts/export_debug.py || true
           bash scripts/publish_status.sh daily data/run.log data/meta.json site/data/meta.json data/check.json data/site_check.txt data/debug
+          if [ -f data/fwd_log.parquet ]; then bash scripts/publish_status.sh keep data/fwd_log.parquet || true; fi
 
       - name: Lưu bản web để tải về xem (khi chưa có Cloudflare)
         if: always()

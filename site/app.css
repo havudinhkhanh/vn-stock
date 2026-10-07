@@ -317,3 +317,4 @@ a.pb-row:hover{background:var(--sunk);text-decoration:none}
 .mcell .mh b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mcell .mf{display:flex;justify-content:space-between;align-items:center;font-size:.7rem;color:var(--ink-3)}
 table.ctx td,table.ctx th{padding:3px 6px}
+@media (min-width:860px){.stack.sticky{position:sticky;top:92px}}

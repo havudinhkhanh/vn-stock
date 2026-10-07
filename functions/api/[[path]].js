@@ -2,7 +2,7 @@
 // Bảo vệ 2 lớp: (1) cả trang nằm sau Cloudflare Access (đăng nhập bằng mã OTP email);
 // (2) API chỉ nhận request có email đăng nhập do Access gắn vào, và đúng email chủ sở hữu.
 
-const KEYS = new Set(["portfolio", "assumptions", "groups"]);
+const KEYS = new Set(["portfolio", "assumptions", "groups", "profile", "journal"]);
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {

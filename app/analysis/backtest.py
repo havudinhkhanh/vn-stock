@@ -72,10 +72,16 @@ def prepare_fund(fq: pd.DataFrame, lag_days: int) -> pd.DataFrame:
     return f[[c for c in keep if c in f]].sort_values("avail")
 
 
-def regime_series(idx_close: pd.Series) -> pd.Series:
+def regime_score(idx_close: pd.Series) -> pd.Series:
+    """Đèn rút gọn cho backtest: 3 = xanh, 2 = vàng, 0–1 = đỏ."""
     s50, s200 = idx_close.rolling(50).mean(), idx_close.rolling(200).mean()
-    a = (idx_close > s200).astype(int) + (s50 > s200).astype(int) + (idx_close > s50).astype(int)
-    return a.map({3: 1.0, 2: 0.6, 1: 0.3, 0: 0.3})
+    return (idx_close > s200).astype(int) + (s50 > s200).astype(int) + (idx_close > s50).astype(int)
+
+
+def regime_series(idx_close: pd.Series, exposure: dict | None = None) -> pd.Series:
+    ex = {"green": 100, "yellow": 60, "red": 30, **(exposure or {})}
+    a = regime_score(idx_close)
+    return a.map({3: ex["green"] / 100, 2: ex["yellow"] / 100, 1: ex["red"] / 100, 0: ex["red"] / 100})
 
 
 def snapshot_at(t, wide, wide_val, fund, divs, listing_sector, cfg) -> pd.DataFrame:
@@ -221,7 +227,7 @@ def _stats(curve: pd.Series) -> dict:
 
 
 def run(prices: pd.DataFrame, fq_ttm: pd.DataFrame, divs: pd.DataFrame, listing: pd.DataFrame,
-        cfg: dict) -> dict:
+        cfg: dict, want_daily: bool = False, do_sectors: bool = True) -> dict:
     bcfg = cfg.get("backtest") or {}
     start = pd.Timestamp(bcfg.get("start", "2016-01-01"))
     lag = int(bcfg.get("report_lag_days", 45))
@@ -247,7 +253,8 @@ def run(prices: pd.DataFrame, fq_ttm: pd.DataFrame, divs: pd.DataFrame, listing:
     if fund.empty:
         return {"ok": False, "reason": "Thiếu dữ liệu BCTC"}
     sector = listing.set_index("symbol")["sector"]
-    reg = regime_series(idx).reindex(wide.index).ffill()
+    reg = regime_series(idx, cfg.get("regime_exposure")).reindex(wide.index).ffill()
+    reg_light = regime_score(idx).reindex(wide.index).ffill().map({3: "green", 2: "yellow", 1: "red", 0: "red"})
     # bắt đầu khi ≥ 60% số mã có BCTC đã có dữ liệu dùng được (tránh giai đoạn rổ trống vì thiếu số liệu)
     first_avail = fund.groupby("symbol")["avail"].min().sort_values()
     if len(first_avail) >= 10:
@@ -323,7 +330,7 @@ def run(prices: pd.DataFrame, fq_ttm: pd.DataFrame, divs: pd.DataFrame, listing:
             store_.append(float(seg.iloc[-1]))
         prev_combo, prev_combo_reg = combo_w, combo_w_reg
         # ---- theo ngành: top-k tốt nhất trong ngành vs mua đều cả ngành
-        if not snap.empty and "sector" in snap:
+        if do_sectors and not snap.empty and "sector" in snap:
             for sec, g in snap.groupby("sector"):
                 if len(g) < 5:
                     continue
@@ -391,7 +398,43 @@ def run(prices: pd.DataFrame, fq_ttm: pd.DataFrame, divs: pd.DataFrame, listing:
     res["combo_regime"] = pack("combo_regime", daily_combo_reg, "Phân bổ của anh + đèn thị trường")
     m = bench.resample("ME").last()
     res["benchmark"]["curve"] = [{"d": str(k.date()), "v": round(float(v), 4)} for k, v in m.items()]
+    if want_daily:
+        res["_daily"] = {"periods": [d for d in dates], "lights": [reg_light.get(d) for d in dates[:-1]],
+                         "baskets": {b: (lambda s: s[~s.index.duplicated()])(pd.concat(daily[b])) for b in baskets if daily[b]},
+                         "bench": idx}
     return res
+
+
+def profile_grid(prices, fq_ttm, divs, listing, cfg, stops=(0, 10, 15, 20, 25), slots=(5, 8, 12)) -> dict:
+    """Mô phỏng sẵn đường giá trị từng rổ cho nhiều mức cắt lỗ × số mã mỗi rổ.
+    Trang Khẩu vị trộn các rổ theo phân bổ và tỷ trọng theo đèn ngay trên trình duyệt (không cần chạy lại)."""
+    import copy
+    out = {"stops": list(stops), "slots": list(slots), "series": {}}
+    grid_dates = None
+    for n in slots:
+        for sp in stops:
+            c = copy.deepcopy(cfg)
+            c.setdefault("backtest", {})["slots_per_basket"] = n
+            c["backtest"]["use_stop"] = sp > 0
+            c.setdefault("risk", {})["max_stop_loss_pct"] = sp or 20
+            r = run(prices, fq_ttm, divs, listing, c, want_daily=True, do_sectors=False)
+            if not r.get("ok"):
+                return {"ok": False, "reason": r.get("reason")}
+            dd = r["_daily"]
+            if grid_dates is None:
+                idx = dd["baskets"][next(iter(dd["baskets"]))].index
+                pset = set(dd["periods"])
+                # lấy mẫu mỗi tuần + mọi ngày đầu kỳ tái cơ cấu (đủ chính xác cho sụt giảm, nhẹ file)
+                grid_dates = [d for i, d in enumerate(idx) if i % 5 == 0 or d in pset or i == len(idx) - 1]
+                out["dates"] = [str(d.date()) for d in grid_dates]
+                out["periods"] = [out["dates"].index(str(d.date())) for d in dd["periods"] if str(d.date()) in out["dates"]]
+                out["lights"] = dd["lights"]
+                b = dd["bench"].reindex(grid_dates).ffill()
+                out["bench"] = [round(float(x / b.iloc[0]), 4) for x in b]
+            out["series"][f"s{sp}_n{n}"] = {k: [round(float(x), 4) for x in v.reindex(grid_dates).ffill().bfill()]
+                                            for k, v in dd["baskets"].items()}
+    out["ok"] = True
+    return out
 
 
 # ------------------------------------------------------------------ độ tin cậy mô hình

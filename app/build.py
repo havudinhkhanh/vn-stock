@@ -13,6 +13,7 @@ import pandas as pd
 
 from . import config
 from .analysis import backtest as bt
+from .analysis import forward as fwd
 from .analysis import fundamentals as fu
 from .analysis import indicators as ind
 from .analysis import market as mk
@@ -28,7 +29,7 @@ from .analysis import technical as tech
 from .analysis import valuation as va
 from .analysis import forecast as fc
 from .data import store
-from .portfolio_store import load_holdings, load_overrides
+from .portfolio_store import apply_profile, load_holdings, load_overrides, load_profile
 
 log = logging.getLogger("build")
 INDEX_SYMS = {"VNINDEX", "HNXINDEX", "UPCOMINDEX", "VN30"}
@@ -84,6 +85,12 @@ def _ohlc_payload(df: pd.DataFrame, n: int = 750) -> dict:
 
 def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[str] | None = None) -> dict:
     cfg = config.load()
+    profile = load_profile()
+    prof_changed = apply_profile(cfg, profile)
+    if prof_changed:
+        log.info("Dùng khẩu vị anh chỉnh trên web: %s", ", ".join(prof_changed))
+    if cfg.get("regime_exposure"):
+        mk.EXPOSURE.update({k: int(round(v)) for k, v in cfg["regime_exposure"].items()})
     t0 = datetime.now()
     out_dir = config.OUT_DIR
     listing = store.read("listing")
@@ -325,8 +332,10 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     sc = st.score_methods(elig, regime["light"])
     weights = cfg.get("methods") or {}
     sc["composite"] = st.composite(sc, weights)
-    members = st.basket_members(elig, sc, regime["light"])
-    plan = st.plan(elig, sc, members, cfg, regime)
+    xs, xy = set(cfg.get("exclude_sectors") or []), set(cfg.get("exclude_symbols") or [])
+    buyable = elig[~(elig["sector"].isin(xs) | elig["industry"].isin(xs) | elig.index.isin(xy))]
+    members = st.basket_members(buyable, sc.loc[buyable.index], regime["light"])
+    plan = st.plan(buyable, sc.loc[buyable.index], members, cfg, regime)
     for b, ser in members.items():
         for s in ser.index:
             u.at[s, f"in_{b}"] = True
@@ -348,6 +357,12 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             res = bt.run(prices, fq, divs, listing, cfg)
             bt_path.write_text(json.dumps(_clean(res), ensure_ascii=False), encoding="utf-8")
             store.touch("backtest")
+            try:
+                log.info("Mô phỏng các mức khẩu vị (cắt lỗ × số mã)…")
+                grid = bt.profile_grid(prices, fq, divs, listing, cfg)
+                store.path("profile_grid.json").write_text(json.dumps(_clean(grid), ensure_ascii=False), encoding="utf-8")
+            except Exception as e:  # noqa: BLE001
+                log.exception("Mô phỏng khẩu vị lỗi: %s", e)
         except Exception as e:  # noqa: BLE001
             log.exception("Backtest lỗi: %s", e)
     if not skip_backtest and (force_backtest or store.age_days("pattern_stats") > 27 or not ps_path.exists()):
@@ -390,6 +405,22 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
                   "fscore": rr.get("fscore"), "div_yield": rr.get("div_yield"), "pe": rr.get("pe"),
                   "roe": rr.get("roe"), "ta_label": rr.get("ta_label"),
                   "why": _why(rr, p["basket"])})
+    # ------------------------------------------------------------ theo dõi tín hiệu thực tế
+    try:
+        flog = store.read("fwd_log")
+        if not only:
+            new = fwd.log_rows(plan, regime, last_date)
+            if not flog.empty:
+                flog["date"] = pd.to_datetime(flog["date"])
+                flog = flog[flog["date"] != pd.Timestamp(last_date).normalize()]
+            flog = pd.concat([flog, new], ignore_index=True) if not new.empty else flog
+            if not flog.empty:
+                store.write("fwd_log", flog.sort_values(["date", "kind", "symbol"]).reset_index(drop=True))
+        fres = fwd.evaluate(flog, wide, idx["close"])
+    except Exception as e:  # noqa: BLE001
+        log.exception("Theo dõi tín hiệu lỗi: %s", e)
+        fres = {"ok": False, "reason": f"Lỗi khi đo: {e}"}
+    dump(out_dir / "fwd.json", fres)
     pstats_map = pstats.get("stats", {})
     iw = market.get("index_waves") or {}
     for key, key2 in (("elliott", "Elliott"), ("wyckoff", "Wyckoff"), ("dow", "Dow")):
@@ -397,10 +428,15 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             iw[key]["reliability"] = pstats_map.get(key2)
     today = {"date": str(last_date.date()), "regime": regime, "plan": plan,
              "allocation": cfg.get("allocation"), "risk": cfg.get("risk"), "capital": capital,
+             "exposure_map": dict(mk.EXPOSURE), "strategy": cfg.get("strategy"),
+             "profile": {"applied": prof_changed, "updated": (profile or {}).get("updated"),
+                         "exclude_sectors": cfg.get("exclude_sectors") or [], "exclude_symbols": cfg.get("exclude_symbols") or []},
              "portfolio": advice}
     dump(out_dir / "today.json", today)
     dump(out_dir / "market.json", market)
     dump(out_dir / "backtest.json", backtest)
+    if store.path("profile_grid.json").exists():
+        shutil.copy(store.path("profile_grid.json"), out_dir / "profile_grid.json")
     dump(out_dir / "methods.json", {"methods": st.METHOD_INFO, "baskets": st.BASKETS,
                                     "weights": cfg.get("methods"), "pattern_stats": pstats})
     try:

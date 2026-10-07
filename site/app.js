@@ -170,7 +170,7 @@ async function route() {
     if (!r) { setTab("today"); await viewToday(); }
     else if (r === "market") { setTab("market"); await viewMarket(); }
     else if (r === "sector") { setTab("sector"); if (arg[0]) await viewSector(arg[0], arg[1]); else await viewSectors(); }
-    else if (r === "portfolio") { setTab("portfolio"); await viewPortfolio(); }
+    else if (r === "portfolio") { setTab("portfolio"); if (arg[0] === "journal") await viewJournal(); else if (arg[0] === "profile") await viewProfile(); else await viewPortfolio(); }
     else if (r === "screener") { setTab("screener"); await viewScreener(arg[0]); }
     else if (r === "backtest") { setTab("backtest"); await viewBacktest(); }
     else if (r === "s" && arg[0]) { setTab(""); await viewStock(arg[0].toUpperCase(), arg[1]); }
@@ -457,8 +457,9 @@ async function viewToday() {
           <div class="big"><small>P/B GQ / TV</small><b>${nf(MV.pb_w)} <small>/ ${nf(MV.pb_med)}</small></b></div>
           <div class="big"><small>Phần bù vs TPCP</small><b class="${MV.erp >= 4 ? "up" : MV.erp < 2 ? "down" : ""}">${nf(MV.erp, 1)}%</b><span>LS lợi nhuận ${nf(MV.ey_w, 1)}%</span></div></div></section>` : ""}
       ${panel("Phân bổ vốn", kpis([...Object.entries(t.allocation || {}).filter(([, v]) => Number(v) > 0).map(([k, v]) => [esc(BASKET_SHORT[k] || k), v + "%"]),
-        ["Tối đa mã", t.risk?.max_positions], ["Biên an toàn", (t.risk?.margin_of_safety ?? "—") + "%"], ["Rủi ro/lệnh", (t.risk?.risk_per_trade ?? "—") + "% vốn"], ["Cắt lỗ tối đa", (t.risk?.max_stop_loss_pct ?? "—") + "%"]]),
-        `<a href="#/guide">cách chọn mã</a>`)}
+        ...Object.entries(t.exposure_map || {}).length ? [["Đèn X/V/Đ", `${t.exposure_map.green}/${t.exposure_map.yellow}/${t.exposure_map.red}%`]] : [], ["Tối đa mã", t.risk?.max_positions], ["Biên an toàn", (t.risk?.margin_of_safety ?? "—") + "%"], ["Rủi ro/lệnh", (t.risk?.risk_per_trade ?? "—") + "% vốn"], ["Cắt lỗ tối đa", (t.risk?.max_stop_loss_pct ?? "—") + "%"]]),
+        `<a href="#/portfolio/profile">chỉnh khẩu vị</a>`)}
+      ${t.profile?.applied?.length ? `<p class="faint" style="font-size:.72rem;margin:-4px 2px 0">Đang dùng khẩu vị anh chỉnh trên web${t.profile.updated ? " (" + esc(t.profile.updated.slice(0, 10)) + ")" : ""}${(t.profile.exclude_sectors || []).length + (t.profile.exclude_symbols || []).length ? ` · loại trừ ${(t.profile.exclude_sectors || []).length} ngành, ${(t.profile.exclude_symbols || []).length} mã` : ""}.</p>` : ""}
       <section class="panel"><button class="btn" id="runNow">Chạy lại phân tích ngay</button>
         <p class="muted" id="runMsg" style="font-size:.76rem">Tự chạy lúc 15h35 các ngày giao dịch. Bấm khi muốn cập nhật sớm (10–30 phút).</p></section>
     </div>
@@ -973,7 +974,7 @@ async function viewPortfolio() {
       if (r && isNum(r.chg1d)) day += v - v / (1 + r.chg1d / 100); const s = r?.sector || "Khác"; bySec[s] = (bySec[s] || 0) + v; });
     const total = mv + Number(pf.cash || 0);
     const denom = capitalOf(pf) || total;
-    app().innerHTML = `
+    app().innerHTML = `${pfTabs("hold")}
     <div class="ph"><h1>Danh mục của tôi</h1><span class="meta">${remote ? "Đã đồng bộ mọi thiết bị" : "Đang lưu trong trình duyệt này (chưa kết nối máy chủ)"}</span></div>
     ${kpis([["Tổng tài sản", vnd(total)], ["Giá trị cổ phiếu", vnd(mv)], ["Tiền mặt", vnd(pf.cash)], ["Lãi/lỗ tạm tính", `${vnd(mv - costT)} <small>${pct(costT ? (mv / costT - 1) * 100 : null)}</small>`, cls(mv - costT)],
       ["Hôm nay", vnd(day), cls(day)], ["Tỷ trọng cổ phiếu", pct(denom ? mv / denom * 100 : null, 0, false) + ` <small>/ tối đa ${t.regime.exposure}%</small>`, denom && mv / denom * 100 > t.regime.exposure ? "down" : ""],
@@ -1177,7 +1178,7 @@ async function viewScreener(arg) {
 
 // ================================================================ KIỂM CHỨNG (BACKTEST)
 async function viewBacktest() {
-  const [b, meth, t, secs] = await Promise.all([load("data/backtest.json"), load("data/methods.json"), load("data/today.json"), tryLoad("data/sectors.json")]);
+  const [b, meth, t, secs, F] = await Promise.all([load("data/backtest.json"), load("data/methods.json"), load("data/today.json"), tryLoad("data/sectors.json"), tryLoad("data/fwd.json")]);
   if (!b.ok) { app().innerHTML = `<h1>Kiểm chứng</h1><div class="empty">${esc(b.reason || "Backtest chưa chạy – sẽ có sau lượt chạy cuối tuần.")}</div>`; return; }
   const series = [["combo", b.combo, css("--brand")], ["combo_regime", b.combo_regime, css("--up")], ["bench", b.benchmark, css("--ink-3")]];
   const bas = Object.entries(b.baskets);
@@ -1189,7 +1190,8 @@ async function viewBacktest() {
   const grp = (k) => k.startsWith("SMC") ? "SMC" : k.startsWith("VSA") ? "VSA" : k.startsWith("Wyckoff") ? "Wyckoff" : ["Elliott", "Dow", "Harmonic"].includes(k) ? "Sóng" : "Mô hình giá";
   const pst = Object.entries(ps.stats || {});
   app().innerHTML = `
-  <div class="ph"><h1>Kiểm chứng bằng dữ liệu quá khứ</h1><span class="meta">${esc(b.start)} → ${esc(b.end)} · ${b.months} tháng · tái cơ cấu hằng tháng, chỉ dùng thông tin đã có tại thời điểm đó</span></div>
+  ${fwdSection(F)}
+  <div class="ph sec"><h1>Kiểm chứng bằng dữ liệu quá khứ</h1><span class="meta">${esc(b.start)} → ${esc(b.end)} · ${b.months} tháng · tái cơ cấu hằng tháng, chỉ dùng thông tin đã có tại thời điểm đó</span></div>
   ${kpis([["Hệ thống + đèn / năm", pct(b.combo_regime.cagr), cls(b.combo_regime.cagr)], ["Sụt tối đa", pct(b.combo_regime.max_dd), "down"], ["VN-Index / năm", pct(b.benchmark.cagr), cls(b.benchmark.cagr)],
     ["VN-Index sụt", pct(b.benchmark.max_dd), "down"], ["Sharpe", nf(b.combo_regime.sharpe)], ["Mục tiêu / năm", "30%"], ["Chấp nhận sụt", (t.risk?.max_drawdown_target ?? 25) + "%"]], true)}
   <div class="g g-main sec">
@@ -1223,6 +1225,7 @@ async function viewBacktest() {
         <td class="l">${v.useful ? '<b class="up">Có</b>' : '<small class="muted">Tham khảo</small>'}</td></tr>`).join("") : `<tr><td colspan="6" class="l" style="padding:12px">Chưa có số liệu – có sau lượt backtest kế tiếp.</td></tr>`}</tbody>`;
   };
   drawPT("Tất cả");
+  drawFwd(F);
   $$("#pg button").forEach((x) => (x.onclick = () => { $$("#pg button").forEach((y) => y.classList.toggle("on", y === x)); drawPT(x.dataset.g); }));
   const c = mkChart($("#btChart"), { rightPriceScale: { mode: 1, borderColor: css("--line") } });
   const add = (s, color, w = 2) => { const l = c.addLineSeries({ color, lineWidth: w, priceLineVisible: false, lastValueVisible: false }); l.setData(s.curve.map((p) => ({ time: p.d, value: p.v }))); };
@@ -1856,6 +1859,381 @@ async function viewSectors() {
   const seg = (id, key, lsKey) => $$(`#${id} button`).forEach((b) => (b.onclick = () => { st[key] = b.dataset.v; lsSet(lsKey, st[key]); $$(`#${id} button`).forEach((x) => x.classList.toggle("on", x === b)); draw(); }));
   seg("lvSel", "lv", "ovLv"); seg("msSel", "meas", "ovMeas"); seg("soSel", "sort", "ovSort");
   draw();
+}
+
+// ================================================================ KHẨU VỊ ĐẦU TƯ (mô phỏng ngay trên trình duyệt)
+const BK = ["garp", "growth", "defensive", "dividend", "value"];
+const BK_NAME = { garp: "GARP (chất lượng + tăng trưởng hợp lý)", growth: "Tăng trưởng mạnh", defensive: "Phòng thủ", dividend: "Cổ tức", value: "Giá trị" };
+const PROFILE_PRESETS = {
+  safe: { name: "Thận trọng", allocation: { garp: 30, growth: 10, defensive: 50, dividend: 10, value: 0 }, exposure: { green: 80, yellow: 40, red: 10 }, stop: 15, slots: 8 },
+  bal: { name: "Cân bằng (đã kiểm chứng)", allocation: { garp: 40, growth: 30, defensive: 30, dividend: 0, value: 0 }, exposure: { green: 100, yellow: 60, red: 30 }, stop: 20, slots: 8 },
+  grow: { name: "Ưu tiên lợi nhuận", allocation: { garp: 50, growth: 40, defensive: 10, dividend: 0, value: 0 }, exposure: { green: 100, yellow: 80, red: 50 }, stop: 20, slots: 8 },
+  aggr: { name: "Tấn công", allocation: { garp: 50, growth: 50, defensive: 0, dividend: 0, value: 0 }, exposure: { green: 100, yellow: 100, red: 70 }, stop: 25, slots: 5 },
+};
+function simulate(G, p) {
+  const S = G.series[`s${p.stop}_n${p.slots}`];
+  if (!S) return null;
+  const al = BK.map((b) => [b, Math.max(0, Number(p.allocation[b]) || 0)]).filter(([b, w]) => w > 0 && S[b]);
+  const tot = al.reduce((a, [, w]) => a + w, 0);
+  if (!tot) return null;
+  const sh = al.map(([b, w]) => [S[b], w / tot]);
+  const N = G.dates.length, nav = new Array(N).fill(null), per = G.periods;
+  nav[per[0]] = 1;
+  for (let k = 0; k < per.length - 1; k++) {
+    const i0 = per[k], i1 = per[k + 1], e = (Number(p.exposure[G.lights[k]] ?? 100) || 0) / 100, base = nav[i0];
+    for (let t = i0 + 1; t <= i1; t++) {
+      let mix = 0;
+      for (const [s, w] of sh) mix += w * (s[t] / s[i0]);
+      nav[t] = base * (1 + e * (mix - 1));
+    }
+  }
+  return nav;
+}
+function navStats(dates, nav, rf = 0.03) {
+  const pts = nav.map((v, i) => [dates[i], v]).filter(([, v]) => v != null);
+  if (pts.length < 10) return null;
+  const yrs = (new Date(pts[pts.length - 1][0]) - new Date(pts[0][0])) / 3.156e10;
+  const cagr = Math.pow(pts[pts.length - 1][1] / pts[0][1], 1 / yrs) - 1;
+  let peak = -Infinity, dd = 0;
+  const rets = [];
+  pts.forEach(([, v], i) => { peak = Math.max(peak, v); dd = Math.min(dd, v / peak - 1); if (i) rets.push(v / pts[i - 1][1] - 1); });
+  const m = rets.reduce((a, b) => a + b, 0) / rets.length, sd = Math.sqrt(rets.reduce((a, b) => a + (b - m) ** 2, 0) / rets.length);
+  const ppy = rets.length / yrs, vol = sd * Math.sqrt(ppy);
+  const yearly = {}; let prevY = pts[0][1], curY = pts[0][0].slice(0, 4);
+  pts.forEach(([d, v], i) => { const y = d.slice(0, 4); if (y !== curY) { yearly[curY] = (pts[i - 1][1] / prevY - 1) * 100; prevY = pts[i - 1][1]; curY = y; } });
+  yearly[curY] = (pts[pts.length - 1][1] / prevY - 1) * 100;
+  const yv = Object.values(yearly);
+  return { cagr: cagr * 100, dd: dd * 100, vol: vol * 100, sharpe: vol ? (cagr - rf) / vol : null, yearly, worst: Math.min(...yv), winYears: yv.filter((x) => x > 0).length, nYears: yv.length };
+}
+
+async function viewProfile() {
+  const [t, G, saved] = await Promise.all([load("data/today.json"), tryLoad("data/profile_grid.json"), Store.get("profile")]);
+  const prof0 = saved.data && Object.keys(saved.data).length ? saved.data : null;
+  const risk = t.risk || {};
+  const P = {
+    allocation: { ...(prof0?.allocation || t.allocation || PROFILE_PRESETS.bal.allocation) },
+    exposure: { ...(prof0?.exposure || t.exposure_map || PROFILE_PRESETS.bal.exposure) },
+    stop: Number(prof0?.sim_stop ?? risk.max_stop_loss_pct ?? 20), slots: Number(prof0?.sim_slots ?? 8),
+    target: Number(prof0?.target_return ?? 30), max_dd: Number(prof0?.max_drawdown_target ?? risk.max_drawdown_target ?? 25),
+    max_positions: Number(prof0?.max_positions ?? risk.max_positions ?? 8), margin_of_safety: Number(prof0?.margin_of_safety ?? risk.margin_of_safety ?? 20),
+    risk_per_trade: Number(prof0?.risk_per_trade ?? risk.risk_per_trade ?? 1.5), max_weight_per_stock: Number(prof0?.max_weight_per_stock ?? risk.max_weight_per_stock ?? 20),
+    max_weight_per_sector: Number(prof0?.max_weight_per_sector ?? risk.max_weight_per_sector ?? 30), min_mcap_bn: Number(prof0?.min_mcap_bn ?? t.strategy?.min_mcap_bn ?? 1000),
+    trend_filter: prof0?.trend_filter || t.strategy?.trend_filter || "up", exclude_sectors: [...(prof0?.exclude_sectors || [])], exclude_symbols: [...(prof0?.exclude_symbols || [])],
+  };
+  if (G && G.ok && !G.stops.includes(P.stop)) P.stop = G.stops.reduce((a, b) => (Math.abs(b - P.stop) < Math.abs(a - P.stop) ? b : a), G.stops[0]);
+  const rows = await screenerRows();
+  const sectors = [...new Set(rows.map((r) => r.sector).filter(Boolean))].sort();
+  const slider = (id, label, v, min, max, step, unit, hint) => `<div class="w-item"><header><b>${label}</b><output id="o_${id}">${v}${unit}</output></header>
+    <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${v}">${hint ? `<p>${hint}</p>` : ""}</div>`;
+  const num = (id, label, v, hint, w = "w90") => `<div class="field ${w}"><label for="${id}" title="${esc(hint || "")}">${label}</label><input id="${id}" inputmode="decimal" value="${v}"></div>`;
+  app().innerHTML = `${pfTabs("profile")}
+  <div class="ph"><h1>Khẩu vị đầu tư của tôi</h1><span class="meta">${prof0 ? `đang dùng bản lưu ${esc((prof0.updated || "").slice(0, 10))}` : "chưa lưu – hệ thống đang dùng config.yaml"}</span></div>
+  ${!G || !G.ok ? `<p class="note">Chưa có dữ liệu mô phỏng – sẽ có sau lượt chạy kiểm chứng kế tiếp (thứ Bảy, hoặc bấm chạy lại có chọn "backtest"). Anh vẫn lưu được khẩu vị.</p>` : ""}
+  <div class="views" id="presets"><small class="muted" style="align-self:center">Mẫu:</small>${Object.entries(PROFILE_PRESETS).map(([k, x]) => `<button data-pp="${k}">${esc(x.name)}</button>`).join("")}
+    <button data-pp="find" class="on" title="Thử hàng chục nghìn tổ hợp, chọn tổ hợp lãi cao nhất mà vẫn nằm trong giới hạn sụt của anh">Tự tìm phương án tốt nhất trong giới hạn sụt</button></div>
+  <div class="g g-main">
+    <div class="stack">
+      <section class="panel"><div class="ph"><h2>1. Mục tiêu & giới hạn</h2></div>
+        <div class="weights">${slider("target", "Lợi nhuận mục tiêu / năm", P.target, 5, 40, 1, "%", "chỉ để so sánh, hệ thống không đuổi theo con số này")}
+          ${slider("max_dd", "Mức sụt tối đa chấp nhận", P.max_dd, 5, 50, 1, "%", "từ đỉnh xuống đáy của cả danh mục")}</div></section>
+      <section class="panel"><div class="ph"><h2>2. Phân bổ vốn theo rổ</h2><span class="meta" id="alSum"></span></div>
+        <div class="weights">${BK.map((b) => slider("al_" + b, BK_NAME[b], P.allocation[b] || 0, 0, 100, 5, "", "")).join("")}</div>
+        <p class="faint" style="font-size:.72rem">Tổng không cần bằng 100 – hệ thống tự chia theo tỷ lệ.</p></section>
+      <section class="panel"><div class="ph"><h2>3. Tỷ trọng cổ phiếu theo đèn thị trường</h2><span class="meta">phần còn lại để tiền mặt</span></div>
+        <div class="weights">${slider("ex_green", "Đèn xanh", P.exposure.green, 0, 100, 10, "%", "")}${slider("ex_yellow", "Đèn vàng", P.exposure.yellow, 0, 100, 10, "%", "")}${slider("ex_red", "Đèn đỏ", P.exposure.red, 0, 100, 10, "%", "")}</div></section>
+      <section class="panel"><div class="ph"><h2>4. Cắt lỗ & độ tập trung</h2></div>
+        <div class="filters"><div class="field w140"><label>Cắt lỗ khi giảm</label><select id="stop">${(G?.stops || [0, 10, 15, 20, 25]).map((x) => `<option value="${x}" ${x === P.stop ? "selected" : ""}>${x ? x + "% so với giá mua" : "Không cắt lỗ"}</option>`).join("")}</select></div>
+          <div class="field w140"><label>Số mã mỗi rổ (mô phỏng)</label><select id="slots">${(G?.slots || [5, 8, 12]).map((x) => `<option value="${x}" ${x === P.slots ? "selected" : ""}>${x} mã${x === 5 ? " – tập trung" : x === 12 ? " – dàn trải" : ""}</option>`).join("")}</select></div>
+          ${num("max_positions", "Số mã tối đa (thật)", P.max_positions, "Số mã tối đa trong danh mục thật")}</div></section>
+      <section class="panel"><div class="ph"><h2>5. Quy tắc khác (áp dụng cho danh sách MUA thật)</h2><span class="meta">chưa được mô phỏng ở bên phải</span></div>
+        <div class="filters">${num("margin_of_safety", "Biên an toàn %", P.margin_of_safety, "Chỉ mua khi giá thấp hơn giá trị hợp lý ít nhất ngần này")}
+          ${num("risk_per_trade", "Rủi ro/lệnh % vốn", P.risk_per_trade, "Nếu chạm cắt lỗ thì chỉ mất ngần này % tổng vốn")}
+          ${num("max_weight_per_stock", "Tối đa/mã % vốn", P.max_weight_per_stock)}${num("max_weight_per_sector", "Tối đa/ngành % vốn", P.max_weight_per_sector)}
+          ${num("min_mcap_bn", "Vốn hoá tối thiểu (tỷ)", P.min_mcap_bn, "", "w90")}
+          <div class="field w200"><label>Điều kiện xu hướng</label><select id="trend_filter">${[["up", "Giá > MA50 > MA200 (đã kiểm chứng)"], ["above200", "Giá trên MA200"], ["not_down", "Chỉ tránh mã đang giảm"]].map(([k, n]) => `<option value="${k}" ${k === P.trend_filter ? "selected" : ""}>${n}</option>`).join("")}</select></div></div>
+        <div class="filters sec"><div class="field" style="flex:1;min-width:240px"><label for="exSym">Không bao giờ mua các mã (cách nhau dấu phẩy)</label><input id="exSym" value="${esc(P.exclude_symbols.join(", "))}" placeholder="ví dụ: ROS, FLC"></div></div>
+        <details class="sec"><summary>Ngành không muốn đầu tư (${P.exclude_sectors.length})</summary><div class="gtree" style="margin-top:6px">${sectors.map((s) => `<label class="gnode" style="display:flex;gap:6px;align-items:center;font-size:.78rem"><input type="checkbox" data-xs="${esc(s)}" ${P.exclude_sectors.includes(s) ? "checked" : ""}>${esc(s)}</label>`).join("")}</div></details></section>
+      <section class="panel"><button class="btn primary" id="pSave">Lưu khẩu vị – áp dụng từ lượt chạy kế tiếp</button> <button class="btn" id="pRun">Lưu & chạy lại ngay</button> ${prof0 ? `<button class="btn" id="pReset">Bỏ, dùng lại config.yaml</button>` : ""}
+        <p class="muted" id="pMsg" style="font-size:.76rem;margin-top:6px">Sau khi lưu, danh sách MUA, tỷ trọng, cắt lỗ và cảnh báo Telegram sẽ theo khẩu vị này.</p></section>
+    </div>
+    <div class="stack sticky">
+      <section class="panel hero"><div class="ph"><h2>Kết quả nếu đã làm theo khẩu vị này</h2><span class="meta">${G?.ok ? `${esc(G.dates[G.periods[0]])} → ${esc(G.dates[G.dates.length - 1])}` : ""}</span></div><div id="simOut"><p class="muted">Chưa có dữ liệu mô phỏng.</p></div></section>
+    </div>
+  </div>
+  <section class="panel sec" id="findBox" hidden><div class="ph"><h2 id="findTitle">Phương án lãi cao nhất trong giới hạn sụt</h2>
+    <label style="display:flex;gap:5px;align-items:center;font-size:.78rem"><input type="checkbox" id="robust" checked> Chỉ xét phương án đa dạng (≥ 2 rổ, ≥ 8 mã/rổ) – giảm rủi ro "tối ưu quá khứ"</label><span class="meta" id="findMeta"></span></div><div id="findOut"></div></section>`;
+  const read = () => {
+    P.target = Number($("#target").value); P.max_dd = Number($("#max_dd").value);
+    BK.forEach((b) => (P.allocation[b] = Number($("#al_" + b).value)));
+    ["green", "yellow", "red"].forEach((k) => (P.exposure[k] = Number($("#ex_" + k).value)));
+    P.stop = Number($("#stop").value); P.slots = Number($("#slots").value);
+    ["max_positions", "margin_of_safety", "risk_per_trade", "max_weight_per_stock", "max_weight_per_sector", "min_mcap_bn"].forEach((k) => { const v = Number(String($("#" + k).value).replace(",", ".")); if (!Number.isNaN(v)) P[k] = v; });
+    P.trend_filter = $("#trend_filter").value;
+    P.exclude_symbols = [...new Set(String($("#exSym").value).toUpperCase().split(/[^A-Z0-9]+/).filter((x) => /^[A-Z0-9]{3}$/.test(x)))];
+    P.exclude_sectors = $$("[data-xs]").filter((x) => x.checked).map((x) => x.dataset.xs);
+  };
+  const setUI = (x) => {
+    BK.forEach((b) => { $("#al_" + b).value = x.allocation[b] || 0; });
+    ["green", "yellow", "red"].forEach((k) => { $("#ex_" + k).value = x.exposure[k]; });
+    if (x.stop != null) $("#stop").value = x.stop; if (x.slots != null) $("#slots").value = x.slots;
+    $$("input[type=range]").forEach((el) => { const o = $("#o_" + el.id); if (o) o.textContent = el.value + (["target", "max_dd"].includes(el.id) || el.id.startsWith("ex_") ? "%" : ""); });
+  };
+  let chart = null;
+  const draw = () => {
+    read();
+    const tot = BK.reduce((a, b) => a + (P.allocation[b] || 0), 0);
+    $("#alSum").textContent = tot ? BK.filter((b) => P.allocation[b]).map((b) => `${BASKET_SHORT[b]} ${nf(P.allocation[b] / tot * 100, 0)}%`).join(" · ") : "chưa phân bổ";
+    if (!G || !G.ok) return;
+    const nav = simulate(G, P);
+    const dflt = simulate(G, { ...PROFILE_PRESETS.bal });
+    const st = nav && navStats(G.dates, nav), sd = dflt && navStats(G.dates, dflt);
+    const bn_ = G.bench.map((v, i) => (i >= G.periods[0] ? v / G.bench[G.periods[0]] : null));
+    const sb = navStats(G.dates, bn_);
+    if (!st) { $("#simOut").innerHTML = `<p class="muted">Chọn ít nhất một rổ.</p>`; return; }
+    const okR = st.cagr >= P.target, okD = -st.dd <= P.max_dd;
+    const years = Object.keys(st.yearly);
+    $("#simOut").innerHTML = `<div class="bigs c2">
+        <div class="big hlb"><small>Lãi kép / năm</small><b class="${okR ? "up" : ""}">${pct(st.cagr, 1)}</b><span>mục tiêu ${P.target}% · ${okR ? '<b class="up">đạt</b>' : '<b class="down">chưa đạt</b>'}</span></div>
+        <div class="big hlb"><small>Sụt tối đa</small><b class="${okD ? "" : "down"}">${pct(st.dd, 1)}</b><span>giới hạn −${P.max_dd}% · ${okD ? '<b class="up">trong giới hạn</b>' : '<b class="down">vượt giới hạn</b>'}</span></div>
+        <div class="big"><small>Năm tệ nhất · số năm lãi</small><b>${pct(st.worst, 0)} <small>· ${st.winYears}/${st.nYears}</small></b></div>
+        <div class="big"><small>Biến động · Sharpe</small><b>${nf(st.vol, 0)}% <small>· ${nf(st.sharpe)}</small></b></div></div>
+      ${kpis([["VN-Index / năm", pct(sb?.cagr, 1)], ["VN-Index sụt", pct(sb?.dd, 1), "down"], ["Cấu hình kiểm chứng", `${pct(sd?.cagr, 1)} · ${pct(sd?.dd, 0)}`, "", "GARP 40 / Tăng trưởng 30 / Phòng thủ 30, đèn 100/60/30, cắt lỗ 20%"],
+        ["Tiền mặt TB", (() => { const L = G.lights; const avg = L.reduce((a, l) => a + (100 - (P.exposure[l] ?? 100)), 0) / L.length; return nf(avg, 0) + "%"; })(), "", "Trung bình phần vốn để tiền mặt theo đèn"]], false, "sec")}
+      <div class="chart sm sec" id="simChart"></div>
+      <div class="leg"><span><i style="background:${css("--brand")}"></i>Khẩu vị của anh</span><span><i style="background:${css("--up")}"></i>Cấu hình đã kiểm chứng</span><span><i style="background:${css("--ink-3")}"></i>VN-Index</span></div>
+      <div class="tw sec"><table><thead><tr><th class="l">Năm</th>${years.map((y) => `<th>${y}</th>`).join("")}</tr></thead><tbody>
+        <tr><td class="l">Khẩu vị</td>${years.map((y) => `<td class="${cls(st.yearly[y])}">${pct(st.yearly[y], 0)}</td>`).join("")}</tr>
+        <tr><td class="l">VN-Index</td>${years.map((y) => `<td class="${cls(sb?.yearly[y])}">${pct(sb?.yearly[y], 0)}</td>`).join("")}</tr></tbody></table></div>
+      <p class="faint" style="font-size:.72rem;margin-top:6px">Mô phỏng trộn các rổ đã backtest (tái cơ cấu hằng tháng, trừ phí, có cắt lỗ), phần tiền mặt không tính lãi. Dữ liệu lấy mẫu theo tuần nên mức sụt có thể nhẹ hơn thực tế 1–3 điểm. Đèn trong mô phỏng dùng bản rút gọn (VN-Index so với MA50/MA200), gần giống đèn 7 điều kiện của hệ thống thật. Quá khứ không đảm bảo tương lai.</p>`;
+    disposeCharts();
+    const c = mkChart($("#simChart"), { rightPriceScale: { mode: 1, borderColor: css("--line") } });
+    const line = (arr, col, w) => c.addLineSeries({ color: col, lineWidth: w, priceLineVisible: false, lastValueVisible: false }).setData(arr.map((v, i) => (v == null ? null : { time: G.dates[i], value: v })).filter(Boolean));
+    line(bn_, css("--ink-3"), 1); line(dflt, css("--up"), 1); line(nav, css("--brand"), 2);
+    c.timeScale().fitContent();
+  };
+  const find = () => {
+    read();
+    if (!G || !G.ok) return;
+    $("#findBox").hidden = false;
+    $("#findTitle").textContent = `Phương án lãi cao nhất trong giới hạn sụt ${P.max_dd}%`;
+    const robust = $("#robust").checked;
+    const t0 = performance.now(), res = [];
+    const steps = [0, 20, 40, 60, 80, 100];
+    const mixes = [];
+    const rec = (i, left, cur) => { if (i === BK.length - 1) { mixes.push({ ...cur, [BK[i]]: left }); return; } for (const s of steps) if (s <= left) rec(i + 1, left - s, { ...cur, [BK[i]]: s }); };
+    rec(0, 100, {});
+    for (const n of G.slots) for (const sp of G.stops) for (const al of mixes) for (const red of [0, 30, 50, 70, 100]) for (const yel of [60, 80, 100]) {
+      if (red > yel) continue;
+      if (robust && (n < 8 || Object.values(al).filter((x) => x > 0).length < 2)) continue;
+      const p = { allocation: al, exposure: { green: 100, yellow: yel, red }, stop: sp, slots: n };
+      const nav = simulate(G, p); if (!nav) continue;
+      const s = navStats(G.dates, nav); if (!s) continue;
+      if (-s.dd <= P.max_dd) res.push({ p, s });
+    }
+    res.sort((a, b) => b.s.cagr - a.s.cagr);
+    $("#findMeta").textContent = `${nf(res.length, 0)} tổ hợp đạt · ${nf((performance.now() - t0) / 1000, 1)} giây`;
+    $("#findOut").innerHTML = res.length ? `<div class="tw"><table><thead><tr><th class="l">Phân bổ</th><th>Đèn X/V/Đ</th><th>Cắt lỗ</th><th>Mã/rổ</th><th>Lãi/năm</th><th>Sụt</th><th>Năm tệ</th><th></th></tr></thead><tbody>
+      ${res.slice(0, 8).map((x, i) => `<tr><td class="l">${BK.filter((b) => x.p.allocation[b]).map((b) => `${BASKET_SHORT[b]} ${x.p.allocation[b]}`).join(" · ")}</td><td>${x.p.exposure.green}/${x.p.exposure.yellow}/${x.p.exposure.red}</td>
+        <td>${x.p.stop ? x.p.stop + "%" : "không"}</td><td>${x.p.slots}</td><td class="up"><b>${pct(x.s.cagr, 1)}</b></td><td class="down">${pct(x.s.dd, 0)}</td><td>${pct(x.s.worst, 0)}</td><td><button class="chip" data-use="${i}">Dùng</button></td></tr>`).join("")}</tbody></table></div>
+      <p class="note" style="margin-top:6px">Cẩn thận "tối ưu quá khứ": tổ hợp đứng đầu thường may mắn. Nên chọn phương án mà các phương án lân cận (phân bổ gần giống) cũng cho kết quả tốt, và ưu tiên dàn trải hơn tập trung.</p>`
+      : `<p class="muted">Không tổ hợp nào giữ được mức sụt trong ${P.max_dd}%. Thử nới giới hạn sụt.</p>`;
+    $$("[data-use]").forEach((b) => (b.onclick = () => { const x = res[Number(b.dataset.use)].p; setUI(x); draw(); window.scrollTo({ top: 0, behavior: "smooth" }); }));
+  };
+  $$("input[type=range]").forEach((el) => (el.oninput = () => { const o = $("#o_" + el.id); if (o) o.textContent = el.value + (["target", "max_dd"].includes(el.id) || el.id.startsWith("ex_") ? "%" : ""); draw(); }));
+  $$("#stop, #slots").forEach((el) => (el.onchange = draw));
+  $("#robust").onchange = find;
+  $$("#presets [data-pp]").forEach((b) => (b.onclick = () => {
+    $$("#presets [data-pp]").forEach((x) => x.classList.toggle("on", x === b));
+    if (b.dataset.pp === "find") { find(); return; }
+    setUI(PROFILE_PRESETS[b.dataset.pp]); draw();
+  }));
+  const save = async (run) => {
+    read();
+    const out = { allocation: P.allocation, exposure: P.exposure, max_stop_loss_pct: P.stop || 100, sim_stop: P.stop, sim_slots: P.slots, target_return: P.target, max_drawdown_target: P.max_dd,
+      max_positions: P.max_positions, margin_of_safety: P.margin_of_safety, risk_per_trade: P.risk_per_trade, max_weight_per_stock: P.max_weight_per_stock,
+      max_weight_per_sector: P.max_weight_per_sector, min_mcap_bn: P.min_mcap_bn, trend_filter: P.trend_filter, exclude_sectors: P.exclude_sectors, exclude_symbols: P.exclude_symbols,
+      updated: new Date().toISOString() };
+    const ok = await Store.put("profile", out);
+    $("#pMsg").innerHTML = ok ? "Đã lưu. Lượt chạy kế tiếp sẽ dùng khẩu vị này." : "Đã lưu trên trình duyệt này, nhưng <b>chưa đồng bộ lên máy chủ</b> – hệ thống chạy hằng ngày chưa đọc được.";
+    if (ok && run) { try { const r = await fetch("api/run", { method: "POST" }); $("#pMsg").textContent = r.ok ? "Đã lưu và yêu cầu chạy lại – khoảng 10–30 phút nữa xem trang Hôm nay." : "Đã lưu; chưa gọi chạy lại được – sẽ áp dụng ở lượt chạy kế tiếp."; } catch (e) { /* bỏ qua */ } }
+  };
+  $("#pSave").onclick = () => save(false);
+  $("#pRun").onclick = () => save(true);
+  if ($("#pReset")) $("#pReset").onclick = async () => { await Store.put("profile", {}); toast("Đã bỏ khẩu vị – dùng lại config.yaml từ lượt chạy kế tiếp"); viewProfile(); };
+  draw();
+  if (G && G.ok && !prof0) find();
+}
+
+// ================================================================ NHẬT KÝ GIAO DỊCH
+const DECISION = { sys: "Theo hệ thống", self: "Tự quyết (ngoài hệ thống)", against: "Ngược hệ thống" };
+function pfTabs(on) {
+  return `<div class="views" style="margin-top:0">${[["", "Đang nắm"], ["journal", "Nhật ký giao dịch"], ["profile", "Khẩu vị đầu tư"]].map(([k, n]) => `<a class="btn ${on === (k || "hold") ? "primary" : ""}" href="#/portfolio${k ? "/" + k : ""}">${n}</a>`).join("")}</div>`;
+}
+function fifo(trades) {
+  // khớp lệnh bán với lệnh mua cũ nhất; trả về các lượt đã đóng và các lô còn mở
+  const bySym = {};
+  [...trades].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.ts || 0) - (b.ts || 0))).forEach((t) => (bySym[t.symbol] = bySym[t.symbol] || []).push(t));
+  const closed = [], open = [];
+  for (const [s, L] of Object.entries(bySym)) {
+    const lots = [];
+    for (const t of L) {
+      if (t.side === "buy") { lots.push({ ...t, left: t.qty, costPx: t.price * (1 + (t.fee ?? 0.15) / 100) }); continue; }
+      let q = t.qty;
+      const sellPx = t.price * (1 - (t.fee ?? 0.25) / 100);
+      while (q > 0 && lots.length) {
+        const lot = lots[0], m = Math.min(q, lot.left);
+        closed.push({ symbol: s, qty: m, buy: lot, sell: t, ret: (sellPx / lot.costPx - 1) * 100, pnl: (sellPx - lot.costPx) * m * 1000 });
+        lot.left -= m; q -= m;
+        if (lot.left <= 0) lots.shift();
+      }
+    }
+    lots.forEach((l) => open.push({ symbol: s, qty: l.left, buy: l }));
+  }
+  return { closed, open };
+}
+async function viewJournal() {
+  const [jr, t, rows, m, pfr] = await Promise.all([Store.get("journal"), load("data/today.json"), screenerRows(), load("data/market.json"), Store.get("portfolio")]);
+  const J = { trades: (jr.data && jr.data.trades) || [] };
+  const pf = pfr.data || { holdings: [], cash: 0, capital: null }; pf.holdings = pf.holdings || [];
+  const R = Object.fromEntries(rows.map((r) => [r.symbol, r]));
+  const picks = new Set((t.plan?.picks || []).map((p) => p.symbol)), watch = new Set((t.plan?.watch || []).map((p) => p.symbol));
+  const adv = Object.fromEntries(((t.portfolio && t.portfolio.positions) || []).map((p) => [p.symbol, p]));
+  const vi = m.indices?.VNINDEX?.ohlc; const viMap = vi ? Object.fromEntries(vi.t.map((d, i) => [d, vi.c[i]])) : {};
+  const viAt = (d) => { if (!vi) return null; let lo = 0, hi = vi.t.length - 1; if (d <= vi.t[0]) return vi.c[0]; while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (vi.t[mid] <= d) lo = mid; else hi = mid - 1; } return vi.c[lo]; };
+  const viNow = vi ? vi.c[vi.c.length - 1] : null;
+  const today = new Date().toISOString().slice(0, 10);
+  const suggest = (sym, side) => {
+    if (side === "buy") return picks.has(sym) ? "sys" : "self";
+    const a = adv[sym]; if (!a) return "self";
+    return a.severity >= 2 ? "sys" : a.severity === 0 ? "against" : "self";
+  };
+  const render = () => {
+    const { closed, open } = fifo(J.trades);
+    const groups = {};
+    const addG = (k, x) => (groups[k] = groups[k] || []).push(x);
+    closed.forEach((c) => { const bvi = viAt(c.buy.date), svi = viAt(c.sell.date); c.bench = bvi && svi ? (svi / bvi - 1) * 100 : null; c.excess = c.bench != null ? c.ret - c.bench : null; c.days = Math.round((new Date(c.sell.date) - new Date(c.buy.date)) / 864e5); addG(c.buy.decision || "self", c); });
+    open.forEach((o) => { const px = R[o.symbol]?.price; o.ret = px ? (px * 0.9975 / o.buy.costPx - 1) * 100 : null; o.pnl = px ? (px * 0.9975 - o.buy.costPx) * o.qty * 1000 : null; const bvi = viAt(o.buy.date); o.bench = bvi && viNow ? (viNow / bvi - 1) * 100 : null; o.excess = o.ret != null && o.bench != null ? o.ret - o.bench : null; o.open = true; addG(o.buy.decision || "self", o); });
+    const sum = (L) => { const v = L.filter((x) => x.ret != null); if (!v.length) return null; const w = (f) => v.reduce((a, x) => a + f(x) * x.qty * x.buy.costPx, 0) / v.reduce((a, x) => a + x.qty * x.buy.costPx, 0);
+      return { n: v.length, win: 100 * v.filter((x) => x.ret > 0).length / v.length, ret: w((x) => x.ret), ex: v.some((x) => x.excess != null) ? w((x) => x.excess ?? 0) : null, pnl: v.reduce((a, x) => a + (x.pnl || 0), 0), open: v.filter((x) => x.open).length }; };
+    const sells = J.trades.filter((x) => x.side === "sell");
+    const sAll = sum([...closed, ...open]);
+    app().innerHTML = `${pfTabs("journal")}
+    <div class="ph"><h1>Nhật ký giao dịch</h1><span class="meta">${J.trades.length} lệnh · ${jr.remote ? "đã đồng bộ" : "lưu trong trình duyệt này"}</span></div>
+    ${sAll ? kpis([["Tổng lãi/lỗ", big(sAll.pnl) + " đ", cls(sAll.pnl), "Đã chốt + chưa chốt (tạm tính theo giá hiện tại)"], ["Lãi TB mỗi lượt", pct(sAll.ret, 1), cls(sAll.ret)], ["Vượt VN-Index TB", pct(sAll.ex, 1), cls(sAll.ex)], ["Tỷ lệ thắng", pct(sAll.win, 0, false)], ["Số lượt", `${sAll.n} <small>· ${sAll.open} mở</small>`]], true) : ""}
+    <div class="g g-main sec">
+      <div class="stack">
+        <section class="panel flush"><div class="ph"><h2>Theo hệ thống hay tự quyết – cái nào tốt hơn?</h2><span class="meta">gia quyền theo vốn · phí mua 0,15%, bán 0,25% (gồm thuế)</span></div>
+          <div class="tw"><table><thead><tr><th class="l">Quyết định khi mua</th><th>Số lượt</th><th>Thắng</th><th>Lãi TB</th><th>Vượt VNI</th><th>Lãi/lỗ</th></tr></thead><tbody>
+          ${Object.entries(DECISION).map(([k, n]) => { const s = sum(groups[k] || []); return `<tr><td class="l">${n}</td>${s ? `<td>${s.n}${s.open ? ` <small class="faint">(${s.open} mở)</small>` : ""}</td><td>${nf(s.win, 0)}%</td><td class="${cls(s.ret)}">${pct(s.ret, 1)}</td><td class="${cls(s.ex)}">${pct(s.ex, 1)}</td><td class="${cls(s.pnl)}">${big(s.pnl)}</td>` : `<td colspan="5" class="l faint">chưa có</td>`}</tr>`; }).join("")}</tbody></table></div>
+          <p class="faint" style="font-size:.72rem;padding:6px 12px">Sau 15–20 lượt mỗi nhóm, so sánh cột "Vượt VNI" sẽ cho biết những lần anh tự quyết có thêm giá trị hay không. Ít hơn thế thì kết quả còn nhiều yếu tố may rủi.</p></section>
+        <section class="panel flush"><div class="ph"><h2>Các lượt mua – bán</h2><span class="meta">khớp theo FIFO</span></div><div class="tw tall"><table><thead><tr><th class="sym">Mã</th><th class="l">Mua</th><th>Giá mua</th><th class="l">Bán</th><th>Giá bán / hiện tại</th><th>KL</th><th>Lãi %</th><th>VNI cùng kỳ</th><th>Vượt</th><th>Lãi/lỗ</th><th class="l">Quyết định</th><th class="l">Lý do mua</th></tr></thead><tbody>
+          ${[...open, ...closed].sort((a, b) => ((b.sell?.date || "9") > (a.sell?.date || "9") ? 1 : -1)).map((x) => `<tr><td class="sym"><a href="#/s/${x.symbol}">${x.symbol}</a></td><td class="l">${esc(x.buy.date)}</td><td>${nf(x.buy.price)}</td>
+            <td class="l">${x.open ? '<span class="pill brand">đang giữ</span>' : esc(x.sell.date)}</td><td>${nf(x.open ? R[x.symbol]?.price : x.sell.price)}</td><td>${nf(x.qty, 0)}</td>
+            <td class="${cls(x.ret)}"><b>${pct(x.ret, 1)}</b></td><td class="${cls(x.bench)}">${pct(x.bench, 1)}</td><td class="${cls(x.excess)}">${pct(x.excess, 1)}</td><td class="${cls(x.pnl)}">${big(x.pnl)}</td>
+            <td class="l"><small>${esc(DECISION[x.buy.decision] || "—")}</small></td><td class="wrap"><small>${esc(x.buy.reason || "")}</small></td></tr>`).join("") || `<tr><td colspan="12" class="l" style="padding:14px">Chưa có lệnh nào. Ghi lệnh đầu tiên ở khung bên cạnh.</td></tr>`}</tbody></table></div></section>
+        ${sells.length ? `<section class="panel flush"><div class="ph"><h2>Bán xong giá đi đâu?</h2><span class="meta">kiểm tra kỷ luật bán – bán non hay bán đúng</span></div><div class="tw"><table><thead><tr><th class="sym">Mã</th><th class="l">Ngày bán</th><th>Giá bán</th><th>Giá hiện tại</th><th>Thay đổi sau khi bán</th><th class="l">Quyết định</th></tr></thead><tbody>
+          ${sells.slice().reverse().map((s) => { const px = R[s.symbol]?.price; const ch = px ? (px / s.price - 1) * 100 : null; return `<tr><td class="sym"><a href="#/s/${s.symbol}">${s.symbol}</a></td><td class="l">${esc(s.date)}</td><td>${nf(s.price)}</td><td>${nf(px)}</td><td class="${ch > 0 ? "down" : "up"}">${pct(ch, 1)} <small class="faint">${ch > 10 ? "bán sớm" : ch < -10 ? "bán đúng" : ""}</small></td><td class="l"><small>${esc(DECISION[s.decision] || "—")}</small></td></tr>`; }).join("")}</tbody></table></div></section>` : ""}
+        <section class="panel flush"><div class="ph"><h2>Tất cả lệnh</h2><span class="meta"><button class="chip" id="jCsv">Tải CSV</button></span></div><div class="tw" style="max-height:420px"><table><thead><tr><th class="l">Ngày</th><th class="sym">Mã</th><th class="l">Lệnh</th><th>KL</th><th>Giá</th><th>Phí %</th><th class="l">Quyết định</th><th class="l">Hệ thống lúc đó</th><th class="l">Lý do</th><th></th></tr></thead><tbody>
+          ${J.trades.slice().reverse().map((x) => `<tr><td class="l">${esc(x.date)}</td><td class="sym">${esc(x.symbol)}</td><td class="l ${x.side === "buy" ? "up" : "down"}">${x.side === "buy" ? "Mua" : "Bán"}</td><td>${nf(x.qty, 0)}</td><td>${nf(x.price)}</td><td>${nf(x.fee, 2)}</td>
+            <td class="l"><small>${esc(DECISION[x.decision] || "—")}</small></td><td class="wrap"><small class="faint">${esc(x.snap || "")}</small></td><td class="wrap"><small>${esc(x.reason || "")}</small></td><td><button class="chip" data-jdel="${esc(x.id)}">Xoá</button></td></tr>`).join("")}</tbody></table></div></section>
+      </div>
+      <div class="stack sticky">
+        <section class="panel hero"><div class="ph"><h2>Ghi lệnh</h2></div>
+          <div class="filters">
+            <div class="field w140"><label for="jd">Ngày</label><input id="jd" type="date" value="${today}"></div>
+            <div class="field w60"><label for="js">Mã</label><input id="js" placeholder="FPT" autocapitalize="characters"></div>
+            <div class="field w90"><label for="jside">Lệnh</label><select id="jside"><option value="buy">Mua</option><option value="sell">Bán</option></select></div>
+            <div class="field w90"><label for="jq">KL (cp)</label><input id="jq" inputmode="numeric" placeholder="1000"></div>
+            <div class="field w90"><label for="jp">Giá (nghìn)</label><input id="jp" inputmode="decimal" placeholder="95,5"></div>
+            <div class="field w60"><label for="jf">Phí %</label><input id="jf" inputmode="decimal" value="0.15"></div>
+          </div>
+          <div class="field sec"><label for="jdec">Quyết định này là</label><select id="jdec">${Object.entries(DECISION).map(([k, n]) => `<option value="${k}">${n}</option>`).join("")}</select></div>
+          <p id="jsys" class="note" style="margin-top:6px;font-size:.76rem" hidden></p>
+          <div class="field sec"><label for="jr">Lý do (ngắn gọn – để sau này tự kiểm lại)</label><input id="jr" placeholder="ví dụ: KQKD quý 3 vượt kỳ vọng, P/E thấp hơn ngành"></div>
+          <label style="display:flex;gap:6px;align-items:center;font-size:.8rem;margin-top:8px"><input type="checkbox" id="jupd" checked> Cập nhật luôn danh mục đang nắm (và tiền mặt nếu đã nhập)</label>
+          <p style="margin-top:8px"><button class="btn primary" id="jadd">Ghi lệnh</button></p></section>
+        <section class="panel"><div class="ph"><h2>Vì sao nên ghi?</h2></div><p style="font-size:.8rem">Hệ thống tự ghi lại nó đang khuyên gì vào lúc anh đặt lệnh (có trong danh sách MUA không, điểm, định giá, đèn). Sau vài tháng anh sẽ thấy rõ: những lần anh làm khác hệ thống thì thắng hay thua, và anh có hay bán non không.</p></section>
+      </div>
+    </div>`;
+    const sysInfo = () => {
+      const s = $("#js").value.trim().toUpperCase(), side = $("#jside").value, r = R[s];
+      if (!/^[A-Z0-9]{3}$/.test(s) || !r) { $("#jsys").hidden = true; return null; }
+      const a = adv[s];
+      const txt = [picks.has(s) ? "đang trong danh sách MUA" : watch.has(s) ? "đang trong danh sách chờ mua" : "không có trong danh sách MUA",
+        `điểm ${nf(r.composite, 0)}`, `kỹ thuật ${r.ta_label || "—"}`, `định giá ${r.verdict || "—"}${isNum(r.fair) ? ` (hợp lý ${nf(r.fair)})` : ""}`, `P/E ${nf(r.pe, 1)} vs ngành ${nf(r.pe_ind, 1)}`,
+        `đèn ${LIGHT_VI[t.regime.light]}`, a ? `tư vấn đang nắm: ${a.action}` : ""].filter(Boolean).join(" · ");
+      $("#jsys").hidden = false; $("#jsys").textContent = "Hệ thống lúc này: " + txt;
+      $("#jdec").value = suggest(s, side);
+      if (!$("#jp").value && r.price) $("#jp").placeholder = nf(r.price);
+      return txt;
+    };
+    $("#js").oninput = sysInfo; $("#jside").onchange = () => { $("#jf").value = $("#jside").value === "buy" ? "0.15" : "0.25"; sysInfo(); };
+    $("#jadd").onclick = async () => {
+      const s = $("#js").value.trim().toUpperCase(), q = Number(String($("#jq").value).replace(/\D/g, "")), side = $("#jside").value;
+      const p = Number(String($("#jp").value || R[s]?.price || "").replace(",", "."));
+      if (!/^[A-Z0-9]{3}$/.test(s) || !q || !p) { toast("Nhập đủ mã, khối lượng và giá"); return; }
+      if (side === "sell") { const held = fifo(J.trades).open.filter((o) => o.symbol === s).reduce((a, o) => a + o.qty, 0); const ph = (pf.holdings.find((h) => h.symbol === s) || {}).qty || 0; if (!held && !ph) { toast(`Chưa có lệnh mua ${s} trong nhật ký – vẫn ghi, nhưng không tính được lãi/lỗ`); } }
+      const tr = { id: "t" + Date.now().toString(36), ts: Date.now(), date: $("#jd").value || today, symbol: s, side, qty: q, price: p, fee: Number(String($("#jf").value).replace(",", ".")) || 0,
+        decision: $("#jdec").value, reason: $("#jr").value.trim(), snap: "", in_plan: null, composite: null, light: null };
+      const recent = (new Date(t.date) - new Date(tr.date)) / 864e5 <= 3;
+      if (recent) Object.assign(tr, { snap: sysInfo() || "", in_plan: picks.has(s), composite: R[s]?.composite ?? null, light: t.regime.light });
+      else tr.snap = "nhập bù – không có dữ liệu hệ thống của ngày đó";
+      J.trades.push(tr);
+      const ok = await Store.put("journal", J);
+      if ($("#jupd").checked) {
+        const i = pf.holdings.findIndex((h) => h.symbol === s);
+        if (side === "buy") {
+          if (i >= 0) { const h = pf.holdings[i]; const nq = h.qty + q; h.cost = Math.round(((h.qty * h.cost + q * p) / nq) * 100) / 100; h.qty = nq; }
+          else pf.holdings.push({ symbol: s, qty: q, cost: p, date: tr.date, basket: (t.plan?.picks || []).find((x) => x.symbol === s)?.basket || null });
+          if (isNum(pf.cash) && pf.cash > 0) pf.cash = Math.max(0, pf.cash - q * p * 1000 * (1 + tr.fee / 100));
+        } else if (i >= 0) {
+          pf.holdings[i].qty -= q; if (pf.holdings[i].qty <= 0) pf.holdings.splice(i, 1);
+          if (isNum(pf.cash)) pf.cash = (pf.cash || 0) + q * p * 1000 * (1 - tr.fee / 100);
+        }
+        pf.updated = new Date().toISOString();
+        await Store.put("portfolio", pf);
+      }
+      toast(ok ? "Đã ghi lệnh" : "Đã ghi trên trình duyệt này");
+      render();
+    };
+    $$("[data-jdel]").forEach((b) => (b.onclick = async () => { J.trades = J.trades.filter((x) => x.id !== b.dataset.jdel); await Store.put("journal", J); toast("Đã xoá lệnh (danh mục đang nắm không đổi)"); render(); }));
+    $("#jCsv").onclick = () => {
+      const cols = ["date", "symbol", "side", "qty", "price", "fee", "decision", "reason", "snap"];
+      const q = (x) => `"${String(x ?? "").replace(/"/g, '""')}"`;
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob(["﻿" + [cols.join(","), ...J.trades.map((x) => cols.map((c) => q(c === "decision" ? DECISION[x[c]] : x[c])).join(","))].join("\n")], { type: "text/csv;charset=utf-8" }));
+      a.download = "nhat-ky-giao-dich.csv"; a.click();
+    };
+  };
+  render();
+}
+
+// ================================================================ THEO DÕI THỰC TẾ (forward test)
+function fwdSection(F) {
+  if (!F || !F.ok) return `<section class="panel hero"><div class="ph"><h2>Theo dõi thực tế – tín hiệu từ nay về sau</h2></div><p class="muted">${esc(F?.reason || "Chưa có dữ liệu – hệ thống bắt đầu ghi từ lượt chạy kế tiếp.")}</p>
+    <p class="faint" style="font-size:.74rem">Mỗi ngày hệ thống ghi lại danh sách MUA, sau đó đo xem các mã đó đi thế nào sau 5/20/60 phiên so với VN-Index, và chạy một danh mục giấy làm đúng theo hệ thống. Đây là kết quả không thể "tối ưu ngược" như backtest.</p></section>`;
+  const S = F.summary || {};
+  const hz = [5, 20, 60].map((h) => [`Sau ${h} phiên`, S[`x${h}_n`] ? `${pct(S[`x${h}_avg`], 1)} <small>vs VNI · đúng ${nf(S[`x${h}_hit`], 0)}% / ${S[`x${h}_n`]}</small>` : "<small>chưa đủ phiên</small>", cls(S[`x${h}_avg`])]);
+  return `<section class="panel hero"><div class="ph"><h2>Theo dõi thực tế – tín hiệu từ ${esc(F.start)}</h2><span class="meta">${F.days_logged} ngày ghi nhận · cập nhật ${esc(F.last)}</span></div>
+    ${kpis([["Danh mục giấy", pct(F.nav_ret, 1), cls(F.nav_ret), "Làm đúng hệ thống: mua giá đóng cửa ngày báo, theo tỷ trọng; thoát khi thủng cắt lỗ, chạm mục tiêu 1 hoặc sau 60 phiên"], ["VN-Index cùng kỳ", pct(F.bench_ret, 1), cls(F.bench_ret)],
+      ["Số lượt mua", `${S.n ?? 0} <small>(${S.open ?? 0} đang giữ)</small>`], ["Tỷ lệ có lãi", pct(S.all_win, 0, false)], ["Thắng VN-Index", pct(S.all_beat, 0, false)], ["Vượt VNI TB/lượt", pct(S.all_excess, 1), cls(S.all_excess)], ...hz,
+      ["Nếu mua ngay mã đang chờ", F.watch20?.n ? `${pct(F.watch20.avg_excess, 1)} <small>vs VNI sau 20 phiên (${F.watch20.n} mã)</small>` : "<small>chưa đủ</small>", cls(F.watch20?.avg_excess), "Âm = việc chờ giá về vùng mua là đúng"]], true)}
+    ${(F.nav || []).length > 2 ? `<div class="chart sm sec" id="fwdChart"></div><div class="leg"><span><i style="background:${css("--brand")}"></i>Danh mục giấy theo hệ thống</span><span><i style="background:${css("--ink-3")}"></i>VN-Index</span></div>` : ""}
+    <div class="g g2 sec">
+      <div class="tw"><table><thead><tr><th class="l">Rổ</th><th>Lượt</th><th>Có lãi</th><th>Lãi TB</th><th>Vượt VNI</th></tr></thead><tbody>${Object.entries(F.by_basket || {}).map(([k, s]) => `<tr><td class="l">${esc(BASKET_SHORT[k] || k)}</td><td>${s.n}</td><td>${pct(s.all_win, 0, false)}</td><td class="${cls(s.all_ret)}">${pct(s.all_ret, 1)}</td><td class="${cls(s.all_excess)}">${pct(s.all_excess, 1)}</td></tr>`).join("")}</tbody></table></div>
+      <div class="tw"><table><thead><tr><th class="l">Đèn lúc mua</th><th>Lượt</th><th>Có lãi</th><th>Lãi TB</th><th>Vượt VNI</th></tr></thead><tbody>${Object.entries(F.by_light || {}).map(([k, s]) => `<tr><td class="l">${esc(LIGHT_VI[k] || k)}</td><td>${s.n}</td><td>${pct(s.all_win, 0, false)}</td><td class="${cls(s.all_ret)}">${pct(s.all_ret, 1)}</td><td class="${cls(s.all_excess)}">${pct(s.all_excess, 1)}</td></tr>`).join("")}</tbody></table></div></div>
+    <div class="tw sec" style="max-height:420px"><table><thead><tr><th class="sym">Mã</th><th class="l">Ngày báo</th><th class="l">Rổ</th><th>Giá vào</th><th>Cắt lỗ</th><th>Mục tiêu</th><th class="l">Trạng thái</th><th>Số phiên</th><th>Lãi</th><th>VNI</th><th>Vượt</th><th>Sụt sâu nhất</th></tr></thead><tbody>
+      ${(F.episodes || []).map((e) => `<tr><td class="sym"><a href="#/s/${e.symbol}">${e.symbol}</a></td><td class="l">${esc(e.date)}</td><td class="l">${esc(BASKET_SHORT[e.basket] || e.basket || "")}</td><td>${nf(e.entry)}</td><td>${nf(e.stop)}</td><td>${nf(e.t1)}</td>
+        <td class="l"><span class="pill ${e.status === "Đang giữ" ? "brand" : e.status.startsWith("Chốt") ? "buy" : e.status === "Cắt lỗ" ? "sell" : ""}">${esc(e.status)}</span></td><td>${e.days}</td>
+        <td class="${cls(e.ret)}"><b>${pct(e.ret, 1)}</b></td><td class="${cls(e.bench)}">${pct(e.bench, 1)}</td><td class="${cls(e.excess)}">${pct(e.excess, 1)}</td><td class="down">${pct(e.mae, 1)}</td></tr>`).join("")}</tbody></table></div>
+    <p class="faint" style="font-size:.72rem;margin-top:6px">Cần ít nhất 2–3 tháng và 20–30 lượt mua thì kết quả mới có ý nghĩa. Mã được báo mua nhiều ngày liền chỉ tính 1 lượt.</p></section>`;
+}
+function drawFwd(F) {
+  if (!F || !F.ok || !$("#fwdChart")) return;
+  const c = mkChart($("#fwdChart"));
+  c.addLineSeries({ color: css("--ink-3"), lineWidth: 1, priceLineVisible: false }).setData(F.nav.map((x) => ({ time: x.d, value: x.b })));
+  c.addLineSeries({ color: css("--brand"), lineWidth: 2, priceLineVisible: false }).setData(F.nav.map((x) => ({ time: x.d, value: x.v })));
+  c.timeScale().fitContent();
 }
 
 // ================================================================ khởi động
