@@ -1,0 +1,78 @@
+# =====================================================================
+#  CÀI ĐẶT HỆ THỐNG VN-STOCK
+#  Anh sửa file này ngay trên web GitHub (bấm biểu tượng cây bút ✏️),
+#  sửa số, rồi bấm "Commit changes". Lần chạy kế tiếp sẽ dùng số mới.
+#  Dòng bắt đầu bằng dấu # là ghi chú, máy bỏ qua.
+# =====================================================================
+
+universe:
+  exchanges: [HOSE, HNX, UPCOM]      # sàn được phân tích
+  min_avg_value_bn: 3.0              # chỉ khuyến nghị MUA mã có GTGD bình quân 20 phiên >= 3 tỷ/ngày
+  min_price: 5.0                     # bỏ mã giá dưới 5.000đ (nghìn đồng)
+  min_history_days: 120              # mã mới niêm yết dưới 120 phiên: chỉ theo dõi
+
+# ---------------------------------------------------------------------
+#  PHÂN BỔ VỐN THEO RỔ (tổng = 100)
+# ---------------------------------------------------------------------
+allocation:
+  garp: 40        # Chất lượng + tăng trưởng hợp lý
+  dividend: 30    # Cổ tức
+  value: 30       # Giá trị (mua dưới giá trị hợp lý)
+  defensive: 0    # Phòng thủ
+  growth: 0       # Tăng trưởng mạnh (CANSLIM) - rủi ro cao
+
+# ---------------------------------------------------------------------
+#  TRỌNG SỐ CÁC PHƯƠNG PHÁP KHI CHẤM ĐIỂM TỔNG HỢP (0 = tắt)
+# ---------------------------------------------------------------------
+methods:
+  piotroski: 15       # sức khoẻ tài chính 9 tiêu chí
+  magic_formula: 15   # Greenblatt: tốt + rẻ
+  value: 20           # rẻ so với ngành và lịch sử, có biên an toàn
+  quality: 15         # ROE, biên lợi nhuận, dòng tiền ổn định
+  growth: 10          # tăng trưởng doanh thu/lợi nhuận
+  dividend: 10        # cổ tức tiền mặt bền vững
+  momentum: 10        # sức mạnh giá 3-12 tháng
+  canslim: 5          # CANSLIM
+  low_vol: 0          # biến động thấp
+
+# ---------------------------------------------------------------------
+#  QUẢN TRỊ RỦI RO
+# ---------------------------------------------------------------------
+risk:
+  max_positions: 8            # tối đa số mã nắm cùng lúc
+  min_positions: 5
+  max_weight_per_stock: 20    # % vốn tối đa cho 1 mã
+  max_weight_per_sector: 30   # % vốn tối đa cho 1 ngành
+  risk_per_trade: 1.5         # % vốn chấp nhận lỗ cho mỗi lệnh (nếu chạm cắt lỗ)
+  max_stop_loss_pct: 12       # cắt lỗ không sâu quá 12% (đánh cơ bản nên rộng hơn lướt sóng)
+  max_drawdown_target: 25     # mức sụt danh mục chấp nhận (anh chọn ưu tiên lợi nhuận)
+  margin_of_safety: 20        # chỉ mua khi giá thấp hơn giá trị hợp lý ít nhất 20%
+  use_margin: false
+
+# ---------------------------------------------------------------------
+#  GIẢ ĐỊNH ĐỊNH GIÁ (anh có thể chỉnh theo quan điểm vĩ mô)
+# ---------------------------------------------------------------------
+valuation:
+  risk_free: 3.2              # % lợi suất TPCP 10 năm (tự cập nhật nếu lấy được, nếu không dùng số này)
+  equity_risk_premium: 8.0    # % phần bù rủi ro cổ phiếu Việt Nam
+  terminal_growth: 4.0        # % tăng trưởng dài hạn (≈ GDP danh nghĩa thận trọng)
+  tax_rate: 20                # % thuế TNDN
+  forecast_years: 5
+  dividend_tax: 5             # % thuế cổ tức tiền mặt cá nhân
+
+# ---------------------------------------------------------------------
+#  LỊCH CHẠY & THÔNG BÁO
+# ---------------------------------------------------------------------
+schedule:
+  rebalance: monthly          # monthly | quarterly
+  financials_refresh_weekday: 5   # 0=Thứ 2 ... 5=Thứ 7: ngày tải lại toàn bộ BCTC
+
+notify:
+  telegram: true
+  only_when_action: true      # chỉ nhắn khi có việc cần làm
+
+backtest:
+  start: "2016-01-01"
+  rebalance: monthly
+  cost_pct: 0.25              # phí + thuế mỗi chiều (%)
+  report_lag_days: 45         # BCTC quý chỉ được dùng sau 45 ngày (tránh "nhìn trước tương lai")

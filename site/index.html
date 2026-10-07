@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#22408F">
+<meta name="robots" content="noindex,nofollow">
+<title>VN-Stock</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%2315202B'/><circle cx='9' cy='16' r='4' fill='%23F0444B' opacity='.4'/><circle cx='16' cy='16' r='4' fill='%23F4C32F' opacity='.4'/><circle cx='23' cy='16' r='4' fill='%232FD08F'/></svg>">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="demo"></div>
+<header class="top">
+  <div class="top-in">
+    <a class="brand" href="#/"><span class="brand-dot" id="brandDot"></span>VN-Stock</a>
+    <div class="search">
+      <input id="q" type="search" placeholder="Tìm mã, ví dụ FPT" autocomplete="off" aria-label="Tìm mã cổ phiếu">
+      <div class="sugg" id="sugg" hidden></div>
+    </div>
+    <button class="iconbtn" id="theme" title="Đổi giao diện sáng/tối" aria-label="Đổi giao diện sáng/tối">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+    </button>
+  </div>
+</header>
+<nav class="tabs" id="tabs">
+  <a href="#/" data-r="today"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12l3 3 5-6"/></svg>Hôm nay</a>
+  <a href="#/market" data-r="market"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l5-5 4 4 8-9"/><path d="M15 7h5v5"/></svg>Thị trường</a>
+  <a href="#/portfolio" data-r="portfolio"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Danh mục</a>
+  <a href="#/screener" data-r="screener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16l-6 7v6l-4 2v-8z"/></svg>Bộ lọc</a>
+  <a href="#/backtest" data-r="backtest"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="9"/></svg>Kiểm chứng</a>
+</nav>
+<main id="app" tabindex="-1"><p class="muted">Đang tải…</p></main>
+<script src="vendor/lightweight-charts.standalone.production.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

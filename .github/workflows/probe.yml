@@ -1,0 +1,28 @@
+name: Kiểm tra nguồn dữ liệu
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Thử từng nguồn (VCI, TCBS, Yahoo)
+        run: python run.py probe
+        env:
+          VNSTOCK_DATA: probe_out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: probe-report
+          path: probe_out/probe_report.json

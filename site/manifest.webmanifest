@@ -1,0 +1,9 @@
+{
+  "name": "VN-Stock",
+  "short_name": "VN-Stock",
+  "start_url": "./#/",
+  "display": "standalone",
+  "background_color": "#F3F5F8",
+  "theme_color": "#22408F",
+  "icons": [{"src": "icon.svg", "sizes": "any", "type": "image/svg+xml"}]
+}
