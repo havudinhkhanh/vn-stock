@@ -101,12 +101,14 @@ jobs:
             echo "$GH_DISPATCH_TOKEN" | npx --yes wrangler@3 pages secret put GH_TOKEN --project-name vn-stock || true
           fi
           npx --yes wrangler@3 pages deploy --project-name vn-stock --branch main --commit-dirty=true
+          # kiểm tra trang đã được khoá đăng nhập chưa (302 sang cloudflareaccess.com = đã khoá)
+          curl -s -o /dev/null -w "%{http_code} %{redirect_url}\n" https://vn-stock.pages.dev/ > data/site_check.txt || true
 
       - name: Đẩy log chạy & dữ liệu kiểm tra lên nhánh status
         if: always()
         run: |
           python scripts/export_debug.py || true
-          bash scripts/publish_status.sh daily data/run.log data/meta.json site/data/meta.json data/check.json data/debug
+          bash scripts/publish_status.sh daily data/run.log data/meta.json site/data/meta.json data/check.json data/site_check.txt data/debug
 
       - name: Lưu bản web để tải về xem (khi chưa có Cloudflare)
         if: always()
