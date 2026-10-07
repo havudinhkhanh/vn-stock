@@ -264,6 +264,42 @@ def parse_dividends(symbol: str, raw: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(out, columns=cols)
 
 
+# ----------------------------------------------------------------- dòng lệnh (order flow)
+def price_depth(symbol: str) -> pd.DataFrame:
+    """Khối lượng khớp theo từng bước giá trong phiên, tách mua chủ động / bán chủ động (footprint)."""
+    data = post("VCI", TRADING + "market-watch/AccumulatedPriceStepVol/getSymbolData", {"symbol": symbol})
+    rows = data if isinstance(data, list) else (data or {}).get("data") or []
+    df = pd.DataFrame(rows)
+    if df.empty:
+        raise FetchError(f"VCI price_depth {symbol}: rỗng")
+    ren = {"priceStep": "price", "accumulatedVolume": "vol", "accumulatedBuyVolume": "buy",
+           "accumulatedSellVolume": "sell", "accumulatedUndefinedVolume": "undef"}
+    df = df.rename(columns=ren)
+    for c in ("price", "vol", "buy", "sell", "undef"):
+        df[c] = pd.to_numeric(df.get(c), errors="coerce").fillna(0)
+    if df["price"].median() > 500:
+        df["price"] = df["price"] / 1000.0
+    return df[["price", "vol", "buy", "sell", "undef"]].sort_values("price")
+
+
+def intraday(symbol: str, limit: int = 30000) -> pd.DataFrame:
+    """Từng lệnh khớp trong phiên (giá, khối lượng, mua/bán chủ động)."""
+    data = post("VCI", TRADING + "market-watch/LEData/getAll",
+                {"symbol": symbol, "limit": limit, "truncTime": None}, timeout=40)
+    df = pd.DataFrame(data or [])
+    if df.empty:
+        raise FetchError(f"VCI intraday {symbol}: rỗng")
+    df = df.rename(columns={"truncTime": "time", "matchPrice": "price", "matchVol": "vol", "matchType": "side"})
+    df["price"] = pd.to_numeric(df["price"], errors="coerce")
+    if df["price"].median() > 500:
+        df["price"] = df["price"] / 1000.0
+    df["vol"] = pd.to_numeric(df["vol"], errors="coerce").fillna(0)
+    df["time"] = pd.to_datetime(pd.to_numeric(df["time"], errors="coerce"), unit="s", utc=True).dt.tz_convert(
+        "Asia/Ho_Chi_Minh").dt.tz_localize(None)
+    df["side"] = df["side"].astype(str).str.lower().map(lambda x: "buy" if x.startswith("b") else ("sell" if x.startswith("s") else "atc"))
+    return df[["time", "price", "vol", "side"]]
+
+
 def snapshot(symbols: list[str]) -> pd.DataFrame:
     """Bảng giá hiện tại (giá trần/sàn/tham chiếu, khối ngoại...)."""
     out = []

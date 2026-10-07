@@ -145,6 +145,14 @@ def _run(report: dict) -> None:
         report["vci.dividends[FPT]"] = {"ok": False, "error": str(e)[:400]}
         print("FAIL vci.dividends", e, flush=True)
     _try("vci.snapshot", lambda: vci.snapshot(["FPT", "VCB", "HPG"]), report)
+    _try("vci.price_depth[FPT]", lambda: vci.price_depth("FPT"), report)
+    _try("vci.intraday[FPT]", lambda: vci.intraday("FPT", 500), report)
+    try:
+        raw = __import__("app.data.http", fromlist=["post"]).post(
+            "VCI", vci.TRADING + "market-watch/LEData/getAll", {"symbol": "FPT", "limit": 3, "truncTime": None})
+        report["vci.intraday_raw"] = raw[:3] if isinstance(raw, list) else raw
+    except Exception as e:  # noqa: BLE001
+        report["vci.intraday_raw"] = str(e)[:300]
     for sym in ("FPT", "VCB"):
         try:
             reps = {k: kbs.finance(sym, k, True) for k in ("IS", "BS", "CF")}
