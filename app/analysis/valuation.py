@@ -19,24 +19,35 @@ def beta(stock: pd.Series, index: pd.Series) -> float:
 
 
 def hist_multiples(qs: pd.DataFrame, close: pd.Series, shares: float | None) -> dict:
-    """P/E, P/B lịch sử 5 năm của chính mã (tại cuối mỗi quý)."""
-    if qs is None or qs.empty or close.empty or not shares:
+    """P/E, P/B lịch sử 5 năm của chính mã tại cuối mỗi quý.
+
+    Ưu tiên P/E, P/B do nguồn tính tại thời điểm đó (đúng theo giá & số cổ phiếu lúc ấy).
+    Tự tính từ giá đã điều chỉnh chỉ khi nguồn không có (có thể lệch nếu có chia cổ phiếu)."""
+    if qs is None or qs.empty:
         return {}
+    q = qs.dropna(subset=["ni_parent_ttm"]).tail(20)
     pe, pb = [], []
-    for _, r in qs.dropna(subset=["ni_parent_ttm"]).tail(20).iterrows():
-        d = pd.Timestamp(year=int(r["year"]), month=int(r["quarter"]) * 3, day=1) + pd.offsets.MonthEnd(0)
-        # dùng giá 45 ngày sau kỳ (khi BCTC đã công bố)
-        px = close[:d + pd.Timedelta(days=45)]
-        if px.empty:
-            continue
-        p = px.iloc[-1]
-        sh = _num(r.get("shares")) or shares
-        eps = r["ni_parent_ttm"] * 1000 / sh
-        if eps > 0:
-            pe.append(p * 1000 / eps)
-        eq = _num(r.get("equity"))
-        if eq and eq > 0:
-            pb.append(p * 1000 / (eq * 1000 / sh))
+    for _, r in q.iterrows():
+        pe_s, pb_s = _num(r.get("pe_src")), _num(r.get("pb_src"))
+        if pe_s and 0 < pe_s < 200:
+            pe.append(pe_s)
+        if pb_s and 0 < pb_s < 50:
+            pb.append(pb_s)
+    if len(pe) < 6 and not close.empty and shares:
+        pe, pb = [], []
+        for _, r in q.iterrows():
+            d = pd.Timestamp(year=int(r["year"]), month=int(r["quarter"]) * 3, day=1) + pd.offsets.MonthEnd(0)
+            px = close[:d + pd.Timedelta(days=45)]
+            if px.empty:
+                continue
+            p = px.iloc[-1]
+            sh = _num(r.get("shares")) or shares
+            eps = r["ni_parent_ttm"] * 1000 / sh
+            if eps > 0:
+                pe.append(p * 1000 / eps)
+            eq = _num(r.get("equity"))
+            if eq and eq > 0:
+                pb.append(p * 1000 / (eq * 1000 / sh))
     res = {}
     if len(pe) >= 6:
         res["pe_med"] = float(np.median(pe))
@@ -71,7 +82,8 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
                         "range": [sc["bear"]["dcf"], sc["bull"]["dcf"]]})
     # 2) DDM
     div = fa.get("dividend") or {}
-    if sc and sc["base"]["ddm"] and div.get("paid_years_5", 0) >= 3:
+    payout = (model or {}).get("assumptions", {}).get("payout", 0) if model else 0
+    if sc and sc["base"]["ddm"] and div.get("paid_years_5", 0) >= 3 and payout >= 0.3:
         methods.append({"key": "ddm", "name": "Chiết khấu cổ tức (DDM)", "value": sc["base"]["ddm"], "w": 0.20,
                         "range": [sc["bear"]["ddm"], sc["bull"]["ddm"]]})
     # 3) P/E mục tiêu × EPS dự phóng
@@ -123,7 +135,7 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
         warning = ("Giá trị tính ra lệch quá xa giá thị trường – có thể do số liệu bất thường "
                    "(lợi nhuận đột biến 1 lần, sai số cổ phiếu…). Anh nên tự rà lại giả định.")
     spread = (max(m["value"] for m in used) / min(m["value"] for m in used)) if len(used) > 1 else 1
-    if spread > 2.2:
+    if spread > 3.0:
         reliable = False
         warning = warning or "Các phương pháp định giá cho kết quả rất khác nhau – độ tin cậy thấp."
     if price is None:

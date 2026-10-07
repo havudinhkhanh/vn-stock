@@ -178,6 +178,17 @@ def statement(symbol: str, section: str) -> dict[str, pd.DataFrame]:
     return {k: pd.DataFrame(data.get(k) or []) for k in ("years", "quarters")}
 
 
+def shares_now(symbol: str) -> float | None:
+    """Số cổ phiếu lưu hành hiện tại (triệu cp) – cập nhật ngay sau các đợt phát hành/chia thưởng."""
+    d = get("VCI", f"{IQ}/v1/company/details", params={"ticker": symbol}).get("data") or {}
+    v = d.get("numberOfSharesMktCap") or d.get("issueShare") or d.get("listedShare")
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return None
+    return v / 1e6 if v > 1e5 else v
+
+
 def ratios(symbol: str) -> pd.DataFrame:
     data = get("VCI", f"{IQ}/v1/company/{symbol}/statistics-financial").get("data") or []
     return pd.DataFrame(data)

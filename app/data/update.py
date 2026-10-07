@@ -222,6 +222,26 @@ def update_dividends(symbols: list[str], workers: int = 2, mark: bool = True) ->
              dict(used), remaining, BREAKER.stats)
 
 
+def update_shares(symbols: list[str], workers: int = 4) -> None:
+    """Số cổ phiếu hiện tại cho mã thanh khoản – tránh EPS/P/E sai khi vừa phát hành thêm."""
+    rows, used = [], Counter()
+
+    def one(s):
+        try:
+            return s, vci.shares_now(s)
+        except FetchError:
+            return s, None
+
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        for s, v in ex.map(one, symbols):
+            used["ok" if v else "fail"] += 1
+            if v:
+                rows.append({"symbol": s, "shares_now": v, "date": pd.Timestamp.now().normalize()})
+    if rows:
+        store.upsert("shares_now", pd.DataFrame(rows), ["symbol"])
+    log.info("Số cổ phiếu hiện tại: %s", dict(used))
+
+
 # ------------------------------------------------------------------ main
 def liquid_symbols(prices: pd.DataFrame, min_value_bn: float) -> list[str]:
     if prices.empty:
@@ -253,5 +273,6 @@ def run(force_fin: bool = False, only: list[str] | None = None) -> None:
         log.info("Chưa tới lịch tải BCTC (cập nhật gần nhất %.1f ngày trước)",
                  store.age_days("financials"))
     div_syms = liquid_symbols(prices, float(config.get("universe.fin_min_avg_value_bn", 0.3)))
+    update_shares([s for s in div_syms if s in set(syms)] if not only else [s for s in syms if s in only])
     div_syms = [s for s in div_syms if s in set(syms)] if not only else [s for s in syms if s in only]
     update_dividends(div_syms, mark=not only)

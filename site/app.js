@@ -661,6 +661,7 @@ function tabOverview(d) {
       <div class="tbl-wrap" style="border:0"><table><tbody>${Object.entries(names).map(([k, n]) => `<tr><td class="l" style="font-weight:500">${n}</td><td style="width:60%"><span class="bar" style="width:${Math.round((sc[k] || 0) * 0.9)}%;background:${scoreColor(sc[k])}"></span>${isNum(sc[k]) ? Math.round(sc[k]) : "—"}</td></tr>`).join("")}</tbody></table></div>
       <p class="muted" style="margin-top:6px">CANSLIM đạt: ${esc(sc.canslim_flags || "—")} · Sức mạnh giá (RS) ${sc.rs_rating ?? "—"}/100</p></div>
     <div class="panel"><h2>Chỉ số chính <small class="muted">${esc(fa.period || "")}</small></h2>
+      ${fa.shares_note ? `<p class="note">${esc(fa.shares_note)}</p>` : ""}
       <dl class="kv">${[["Vốn hoá", bn(fa.mcap_bn)], ["P/E", nf(fa.pe, 1)], ["P/B", nf(fa.pb)], ["EPS (đ)", nf(fa.eps, 0)], ["ROE", pct(fa.roe, 1, false)], ["ROA", pct(fa.roa, 1, false)],
         ["Biên LN gộp", pct(fa.gross_margin, 1, false)], ["Biên LN ròng", pct(fa.net_margin, 1, false)], ["Doanh thu 12T", pct(fa.rev_yoy)], ["LN 12T", pct(fa.ni_yoy)], ["LN quý gần nhất", pct(fa.ni_q_yoy)],
         ["Vay/Vốn chủ", nf(fa.de)], ["Cổ tức tiền mặt", pct(fa.dividend?.yield, 1, false)], ["Beta", nf(d.beta)], ["GTGD/ngày", bn(r.avg_value_bn)]]

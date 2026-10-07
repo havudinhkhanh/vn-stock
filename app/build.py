@@ -71,6 +71,8 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     fin_q = store.read("fin_q")
     fin_y = store.read("fin_y")
     divs = store.read("dividends")
+    sh_now = store.read("shares_now")
+    sh_now = dict(zip(sh_now["symbol"], sh_now["shares_now"])) if not sh_now.empty else {}
     if prices.empty or listing.empty:
         raise SystemExit("Chưa có dữ liệu. Chạy: python run.py update")
     prices["date"] = pd.to_datetime(prices["date"])
@@ -174,7 +176,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         ti = ind.compute_all(df)
         ta = tech.summarize(df, ti, idx["close"])
         ctype = lst.loc[s, "com_type"] if "com_type" in lst.columns and isinstance(lst.loc[s, "com_type"], str) else "CT"
-        fa = fu.analyze_symbol(s, fq_by.get(s), fy_by.get(s), price, dv_by.get(s), ctype)
+        fa = fu.analyze_symbol(s, fq_by.get(s), fy_by.get(s), price, dv_by.get(s), ctype, sh_now.get(s))
         c = df["close"]
         r = {
             "symbol": s, "name": lst.loc[s, "name"], "exchange": lst.loc[s, "exchange"],
@@ -396,6 +398,15 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
              "valuation": {s_: {k: (details[s_].get("val") or {}).get(k) for k in ("fair", "ke", "beta", "reliable", "warning")}
                            | {"methods": [(m["name"][:40], m["value"]) for m in ((details[s_].get("val") or {}).get("methods") or [])]}
                            for s_ in list(top.index)[:15] if s_ in details}}
+    if backtest.get("ok"):
+        check["backtest"] = {k: {kk: v.get(kk) for kk in ("cagr", "max_dd", "avg_count", "win_years", "n_years")}
+                             for k, v in list(backtest.get("baskets", {}).items())
+                             + [("combo", backtest.get("combo", {})), ("combo_regime", backtest.get("combo_regime", {})),
+                                ("vnindex", backtest.get("benchmark", {}))]}
+        check["backtest_range"] = [backtest.get("start"), backtest.get("end")]
+    else:
+        check["backtest"] = {"ok": False, "reason": backtest.get("reason")}
+    check["pattern_stats"] = pstats.get("stats", {})
     dump(store.path("check.json"), check)
     log.info("Xuất xong %d mã, %d trang chi tiết trong %ss", len(u), len(details), meta["seconds"])
     return {"today": today, "meta": meta}

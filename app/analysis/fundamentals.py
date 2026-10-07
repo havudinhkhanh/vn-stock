@@ -182,7 +182,7 @@ def piotroski(a: pd.Series, b: pd.Series) -> tuple[int | None, list[dict]]:
 
 # ------------------------------------------------------------------ chỉ số 1 mã
 def analyze_symbol(sym: str, qs: pd.DataFrame, ys: pd.DataFrame, price: float,
-                   divs: pd.DataFrame | None, ctype: str = "CT") -> dict:
+                   divs: pd.DataFrame | None, ctype: str = "CT", shares_now: float | None = None) -> dict:
     """qs: các quý của mã (đã add_ttm); ys: các năm của mã."""
     L = latest_row(qs) if qs is not None and not qs.empty else None
     if L is None and (ys is None or ys.empty):
@@ -208,6 +208,9 @@ def analyze_symbol(sym: str, qs: pd.DataFrame, ys: pd.DataFrame, price: float,
         return v
 
     shares = _num(L.get("shares"))
+    shares_report = shares
+    if shares_now and shares_now > 0:
+        shares = shares_now  # số CP hiện tại: đúng với giá đã điều chỉnh sau phát hành/chia thưởng
     if shares is None and ys is not None and not ys.empty:
         shares = _num(ys["shares"].dropna().iloc[-1]) if ys["shares"].notna().any() else None
     if shares is None:
@@ -294,6 +297,10 @@ def analyze_symbol(sym: str, qs: pd.DataFrame, ys: pd.DataFrame, price: float,
         "period": f"Q{int(L['quarter'])}/{int(L['year'])}" if int(L.get("quarter", 0) or 0) > 0 else f"{int(L['year'])}",
         "ctype": ctype,
         "price": _r(price), "shares_mn": _r(shares, 1), "mcap_bn": _r(mcap, 0),
+        "shares_report_mn": _r(shares_report, 1),
+        "shares_note": (f"Số cổ phiếu hiện tại {shares:,.0f} triệu, khác báo cáo kỳ gần nhất "
+                        f"({shares_report:,.0f} triệu) – có đợt phát hành/chia thưởng mới; EPS, P/E đã tính theo số mới.")
+        if shares and shares_report and abs(shares / shares_report - 1) > 0.03 else None,
         "eps": _r(eps, 0), "bvps": _r(bvps, 0),
         "pe": _r(price * 1000 / eps, 1) if eps and eps > 0 else None,
         "pb": _r(price * 1000 / bvps, 2) if bvps and bvps > 0 else None,

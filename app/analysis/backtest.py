@@ -48,8 +48,9 @@ def prepare_fund(fq: pd.DataFrame, lag_days: int) -> pd.DataFrame:
     f["rev_yoy"] = np.where(f["revenue_ttm_l4"] > 0, (f["revenue_ttm"] / f["revenue_ttm_l4"] - 1) * 100, np.nan)
     f["roe"] = 100 * f["ni_parent_ttm"] / f["equity"].where(f["equity"] > 0)
     f["de"] = f["debt"] / f["equity"].where(f["equity"] > 0)
-    keep = ["symbol", "avail", "ni_parent_ttm", "equity", "shares", "fs", "ni_yoy", "rev_yoy", "roe", "de",
-            "cfo_ttm"]
+    f["qend"] = _period_end(f["year"], f["quarter"])
+    keep = ["symbol", "avail", "qend", "ni_parent_ttm", "equity", "shares", "fs", "ni_yoy", "rev_yoy", "roe", "de",
+            "cfo_ttm", "pe_src", "pb_src"]
     return f[[c for c in keep if c in f]].sort_values("avail")
 
 
@@ -73,9 +74,23 @@ def snapshot_at(t, wide, wide_val, fund, divs, listing_sector, cfg) -> pd.DataFr
     d = pd.DataFrame(index=uni)
     d["price"] = px[uni]
     d = d.join(fa, how="inner")
+    # P/E, P/B tại thời điểm t = P/E của nguồn tại cuối quý × (giá t / giá cuối quý), cùng chuỗi giá điều chỉnh
+    #   -> không bị méo khi có chia cổ phiếu. Nếu nguồn không có thì tự tính.
+    pq = pd.Series(np.nan, index=d.index)
+    if "qend" in d:
+        for qe, idx in d.groupby("qend").groups.items():
+            ww = wide.loc[:qe]
+            if not ww.empty:
+                pq.loc[idx] = ww.iloc[-1].reindex(idx).values
+    ratio = d["price"] / pq
     d["eps"] = d["ni_parent_ttm"] * 1000 / d["shares"]
-    d["pe"] = np.where(d["eps"] > 0, d["price"] * 1000 / d["eps"], np.nan)
-    d["pb"] = np.where(d["equity"] > 0, d["price"] * d["shares"] / d["equity"], np.nan)
+    pe_calc = np.where(d["eps"] > 0, d["price"] * 1000 / d["eps"], np.nan)
+    pb_calc = np.where(d["equity"] > 0, d["price"] * d["shares"] / d["equity"], np.nan)
+    pe_src = d["pe_src"].where(d["pe_src"] > 0) * ratio if "pe_src" in d else np.nan
+    pb_src = d["pb_src"].where(d["pb_src"] > 0) * ratio if "pb_src" in d else np.nan
+    d["pe"] = pd.Series(pe_src, index=d.index).fillna(pd.Series(pe_calc, index=d.index))
+    d["pb"] = pd.Series(pb_src, index=d.index).fillna(pd.Series(pb_calc, index=d.index))
+    d.loc[d["ni_parent_ttm"] <= 0, "pe"] = np.nan
     c = w[d.index]
     d["ret_12_1"] = c.iloc[-22] / c.iloc[-252] - 1
     d["ret_6m"] = c.iloc[-1] / c.iloc[-126] - 1
