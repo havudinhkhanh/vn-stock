@@ -430,7 +430,7 @@ function ladder(p) {
       const last = [-99, -99];
       return L.sort((a, b) => a[0] - b[0]).map(([x, txt, al]) => { const w = txt.length * 0.9; let rw = x - last[0] > w ? 0 : x - last[1] > w ? 1 : 0; last[rw] = x; return `<span class="ll ${al}" style="left:${x}%;top:${29 + rw * 12}px">${txt}</span>`; }).join("");
     })()}
-  </div><div class="lleg"><span class="down">${p.stop_label || "cắt lỗ"} ${nf(p.stop)}</span> · <span class="up">mua ${nf(z0)}–${nf(z1)}</span>${isNum(p.t1) ? ` · MT1 ${nf(p.t1)}` : ""}${isNum(p.t2) ? ` · MT2 ${nf(p.t2)}` : ""}</div>`;
+  </div><div class="lleg"><span class="down">${p.stop_label || "cắt lỗ"} ${nf(p.stop)}</span><span class="up">mua ${nf(z0)}–${nf(z1)}</span>${isNum(p.t1) ? `<span>MT1 ${nf(p.t1)}</span>` : ""}${isNum(p.t2) ? `<span>MT2 ${nf(p.t2)}</span>` : ""}</div>`;
 }
 
 async function viewToday() {
