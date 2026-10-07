@@ -175,6 +175,8 @@ async function route() {
     else if (r === "portfolio") { setTab("portfolio"); if (arg[0] === "journal") await viewJournal(); else if (arg[0] === "profile") await viewProfile(); else await viewPortfolio(); }
     else if (r === "screener") { setTab("screener"); await viewScreener(arg[0]); }
     else if (r === "backtest") { setTab("backtest"); await viewBacktest(); }
+    else if (r === "watch") { setTab("watch"); await viewWatch(arg[0]); }
+    else if (r === "compare") { setTab(""); await viewCompare(arg[0]); }
     else if (r === "s" && arg[0]) { setTab(""); await viewStock(arg[0].toUpperCase(), arg[1]); }
     else if (r === "guide") { setTab(""); await viewGuide(); }
     else { app().innerHTML = `<div class="empty">Không có trang này. <a href="#/">Về trang Hôm nay</a></div>`; }
@@ -451,7 +453,8 @@ async function viewToday() {
   const adv = br.adv || 0, dec = br.dec || 0, tot = adv + dec || 1;
   const lightCol = { green: "var(--up)", yellow: "var(--ref)", red: "var(--down)" }[reg.light];
 
-  const pickCard = (p) => {
+  const pickCard = (p) => `<div class="pickw">${pickCard0(p)}${actBar(p.symbol, { held: held.has(p.symbol) })}</div>`;
+  const pickCard0 = (p) => {
     const sh = sharesFor(capital, p.weight, p.zone[1]);
     const r = R[p.symbol] || {};
     const inZone = p.price <= p.zone[1] * 1.005;
@@ -469,7 +472,8 @@ async function viewToday() {
       ${p.setup || p.tranches || p.exit_note ? `<div class="tags">${p.setup ? `<span class="pill brand">${esc(p.setup)}</span>` : ""}${p.tranches ? `<span class="pill">Mua dần: ${p.tranches.map((x) => nf(x)).join(" → ")}</span>` : ""}${isNum(p.yield) ? `<span class="pill buy">Cổ tức ${nf(p.yield, 1)}% · ${nf(p.dps, 0)} đ/cp</span>` : ""}${p.exit_note ? `<span class="pill">${esc(p.exit_note)}</span>` : ""}</div>` : ""}
       <p class="why">${inZone ? '<b class="up">Giá đang trong vùng mua.</b> ' : '<b class="ref">Chờ giá về vùng mua.</b> '}${esc(p.why || "")}</p></a>`;
   };
-  const sellCard = (p) => `<a class="pick ${p.severity >= 2 ? "sell" : "wait"}" href="#/s/${p.symbol}">
+  const sellCard = (p) => `<div class="pickw">${sellCard0(p)}<div class="qa"><button class="chip" data-qt="sell:${p.symbol}">Ghi lệnh bán</button><button class="chip" data-alert="${p.symbol}">🔔</button></div></div>`;
+  const sellCard0 = (p) => `<a class="pick ${p.severity >= 2 ? "sell" : "wait"}" href="#/s/${p.symbol}">
       <div class="pk-head"><div><span class="sym">${p.symbol}</span> <span class="pill ${p.severity >= 2 ? "sell" : "wait"}">${esc(p.action)}</span></div>
         <div class="pk-px">${mini(R[p.symbol]?.spk, { w: 90, h: 30 })}<div><b>${nf(p.price)}</b><small class="${cls(p.pnl_pct)}">lãi/lỗ ${pct(p.pnl_pct)}</small></div></div></div>
       <div class="pk-facts"><div><small>Giá vốn</small><b>${nf(p.cost)}</b></div><div><small>Điểm dừng</small><b class="down">${nf(p.stop)}</b></div><div><small>Giá trị hợp lý</small><b>${nf(p.fair)}</b></div><div><small>Kỹ thuật</small><b>${esc(R[p.symbol]?.ta_label || "—")}</b></div></div>
@@ -1309,7 +1313,7 @@ const HLC = new Set(["pe", "pe_ind", "pe_vs_ind", "pe_vs_mkt"]);
 const METHOD_REL = { smc: "SMC – tổng hợp", vsa: "VSA – tổng hợp", wyckoff_ev: "Wyckoff – sự kiện (SC/Spring/SOS/UTAD…)" };
 function fmtCol(r, k) {
   const f = (COLDEF[k] || ["", "l"])[1], v = k === "composite" && r._score != null ? r._score : r[k];
-  if (f === "sym") return `<a href="#/s/${v}" title="${esc(r.name || "")}">${v}</a>`;
+  if (f === "sym") return `<a href="#/s/${v}" title="${esc(r.name || "")}">${v}</a>${WL.has(v) ? ' <span class="wstar" title="đang theo dõi">★</span>' : ""}`;
   if (f === "score") return scoreCell(v);
   if (f === "vs") return vsCell(v);
   if (f === "spk") return mini(v, { w: 64, h: 18 });
@@ -1331,14 +1335,26 @@ function fmtCol(r, k) {
 }
 
 async function viewScreener(arg) {
-  const [rows, meth] = await Promise.all([screenerRows(), load("data/methods.json")]);
+  const [rows, meth, td, vr] = await Promise.all([screenerRows(), load("data/methods.json"), load("data/today.json"), Store.get("views")]);
+  await WL.load();
   const W = { ...meth.weights, ...lsGet("weights", {}) };
   const sectors = [...new Set(rows.map((r) => r.sector).filter(Boolean))].sort();
-  const st = { exch: "", sec: "", ind: "", basket: arg || "", minVal: 3, maxPE: "", minROE: "", minF: "", minDiv: "", minUp: "", minScore: "", trend: "", text: "", sort: "composite", asc: false, view: lsGet("scrView", "overview") };
+  const DEF = { exch: "", sec: "", ind: "", basket: "", minVal: 3, maxPE: "", minROE: "", minF: "", minDiv: "", minUp: "", minScore: "", trend: "", text: "", sort: "composite", asc: false, view: "overview", plan: "", maxHi: "", watch: false };
+  const st = { ...DEF, basket: arg || "", view: lsGet("scrView", "overview") };
+  const planSet = (k) => new Set(k === "any" ? STYLE_ORDER.flatMap((x) => (td.styles?.[x]?.picks || []).map((p) => p.symbol)) : (td.styles?.[k]?.picks || td.plan?.picks || []).map((p) => p.symbol));
+  const SPRE = [
+    ["Đang trong danh sách MUA", { plan: "any", view: "overview" }], ["Rẻ + chất lượng", { maxPE: 12, minROE: 15, minF: 6, view: "valuation", sort: "upside" }],
+    ["Cổ tức cao, bền", { minDiv: 6, minF: 5, view: "dividend", sort: "div_yield" }], ["Tăng trưởng mạnh", { minROE: 12, view: "growth", sort: "ni_yoy", trend: "notdown" }],
+    ["Giảm sâu, cơ bản tốt", { maxHi: -30, minF: 6, view: "valuation", sort: "upside" }], ["Xu hướng tăng, điểm cao", { trend: "up", minScore: 60, view: "tech", sort: "composite" }],
+    ["Dòng tiền thông minh", { view: "smart", sort: "smc", minVal: 5 }], ["Mã tôi theo dõi", { watch: true, minVal: 0 }]];
+  const saved = (vr.data && Array.isArray(vr.data.screener)) ? vr.data.screener : [];
+  const sel = new Set();
   const ps = meth.pattern_stats || {};
   app().innerHTML = `
   <div class="ph"><h1>Bộ lọc & phương pháp chọn mã</h1>${mktPill(SECS?.market)}<span class="meta"><a href="#/guide">giải thích các phương pháp</a></span></div>
+  <div class="views" id="sv"></div>
   <section class="panel"><div class="filters">
+    <div class="field w140"><label>Kế hoạch</label><select id="fPl"><option value="">Mọi mã</option><option value="any">Trong danh sách MUA</option>${STYLE_ORDER.map((k) => `<option value="${k}">MUA · ${STYLE_SHORT[k]}</option>`).join("")}</select></div>
     <div class="field w140"><label>Rổ</label><select id="fB"><option value="">Tất cả mã</option>${Object.entries(meth.baskets).map(([k, b]) => `<option value="${k}" ${st.basket === k ? "selected" : ""}>${esc(b.name)}</option>`).join("")}</select></div>
     <div class="field w90"><label>Sàn</label><select id="fE"><option value="">Cả 3 sàn</option><option>HOSE</option><option>HNX</option><option>UPCOM</option></select></div>
     <div class="field w200"><label>Ngành</label><select id="fS"><option value="">Tất cả ngành</option>${sectors.map((s) => `<option>${esc(s)}</option>`).join("")}</select></div>
@@ -1352,11 +1368,14 @@ async function viewScreener(arg) {
     <div class="field w60"><label>Cổ tức ≥ %</label><input id="fD" inputmode="decimal"></div>
     <div class="field w60"><label>Tiềm năng ≥ %</label><input id="fU" inputmode="decimal"></div>
     <div class="field w60"><label>Điểm ≥</label><input id="fSc" inputmode="decimal"></div>
+    <div class="field w60"><label title="Giá cách đỉnh 52 tuần">Cách đỉnh ≤ %</label><input id="fH" inputmode="decimal" placeholder="-30"></div>
+    <label style="display:flex;gap:5px;align-items:center;font-size:.8rem"><input type="checkbox" id="fW"> Chỉ mã theo dõi ★</label>
     <button class="btn" id="fClear">Xoá lọc</button>
   </div><p class="muted" id="bRule" style="margin-top:6px;font-size:.78rem"></p></section>
   <div class="views" id="views">${Object.entries(VIEWS).map(([k, [n]]) => `<button data-v="${k}" class="${k === st.view ? "on" : ""}">${esc(n)}</button>`).join("")}
     <span style="margin-left:auto;display:flex;gap:6px;align-items:center"><small id="cnt" class="muted"></small><button class="btn" id="toGroup" title="Lưu các mã đang lọc thành một nhóm để chạy phương án ở tab Ngành">Lưu thành nhóm</button><button class="btn" id="csv">Tải CSV</button></span></div>
   <section class="panel flush"><div class="tw tall"><table id="scr"></table></div></section>
+  <div class="selbar" id="selbar" hidden><b id="selN"></b><button class="btn primary" id="selCmp">So sánh</button><button class="btn" id="selWl">★ Theo dõi tất cả</button><button class="btn" id="selClr">Bỏ chọn</button></div>
   <details class="panel sec"><summary>Trọng số các phương pháp (đổi cách tính cột Điểm)</summary>
     <div class="weights" style="margin-top:8px">${Object.entries(meth.methods).map(([k, m]) => `
       <div class="w-item"><header><b>${esc(m.name)}</b><output id="wo_${k}">${W[k] ?? 0}</output></header>
@@ -1381,27 +1400,64 @@ async function viewScreener(arg) {
     const num = (x) => (x === "" || x == null ? null : Number(String(x).replace(",", ".")));
     const minVal = num(st.minVal), maxPE = num(st.maxPE), minR = num(st.minROE), minF = num(st.minF), minD = num(st.minDiv), minU = num(st.minUp), minS = num(st.minScore);
     const txt = st.text.toLowerCase();
+    const PL = st.plan ? planSet(st.plan) : null, maxH = num(st.maxHi);
     filtered = rows.filter((r) => (!st.exch || r.exchange === st.exch) && (!st.sec || r.sector === st.sec) && (!st.ind || r.industry === st.ind) && (!st.basket || r["in_" + st.basket] === true)
       && (!st.trend || (st.trend === "notdown" ? r.trend !== "down" : r.trend === st.trend))
       && (minVal == null || (r.avg_value_bn ?? 0) >= minVal) && (maxPE == null || (isNum(r.pe) && r.pe > 0 && r.pe <= maxPE))
       && (minR == null || (r.roe ?? -1e9) >= minR) && (minF == null || (r.fscore ?? -1) >= minF) && (minD == null || (r.div_yield ?? 0) >= minD)
       && (minU == null || (r.upside ?? -1e9) >= minU) && (minS == null || (r._score ?? -1) >= minS)
+      && (!PL || PL.has(r.symbol)) && (maxH == null || (isNum(r.from_hi52) && r.from_hi52 <= maxH)) && (!st.watch || WL.has(r.symbol))
       && (!txt || r.symbol.toLowerCase().includes(txt) || String(r.name || "").toLowerCase().includes(txt) || String(r.industry || "").toLowerCase().includes(txt) || String(r.sector || "").toLowerCase().includes(txt)));
     const k = st.sort === "composite" ? "_score" : st.sort;
     filtered.sort((a, b) => { const x = a[k], y = b[k]; if (x == null && y == null) return 0; if (x == null) return 1; if (y == null) return -1; return (x > y ? 1 : x < y ? -1 : 0) * (st.asc ? 1 : -1); });
     const cols = VIEWS[st.view][1];
     $("#cnt").textContent = `${filtered.length} mã${filtered.length > 500 ? " (hiện 500)" : ""}`;
-    $("#scr").innerHTML = `<thead><tr>${cols.map((c) => { const f = COLDEF[c][1]; return `<th data-k="${c}" class="${HLC.has(c) ? "hlc " : ""}${f === "sym" ? "sym" : ["l", "trend", "wy"].includes(f) ? "l" : ""} ${st.sort === c ? "sorted" + (st.asc ? " asc" : "") : ""}">${esc(COLDEF[c][0])}</th>`; }).join("")}</tr></thead>
-      <tbody>${filtered.slice(0, 500).map((r) => `<tr>${cols.map((c) => { const f = COLDEF[c][1]; return `<td class="${HLC.has(c) ? "hlc " : ""}${f === "sym" ? "sym" : ["l", "trend", "wy"].includes(f) ? "l" : ""}">${fmtCol(r, c)}</td>`; }).join("")}</tr>`).join("")}</tbody>`;
+    $("#scr").innerHTML = `<thead><tr><th class="cb"><input type="checkbox" id="selAll" aria-label="Chọn tất cả"></th>${cols.map((c) => { const f = COLDEF[c][1]; return `<th data-k="${c}" class="${HLC.has(c) ? "hlc " : ""}${f === "sym" ? "sym" : ["l", "trend", "wy"].includes(f) ? "l" : ""} ${st.sort === c ? "sorted" + (st.asc ? " asc" : "") : ""}">${esc(COLDEF[c][0])}</th>`; }).join("")}</tr></thead>
+      <tbody>${filtered.slice(0, 500).map((r) => `<tr class="${sel.has(r.symbol) ? "hl" : ""}"><td class="cb"><input type="checkbox" data-sel="${r.symbol}" ${sel.has(r.symbol) ? "checked" : ""} aria-label="Chọn ${r.symbol}"></td>${cols.map((c) => { const f = COLDEF[c][1]; return `<td class="${HLC.has(c) ? "hlc " : ""}${f === "sym" ? "sym" : ["l", "trend", "wy"].includes(f) ? "l" : ""}">${fmtCol(r, c)}</td>`; }).join("")}</tr>`).join("")}</tbody>`;
     $$("#scr th").forEach((th) => (th.onclick = () => { if (st.sort === th.dataset.k) st.asc = !st.asc; else { st.sort = th.dataset.k; st.asc = ["pe", "pb", "ps", "ev_ebitda", "de", "beta", "vol_1y_pct", "symbol", "ind_rank", "pe_vs_ind", "pe_vs_mkt", "pb_vs_ind", "pe_ind", "pb_ind"].includes(th.dataset.k); } draw(); }));
     const b = meth.baskets[st.basket];
     $("#bRule").innerHTML = b ? `<b>Điều kiện rổ ${esc(b.name)}</b> (rủi ro ${esc(b.risk)}): ${esc(b.rule)}` : (st.sec ? `Muốn xếp hạng sâu trong ngành ${esc(st.sec)} theo từng phương án? <a href="#/sector/${enc(st.ind || st.sec)}${st.ind ? "/l3" : ""}">Mở trang Ngành</a>.` : "");
   };
+  const selUI = () => { $("#selbar").hidden = !sel.size; $("#selN").textContent = `Đã chọn ${sel.size} mã`; $("#selCmp").disabled = sel.size < 2 || sel.size > 4; $("#selCmp").textContent = sel.size > 4 ? "So sánh (tối đa 4)" : "So sánh"; };
+  $("#scr").addEventListener("change", (e) => {
+    const x = e.target;
+    if (x.id === "selAll") { filtered.slice(0, 500).forEach((r) => (x.checked ? sel.add(r.symbol) : sel.delete(r.symbol))); draw(); }
+    else if (x.dataset.sel) { x.checked ? sel.add(x.dataset.sel) : sel.delete(x.dataset.sel); x.closest("tr").classList.toggle("hl", x.checked); }
+    selUI();
+  });
+  $("#selCmp").onclick = () => { const L = [...sel].slice(0, 4); lsSet("cmp", L); location.hash = `#/compare/${L.join(",")}`; };
+  $("#selWl").onclick = async () => { await WL.load(); for (const s of sel) if (!WL.has(s)) WL.data.items.unshift({ symbol: s, added: new Date().toISOString().slice(0, 10), note: "", alerts: [], price0: rows.find((r) => r.symbol === s)?.price }); const ok = await WL.save(); toast(`Đã theo dõi ${sel.size} mã` + (ok ? "" : " (trên trình duyệt này)")); draw(); };
+  $("#selClr").onclick = () => { sel.clear(); draw(); selUI(); };
+  const IDS = { basket: "#fB", exch: "#fE", sec: "#fS", ind: "#fI", trend: "#fTr", text: "#fT", minVal: "#fV", maxPE: "#fPE", minROE: "#fR", minF: "#fF", minDiv: "#fD", minUp: "#fU", minScore: "#fSc", plan: "#fPl", maxHi: "#fH" };
+  const applyState = (o) => {
+    Object.assign(st, DEF, o);
+    Object.entries(IDS).forEach(([k, id]) => { if (k === "ind") return; $(id).value = st[k] ?? ""; });
+    fillInd(); $("#fI").value = st.ind || ""; $("#fW").checked = !!st.watch;
+    $$("#views [data-v]").forEach((x) => x.classList.toggle("on", x.dataset.v === st.view)); lsSet("scrView", st.view);
+    draw();
+  };
+  const drawSv = () => {
+    $("#sv").innerHTML = `<small class="muted" style="align-self:center">Bộ lọc mẫu:</small>${SPRE.map(([n], i) => `<button data-pre="${i}">${esc(n)}</button>`).join("")}
+      ${saved.length ? `<small class="muted" style="align-self:center;margin-left:8px">Đã lưu:</small>${saved.map((v, i) => `<button data-svv="${i}" class="svd">${esc(v.name)} <span data-svx="${i}" title="Xoá">✕</span></button>`).join("")}` : ""}
+      <button id="svSave" class="svs">＋ Lưu bộ lọc hiện tại</button>`;
+    $$("[data-pre]").forEach((b) => (b.onclick = () => { applyState(SPRE[Number(b.dataset.pre)][1]); $$("#sv button").forEach((x) => x.classList.toggle("on", x === b)); }));
+    $$("[data-svv]").forEach((b) => (b.onclick = async (e) => {
+      if (e.target.dataset.svx !== undefined) { saved.splice(Number(e.target.dataset.svx), 1); await Store.put("views", { ...(vr.data || {}), screener: saved }); drawSv(); toast("Đã xoá bộ lọc"); return; }
+      const v = saved[Number(b.dataset.svv)]; applyState(v.st); if (v.w) { Object.assign(W, v.w); } $$("#sv button").forEach((x) => x.classList.toggle("on", x === b)); }));
+    $("#svSave").onclick = () => {
+      $("#svSave").outerHTML = `<span class="svform"><input id="svName" placeholder="Tên bộ lọc, vd: Thép rẻ" style="width:170px"><button class="btn primary" id="svOk">Lưu</button></span>`;
+      $("#svName").focus();
+      const go = async () => { const n = $("#svName").value.trim(); if (!n) { toast("Đặt tên cho bộ lọc"); return; } saved.push({ name: n, st: { ...st }, w: { ...W } }); const ok = await Store.put("views", { ...(vr.data || {}), screener: saved }); toast(ok ? "Đã lưu bộ lọc" : "Đã lưu bộ lọc trên trình duyệt này"); drawSv(); };
+      $("#svOk").onclick = go; $("#svName").onkeydown = (e) => { if (e.key === "Enter") go(); };
+    };
+  };
+  drawSv();
+  $("#fW").onchange = (e) => { st.watch = e.target.checked; draw(); };
   $$("input[data-w]").forEach((el) => (el.oninput = () => { W[el.dataset.w] = Number(el.value); $("#wo_" + el.dataset.w).textContent = el.value; lsSet("weights", W); draw(); }));
   $("#wReset").onclick = () => { Object.assign(W, meth.weights); try { localStorage.removeItem("vnstock_weights"); } catch (e) { /* bỏ qua */ } viewScreener(st.basket); };
   const bind = (id, key, after) => ($(id).oninput = () => { st[key] = $(id).value; if (after) after(); draw(); });
   bind("#fB", "basket"); bind("#fE", "exch"); bind("#fS", "sec", () => { st.ind = ""; fillInd(); }); bind("#fI", "ind"); bind("#fTr", "trend"); bind("#fT", "text"); bind("#fV", "minVal");
-  bind("#fPE", "maxPE"); bind("#fR", "minROE"); bind("#fF", "minF"); bind("#fD", "minDiv"); bind("#fU", "minUp"); bind("#fSc", "minScore");
+  bind("#fPE", "maxPE"); bind("#fR", "minROE"); bind("#fF", "minF"); bind("#fD", "minDiv"); bind("#fU", "minUp"); bind("#fSc", "minScore"); bind("#fPl", "plan"); bind("#fH", "maxHi");
   $("#fClear").onclick = () => viewScreener("");
   $$("#views [data-v]").forEach((b) => (b.onclick = () => { st.view = b.dataset.v; lsSet("scrView", st.view); $$("#views [data-v]").forEach((x) => x.classList.toggle("on", x === b)); draw(); }));
   $("#toGroup").onclick = async () => {
@@ -1516,6 +1572,8 @@ async function viewStock(sym, tabArg) {
       : `<div class="empty">Không tìm thấy mã ${esc(sym)}.</div>`;
     return;
   }
+  recentAdd(sym); await WL.load();
+  const held = ((await Store.get("portfolio")).data?.holdings || []).some((h) => h.symbol === sym);
   const r = d.row, v = d.valuation || {}, ta = d.ta, fa = d.fa || {}, w = d.waves || {};
   const o = d.ohlc;
   const last = o.c[o.c.length - 1], prev = o.c[o.c.length - 2];
@@ -1533,6 +1591,7 @@ async function viewStock(sym, tabArg) {
       <span class="pill ${r.trend === "up" ? "buy" : r.trend === "down" ? "sell" : ""}">Xu hướng ${TREND_VI[r.trend] || "—"}</span>
       ${secRec ? `<span class="pill" title="Vị trí ngành trên biểu đồ xoay vòng"><span class="quad" style="background:${qcol(secRec.quadrant)}"></span>Ngành ${esc(secRec.quadrant)}</span>` : ""}
       ${isNum(r.ind_rank) ? `<span class="pill">Hạng ${nf(r.ind_rank, 0)}/${r.ind_n} trong ngành</span>` : ""}</div>
+    <div style="flex-basis:100%">${actBar(sym, { label: true, held })}</div>
   </div>
   ${(() => { const C = ctxRecs(secs || {}, d.sector, d.industry), b = C.ind || C.sec || {}, M = C.mkt || {}, pe0 = fa.pe ?? r.pe, pb0 = fa.pb ?? r.pb;
     return kpis([["P/E", `${nf(pe0, 1)}<br><small>ngành ${nf(b.pe_med, 1)} · TT ${nf(M.pe_med, 1)}</small>`, "", "So với P/E trung vị nhóm ngành và toàn thị trường", "hl"],
@@ -2540,6 +2599,296 @@ function drawFwd(F) {
   c.timeScale().fitContent();
 }
 
+// ================================================================ THEO DÕI, CẢNH BÁO, SO SÁNH, TÌM NHANH (dùng chung mọi trang)
+const WL = {
+  data: null,
+  async load() { if (!this.data) { const r = await Store.get("watchlist"); this.data = r.data && Array.isArray(r.data.items) ? r.data : { items: [] }; this.remote = r.remote; } return this.data; },
+  get(s) { return (this.data?.items || []).find((x) => x.symbol === s) || null; },
+  has(s) { return !!this.get(s); },
+  async add(s, extra = {}) { await this.load(); let it = this.get(s); if (!it) { it = { symbol: s, added: new Date().toISOString().slice(0, 10), note: "", alerts: [], ...extra }; this.data.items.unshift(it); } await this.save(); return it; },
+  async remove(s) { await this.load(); this.data.items = this.data.items.filter((x) => x.symbol !== s); await this.save(); },
+  async save() { this.data.updated = new Date().toISOString(); return Store.put("watchlist", this.data); },
+};
+const starBtn = (s, label = false) => `<button class="star ${WL.has(s) ? "on" : ""}" data-star="${s}" title="${WL.has(s) ? "Bỏ theo dõi" : "Thêm vào danh sách theo dõi"}" aria-pressed="${WL.has(s)}">${WL.has(s) ? "★" : "☆"}${label ? ` <span>${WL.has(s) ? "Đang theo dõi" : "Theo dõi"}</span>` : ""}</button>`;
+function refreshStars(s) {
+  $$(`[data-star="${s}"]`).forEach((b) => { const on = WL.has(s); b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); const lab = b.querySelector("span"); b.firstChild.textContent = (on ? "★" : "☆") + (lab ? " " : ""); if (lab) lab.textContent = on ? "Đang theo dõi" : "Theo dõi"; b.title = on ? "Bỏ theo dõi" : "Thêm vào danh sách theo dõi"; });
+}
+const ALERT_TYPES = { below: "Giá giảm tới ≤", above: "Giá tăng tới ≥", pct: "Biến động trong phiên ≥ %", plan: "Vào danh sách MUA" };
+async function alertBox(sym, preset = {}) {
+  const old = $("#tbox"); if (old) old.remove();
+  await screenerRows().catch(() => {});
+  const r = (SCREENER || []).find((x) => x.symbol === sym) || {};
+  const sug = [["below", r.buy_below, "vùng mua an toàn"], ["below", isNum(r.price) ? Math.round(r.price * 0.93 * 100) / 100 : null, "giảm 7%"], ["above", r.fair, "giá trị hợp lý"], ["above", isNum(r.price) ? Math.round(r.price * 1.1 * 100) / 100 : null, "tăng 10%"]].filter(([, v]) => isNum(v));
+  const el = document.createElement("div");
+  el.id = "tbox"; el.className = "tbox";
+  el.innerHTML = `<div class="tb-in" role="dialog" aria-label="Đặt cảnh báo"><div class="ph"><h2>Đặt cảnh báo ${esc(sym)}</h2><span class="meta">giá hiện tại ${nf(r.price)}</span><button class="chip" id="tbX">Đóng</button></div>
+    <div class="views" style="margin:4px 0">${sug.map(([t, v, n]) => `<button data-sg="${t}|${v}">${t === "below" ? "≤" : "≥"} ${nf(v)} <small>${n}</small></button>`).join("")}<button data-sg="plan|">Khi vào danh sách MUA</button></div>
+    <div class="filters"><div class="field w200"><label for="alT">Loại</label><select id="alT">${Object.entries(ALERT_TYPES).map(([k, n]) => `<option value="${k}" ${k === (preset.type || "below") ? "selected" : ""}>${n}</option>`).join("")}</select></div>
+      <div class="field w90"><label for="alV">Giá / %</label><input id="alV" inputmode="decimal" value="${preset.value ?? ""}"></div></div>
+    <div class="field sec"><label for="alN">Ghi chú (hiện trong tin Telegram)</label><input id="alN" placeholder="ví dụ: về hỗ trợ thì mua 1/3"></div>
+    <p class="faint" style="font-size:.74rem;margin-top:6px">Hệ thống kiểm tra sau mỗi phiên (theo giá cao/thấp nhất trong ngày) và nhắn Telegram một lần khi điều kiện xảy ra.</p>
+    <p style="margin-top:8px"><button class="btn primary" id="alOk">Lưu cảnh báo</button></p></div>`;
+  document.body.appendChild(el);
+  $$("[data-sg]", el).forEach((b) => (b.onclick = () => { const [t, v] = b.dataset.sg.split("|"); $("#alT").value = t; $("#alV").value = v; }));
+  $("#tbX").onclick = () => el.remove();
+  el.onclick = (e) => { if (e.target === el) el.remove(); };
+  $("#alOk").onclick = async () => {
+    const t = $("#alT").value, v = Number(String($("#alV").value).replace(",", "."));
+    if (t !== "plan" && !v) { toast("Nhập giá hoặc %"); return; }
+    const it = await WL.add(sym);
+    it.alerts = it.alerts || [];
+    it.alerts.push({ id: "a" + Date.now().toString(36), type: t, value: t === "plan" ? null : v, note: $("#alN").value.trim(), active: true, created: new Date().toISOString().slice(0, 10) });
+    const ok = await WL.save();
+    el.remove(); refreshStars(sym);
+    toast(ok ? `Đã đặt cảnh báo ${sym}` : `Đã đặt cảnh báo ${sym} (lưu trên trình duyệt này – Telegram chưa đọc được)`);
+    if (location.hash.startsWith("#/watch")) route();
+  };
+}
+async function quickTrade(sym, side) {
+  const [pfr, jr, t] = await Promise.all([Store.get("portfolio"), Store.get("journal"), load("data/today.json"), screenerRows()]);
+  const pf = pfr.data || { holdings: [], cash: 0, capital: null }; pf.holdings = pf.holdings || [];
+  const J = { trades: (jr.data && jr.data.trades) || [] };
+  const h = pf.holdings.find((x) => x.symbol === sym), r = (SCREENER || []).find((x) => x.symbol === sym) || {};
+  const pk = Object.values(t.styles || { position: t.plan }).flatMap((p) => p.picks || []).find((p) => p.symbol === sym);
+  if (side === "sell" && !h) { toast(`Chưa có ${sym} trong danh mục`); return; }
+  tradeBox({ symbol: sym, side, price: r.price, held: h?.qty || 0, cost: h?.cost, basket: pk?.basket || h?.basket,
+    qty: side === "sell" ? h.qty : pk && capitalOf(pf) ? sharesFor(capitalOf(pf), pk.weight, pk.zone[1]) : null,
+    decision: side === "buy" ? (pk ? "sys" : "self") : "self",
+    note: side === "buy" ? (pk ? `Trong kế hoạch ${BASKET_SHORT[pk.basket] || ""}: vùng mua ${nf(pk.zone[0])}–${nf(pk.zone[1])}, dừng ${nf(pk.stop)}, tỷ trọng ${nf(pk.weight, 1)}%` : "Mã không có trong danh sách MUA hôm nay.") : "",
+    snap: `điểm ${nf(r.composite, 0)} · KT ${r.ta_label || "—"} · P/E ${nf(r.pe, 1)} vs ngành ${nf(r.pe_ind, 1)} · đèn ${LIGHT_VI[t.regime.light]}` },
+  async (tr) => { const ok = await applyTrade(tr, pf, J); toast((tr.side === "sell" && isNum(tr.realized) ? `Đã ghi – lãi/lỗ chốt ${vnd(tr.realized)}` : "Đã ghi lệnh") + (ok ? "" : " (lưu trên trình duyệt này)")); if (location.hash.startsWith("#/portfolio")) route(); });
+}
+const recentAdd = (s) => { const r = lsGet("recent", []).filter((x) => x !== s); r.unshift(s); lsSet("recent", r.slice(0, 12)); };
+const actBar = (s, opt = {}) => `<div class="qa">${starBtn(s, opt.label)}<button class="chip" data-qt="buy:${s}">Mua</button>${opt.held ? `<button class="chip" data-qt="sell:${s}">Bán</button>` : ""}<button class="chip" data-alert="${s}" title="Đặt cảnh báo giá">🔔</button><button class="chip" data-cmp="${s}" title="So sánh với mã khác">So sánh</button></div>`;
+function cmpAdd(s) { const L = lsGet("cmp", []).filter((x) => x !== s); L.push(s); const out = L.slice(-4); lsSet("cmp", out); return out; }
+
+// ---- tìm nhanh (Ctrl/⌘ + K hoặc phím /)
+const PAGES = [["Hôm nay", "#/", "h"], ["Thị trường", "#/market", "m"], ["Toàn cảnh ngành", "#/sector", "n"], ["Bộ lọc", "#/screener", "l"], ["Theo dõi & cảnh báo", "#/watch", "t"], ["Lịch sự kiện", "#/watch/calendar", "e"],
+  ["So sánh mã", "#/compare", "c"], ["Danh mục đang nắm", "#/portfolio", "d"], ["Nhật ký giao dịch", "#/portfolio/journal", "j"], ["Khẩu vị & phong cách đầu tư", "#/portfolio/profile", "p"], ["Kiểm chứng", "#/backtest", "k"], ["Hướng dẫn", "#/guide", "?"]];
+async function palette(q0 = "") {
+  const old = $("#pal"); if (old) { old.remove(); return; }
+  const rows = await screenerRows(); await WL.load();
+  const S = await secsData();
+  const el = document.createElement("div");
+  el.id = "pal"; el.className = "tbox pal";
+  el.innerHTML = `<div class="tb-in"><input id="palQ" placeholder="Gõ mã, tên công ty, ngành, trang… (vd: FPT, thép, so sánh FPT HPG, mua VNM)" autocomplete="off" value="${esc(q0)}"><div id="palL" class="pal-l"></div>
+    <p class="faint" style="font-size:.7rem;margin-top:6px">↑↓ chọn · Enter mở · Esc đóng · phím tắt: <b>g</b> rồi <b>h</b> Hôm nay, <b>n</b> Ngành, <b>l</b> Lọc, <b>t</b> Theo dõi, <b>d</b> Danh mục, <b>c</b> So sánh, <b>k</b> Kiểm chứng</p></div>`;
+  document.body.appendChild(el);
+  const strip = (x) => String(x || "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").toLowerCase();
+  let items = [], sel = 0;
+  const build = () => {
+    const q = $("#palQ").value.trim(), qs = strip(q), up = q.toUpperCase();
+    items = [];
+    const syms = up.split(/[\s,]+/).filter((x) => /^[A-Z0-9]{3}$/.test(x) && rows.some((r) => r.symbol === x));
+    const verb = qs.split(/\s+/)[0];
+    if (syms.length >= 2 || (verb.startsWith("so") && syms.length)) items.push({ t: `So sánh ${syms.join(", ")}`, s: "mở trang so sánh", go: `#/compare/${syms.join(",")}`, ic: "⇄" });
+    if ((verb === "mua" || verb === "ban") && syms[0]) items.push({ t: `${verb === "mua" ? "Ghi lệnh mua" : "Ghi lệnh bán"} ${syms[0]}`, s: "mở hộp ghi lệnh", fn: () => quickTrade(syms[0], verb === "mua" ? "buy" : "sell"), ic: verb === "mua" ? "＋" : "−" });
+    if ((verb.startsWith("canh") || verb.startsWith("bao")) && syms[0]) items.push({ t: `Đặt cảnh báo ${syms[0]}`, s: "", fn: () => alertBox(syms[0]), ic: "🔔" });
+    if (!q) {
+      lsGet("recent", []).forEach((s) => { const r = rows.find((x) => x.symbol === s); if (r) items.push({ t: s, s: `vừa xem · ${r.name || ""}`, go: `#/s/${s}`, ic: "↺", r }); });
+      (WL.data?.items || []).slice(0, 6).forEach((w) => { const r = rows.find((x) => x.symbol === w.symbol); if (r && !items.some((i) => i.t === w.symbol)) items.push({ t: w.symbol, s: `đang theo dõi · ${r.name || ""}`, go: `#/s/${w.symbol}`, ic: "★", r }); });
+    }
+    const st = rows.filter((r) => q && (r.symbol.startsWith(up) || strip(r.name).includes(qs))).sort((a, b) => (b.symbol.startsWith(up) - a.symbol.startsWith(up)) || (b.avg_value_bn || 0) - (a.avg_value_bn || 0)).slice(0, 8);
+    st.forEach((r, i) => {
+      items.push({ t: r.symbol, s: r.name || "", go: `#/s/${r.symbol}`, ic: "◆", r });
+      if (i === 0 && r.symbol === up) {
+        items.push({ t: `${WL.has(r.symbol) ? "Bỏ theo dõi" : "Theo dõi"} ${r.symbol}`, s: "", fn: async () => { WL.has(r.symbol) ? await WL.remove(r.symbol) : await WL.add(r.symbol); refreshStars(r.symbol); toast(WL.has(r.symbol) ? "Đã thêm vào theo dõi" : "Đã bỏ theo dõi"); }, ic: "★" });
+        items.push({ t: `Ghi lệnh mua ${r.symbol}`, s: "", fn: () => quickTrade(r.symbol, "buy"), ic: "＋" });
+        items.push({ t: `Đặt cảnh báo giá ${r.symbol}`, s: "", fn: () => alertBox(r.symbol), ic: "🔔" });
+        items.push({ t: `So sánh ${r.symbol} với…`, s: "cùng ngành", go: `#/compare/${[r.symbol, ...rows.filter((x) => x.industry === r.industry && x.symbol !== r.symbol).sort((a, b) => (b.mcap_bn || 0) - (a.mcap_bn || 0)).slice(0, 2).map((x) => x.symbol)].join(",")}`, ic: "⇄" });
+      }
+    });
+    if (qs) {
+      (S.sector || []).concat(S.industry || []).filter((x) => strip(x.name).includes(qs)).slice(0, 5).forEach((x) => items.push({ t: x.name, s: `ngành · ${x.n} mã · P/E ${nf(x.pe_med, 1)}`, go: `#/sector/${enc(x.name)}${(S.industry || []).includes(x) ? "/l3" : ""}`, ic: "▦" }));
+      PAGES.filter(([n]) => strip(n).includes(qs)).forEach(([n, h]) => items.push({ t: n, s: "trang", go: h, ic: "→" }));
+    } else PAGES.forEach(([n, h, k]) => items.push({ t: n, s: `g ${k}`, go: h, ic: "→" }));
+    sel = 0; draw();
+  };
+  const draw = () => {
+    $("#palL").innerHTML = items.map((it, i) => `<button class="pal-i ${i === sel ? "on" : ""}" data-i="${i}"><span class="pi">${it.ic}</span><b>${esc(it.t)}</b><small>${esc(it.s)}</small>
+      ${it.r ? `<span class="pr"><b>${nf(it.r.price)}</b> <small class="${cls(it.r.chg1d)}">${pct(it.r.chg1d, 1)}</small></span>` : ""}</button>`).join("") || `<p class="muted" style="padding:10px">Không tìm thấy.</p>`;
+    $$(".pal-i", el).forEach((b) => (b.onclick = () => run(Number(b.dataset.i))));
+  };
+  const run = (i) => { const it = items[i]; if (!it) return; el.remove(); if (it.go) location.hash = it.go; else if (it.fn) it.fn(); };
+  $("#palQ").oninput = build;
+  $("#palQ").onkeydown = (e) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { sel = (sel + (e.key === "ArrowDown" ? 1 : items.length - 1)) % Math.max(1, items.length); draw(); e.preventDefault(); }
+    else if (e.key === "Enter") { run(sel); e.preventDefault(); }
+    else if (e.key === "Escape") el.remove();
+  };
+  el.onclick = (e) => { if (e.target === el) el.remove(); };
+  build(); $("#palQ").focus();
+}
+function initGlobal() {
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-star],[data-qt],[data-cmp],[data-alert],[data-pal]");
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    if (b.dataset.star) { const s = b.dataset.star; await WL.load(); if (WL.has(s)) { await WL.remove(s); toast(`Đã bỏ theo dõi ${s}`); } else { await WL.add(s, { price0: (SCREENER || []).find((r) => r.symbol === s)?.price }); toast(`Đã thêm ${s} vào theo dõi`); } refreshStars(s); if (location.hash.startsWith("#/watch")) route(); }
+    else if (b.dataset.qt) { const [side, s] = b.dataset.qt.split(":"); quickTrade(s, side); }
+    else if (b.dataset.alert) alertBox(b.dataset.alert);
+    else if (b.dataset.cmp) { const L = cmpAdd(b.dataset.cmp); location.hash = `#/compare/${L.join(",")}`; }
+    else if (b.dataset.pal !== undefined) palette();
+  }, true);
+  let g = 0;
+  document.addEventListener("keydown", (e) => {
+    const ae = document.activeElement, typing = !!ae && (/TEXTAREA|SELECT/.test(ae.tagName) || ae.isContentEditable || (ae.tagName === "INPUT" && !/checkbox|radio|button|submit|range/.test(ae.type)));
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); palette(); return; }
+    if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === "/") { e.preventDefault(); palette(); return; }
+    if (e.key === "?") { e.preventDefault(); palette(""); return; }
+    if (e.key === "Escape") { $("#tbox")?.remove(); $("#pal")?.remove(); return; }
+    if (e.key === "g") { g = Date.now(); return; }
+    if (Date.now() - g < 1200) { const p = PAGES.find(([, , k]) => k === e.key); if (p) { location.hash = p[1]; g = 0; } }
+  });
+}
+
+// ================================================================ THEO DÕI (danh sách + cảnh báo) & LỊCH SỰ KIỆN
+async function viewWatch(sub) {
+  const [rows, t, ev, pfr, jr] = await Promise.all([screenerRows(), load("data/today.json"), tryLoad("data/events.json"), Store.get("portfolio"), Store.get("journal")]);
+  await WL.load();
+  const R = Object.fromEntries(rows.map((r) => [r.symbol, r]));
+  const hits = Object.fromEntries((t.alerts || []).map((a) => [a.id, a]));
+  const inStyles = (s) => STYLE_ORDER.filter((k) => (t.styles?.[k]?.picks || []).some((p) => p.symbol === s));
+  const watchStyles = (s) => STYLE_ORDER.filter((k) => (t.styles?.[k]?.watch || []).some((p) => p.symbol === s));
+  const pf = pfr.data || { holdings: [] };
+  const tabs = `<div class="views" style="margin-top:0"><a class="btn ${sub !== "calendar" ? "primary" : ""}" href="#/watch">Danh sách theo dõi</a><a class="btn ${sub === "calendar" ? "primary" : ""}" href="#/watch/calendar">Lịch sự kiện</a></div>`;
+  if (sub === "calendar") {
+    const mine = new Set([...(pf.holdings || []).map((h) => h.symbol), ...WL.data.items.map((x) => x.symbol)]);
+    const scope = lsGet("calScope", "mine");
+    const today = t.date;
+    const personal = [];
+    (pf.holdings || []).forEach((h) => {
+      const lb = h.last_buy || h.date;
+      if (lb) { const d = addTradingDays(lb, 2); if (d >= today) personal.push({ date: d, symbol: h.symbol, type: "t2", title: `Hàng về – bán được ${h.symbol} (mua ${lb})` }); }
+      if (h.date) { let d = h.date; for (let i = 0; i < 60; i++) d = addTradingDays(d, 1); if (d >= today) personal.push({ date: d, symbol: h.symbol, type: "review", title: `Đủ 60 phiên nắm ${h.symbol} – xem lại luận điểm` }); }
+    });
+    const all = [...(ev?.events || []), ...personal].filter((e) => scope === "all" || !e.symbol || mine.has(e.symbol) || e.type === "t2" || e.type === "review");
+    const by = {};
+    all.forEach((e) => (by[e.date] = by[e.date] || []).push(e));
+    const days = Object.keys(by).sort();
+    const up = days.filter((d) => d >= today), past = days.filter((d) => d < today).reverse().slice(0, 10);
+    const ico = { div_cash: "💵", div_stock: "📄", earnings: "📊", agm: "🏛", t2: "📦", review: "🔍" };
+    const dayBlock = (d) => `<div class="cal-d ${d === today ? "today" : ""}"><div class="cal-h"><b>${new Date(d + "T00:00:00").toLocaleDateString("vi-VN", { weekday: "short", day: "2-digit", month: "2-digit" })}</b><small>${d === today ? "hôm nay" : d > today ? `còn ${tradingDaysBetween(today, d)} phiên` : ""}</small></div>
+      ${by[d].map((e) => `<div class="cal-e ${e.type}">${ico[e.type] || "•"} ${e.symbol ? `<a href="#/s/${e.symbol}"><b>${e.symbol}</b></a> ` : ""}${esc(e.title)}${isNum(e.yield) ? ` <span class="pill buy">lợi suất ${nf(e.yield, 1)}%</span>` : ""}${e.symbol && mine.has(e.symbol) ? ' <span class="pill brand">của tôi</span>' : ""}</div>`).join("")}</div>`;
+    app().innerHTML = `${tabs}<div class="ph"><h1>Lịch sự kiện</h1><span class="seg" id="calS"><button data-v="mine" class="${scope === "mine" ? "on" : ""}">Mã của tôi</button><button data-v="all" class="${scope === "all" ? "on" : ""}">Tất cả</button></span>
+      <span class="meta">chốt quyền cổ tức đã công bố, hạn BCTC & ĐHCĐ, ngày hàng về T+2, hạn xem lại vị thế</span></div>
+      <div class="g g-main"><section class="panel"><div class="ph"><h2>Sắp tới</h2><span class="meta">${up.length} ngày có sự kiện</span></div>${up.length ? `<div class="cal">${up.map(dayBlock).join("")}</div>` : `<div class="empty">Không có sự kiện sắp tới${scope === "mine" ? " cho mã anh đang nắm/theo dõi – thử xem Tất cả" : ""}.</div>`}</section>
+      <section class="panel"><div class="ph"><h2>Vừa qua</h2></div>${past.length ? `<div class="cal">${past.map(dayBlock).join("")}</div>` : `<p class="muted">Không có.</p>`}
+        <p class="faint" style="font-size:.72rem;margin-top:8px">Lịch cổ tức lấy từ dữ liệu sự kiện của sàn, được tải dần theo lượt (chưa đủ mọi mã). Ngày giao dịch không hưởng quyền thường là 1 phiên trước ngày chốt.</p></section></div>`;
+    $$("#calS button").forEach((b) => (b.onclick = () => { lsSet("calScope", b.dataset.v); viewWatch("calendar"); }));
+    return;
+  }
+  const sortBy = lsGet("wlSort", "added");
+  const items = [...WL.data.items];
+  const near = (it) => { const r = R[it.symbol]; if (!r) return 999; const d = (it.alerts || []).filter((a) => a.active && isNum(a.value) && (a.type === "below" || a.type === "above")).map((a) => Math.abs(r.price / a.value - 1) * 100); return d.length ? Math.min(...d) : 999; };
+  if (sortBy === "chg") items.sort((a, b) => (R[b.symbol]?.chg1d ?? -99) - (R[a.symbol]?.chg1d ?? -99));
+  if (sortBy === "near") items.sort((a, b) => near(a) - near(b));
+  if (sortBy === "score") items.sort((a, b) => (R[b.symbol]?.composite ?? 0) - (R[a.symbol]?.composite ?? 0));
+  const card = (it) => {
+    const s = it.symbol, r = R[s] || {}, st = inStyles(s), ws = watchStyles(s);
+    const al = (it.alerts || []).map((a) => {
+      const hit = hits[a.id]; const dist = isNum(a.value) && isNum(r.price) ? (a.value / r.price - 1) * 100 : null;
+      return `<div class="al ${hit ? "hit" : ""} ${a.active ? "" : "off"}"><span>${a.type === "below" ? "≤" : a.type === "above" ? "≥" : a.type === "pct" ? "±" : "🛒"} ${a.type === "plan" ? "Vào danh sách MUA" : nf(a.value) + (a.type === "pct" ? "%" : "")}</span>
+        <small>${hit ? `<b class="ref">đã chạm ${esc(hit.date)}</b>` : isNum(dist) && a.type !== "pct" ? `còn ${pct(dist, 1)}` : ""}${a.note ? " · " + esc(a.note) : ""}</small>
+        <button class="chip" data-aoff="${s}|${a.id}">${a.active ? "Tắt" : "Bật"}</button><button class="chip" data-adel="${s}|${a.id}">✕</button></div>`;
+    }).join("");
+    return `<div class="wl"><div class="pk-head"><div><input type="checkbox" class="wsel" data-ws="${s}" aria-label="Chọn ${s} để so sánh"> <a class="sym" href="#/s/${s}">${s}</a>
+        ${st.map((k) => `<span class="pill buy">MUA · ${STYLE_SHORT[k]}</span>`).join(" ")}${ws.map((k) => `<span class="pill wait">chờ · ${STYLE_SHORT[k]}</span>`).join(" ")}
+        <small class="pk-name">${esc(r.name || "")} · ${esc(r.sector || "")} · theo dõi từ ${esc(it.added || "")}${isNum(it.price0) ? ` (giá ${nf(it.price0)})` : ""}</small></div>
+        <div class="pk-px">${mini(r.spk, { w: 90, h: 30 })}<div><b>${nf(r.price)}</b><small class="${cls(r.chg1d)}">${pct(r.chg1d, 1)}</small></div>${ring(r.composite, 34)}</div></div>
+      <div class="pk-facts"><div class="hlf"><small>P/E</small><b>${nf(r.pe, 1)}</b><small>ngành ${nf(r.pe_ind, 1)}</small></div><div><small>Định giá</small><b>${esc((r.verdict || "—").split(" – ")[0])}</b><small>hợp lý ${nf(r.fair)}</small></div>
+        <div><small>Kỹ thuật</small><b>${esc(r.ta_label || "—")}</b><small>xu hướng ${TREND_VI[r.trend] || "—"}</small></div><div><small>1 tháng · 1 năm</small><b class="${cls(r.chg1m)}">${pct(r.chg1m, 0)}</b><small class="${cls(r.chg1y)}">${pct(r.chg1y, 0)}</small></div></div>
+      ${al ? `<div class="als">${al}</div>` : ""}
+      <div class="wl-note"><input data-note="${s}" value="${esc(it.note || "")}" placeholder="Ghi chú của anh về mã này (lưu tự động)"></div>
+      <div class="pos-act"><button class="btn" data-alert="${s}">🔔 Đặt cảnh báo</button><button class="btn" data-qt="buy:${s}">Ghi lệnh mua</button><button class="btn" data-cmp="${s}">So sánh</button><button class="chip" data-star="${s}">Bỏ theo dõi</button></div></div>`;
+  };
+  app().innerHTML = `${tabs}<div class="ph"><h1>Theo dõi & cảnh báo</h1><span class="meta">${WL.data.items.length} mã · ${WL.remote ? "đồng bộ – Telegram đọc được" : "đang lưu trong trình duyệt này"}</span></div>
+    ${(t.alerts || []).length ? `<section class="panel hero"><div class="ph"><h2>🔔 Cảnh báo đã kích hoạt phiên ${esc(t.date)}</h2></div><div class="rows">${t.alerts.map((a) => row(`#/s/${a.symbol}`, a.symbol, esc(a.text) + (a.note ? " · " + esc(a.note) : ""), "", `<b>${nf(a.close)}</b>`, "")).join("")}</div></section>` : ""}
+    <section class="panel sec"><div class="filters"><div class="field w90"><label for="wAdd">Thêm mã</label><input id="wAdd" placeholder="FPT" autocapitalize="characters"></div><button class="btn primary" id="wAddB">Theo dõi</button>
+      <div class="field w140"><label for="wSort">Sắp xếp</label><select id="wSort">${[["added", "Mới thêm"], ["chg", "Tăng mạnh hôm nay"], ["near", "Gần cảnh báo nhất"], ["score", "Điểm cao nhất"]].map(([k, n]) => `<option value="${k}" ${k === sortBy ? "selected" : ""}>${n}</option>`).join("")}</select></div>
+      <button class="btn" id="wCmp" disabled>So sánh các mã đã chọn</button>
+      <span class="faint" style="font-size:.74rem">Gợi ý thêm: ${(t.plan?.picks || []).concat(t.plan?.watch || []).slice(0, 6).filter((p) => !WL.has(p.symbol)).map((p) => `<a href="#" data-wq="${p.symbol}">${p.symbol}</a>`).join(", ") || "—"}</span></div></section>
+    ${items.length ? `<div class="wlg sec">${items.map(card).join("")}</div>` : `<div class="empty sec">Chưa theo dõi mã nào. Bấm ☆ ở bất kỳ đâu (trang mã, bộ lọc, Hôm nay) hoặc nhập mã ở trên.</div>`}`;
+  const add = async (s) => { s = String(s || "").trim().toUpperCase(); if (!R[s]) { toast("Không thấy mã này"); return; } await WL.add(s, { price0: R[s].price }); toast(`Đã theo dõi ${s}`); viewWatch(); };
+  $("#wAddB").onclick = () => add($("#wAdd").value);
+  $("#wAdd").onkeydown = (e) => { if (e.key === "Enter") add($("#wAdd").value); };
+  $$("[data-wq]").forEach((a) => (a.onclick = (e) => { e.preventDefault(); add(a.dataset.wq); }));
+  $("#wSort").onchange = (e) => { lsSet("wlSort", e.target.value); viewWatch(); };
+  const upd = () => { const n = $$(".wsel").filter((x) => x.checked).length; $("#wCmp").disabled = n < 2; $("#wCmp").textContent = n >= 2 ? `So sánh ${n} mã đã chọn` : "So sánh các mã đã chọn (chọn 2–4)"; };
+  $$(".wsel").forEach((x) => (x.onchange = () => { if ($$(".wsel").filter((y) => y.checked).length > 4) { x.checked = false; toast("Tối đa 4 mã"); } upd(); }));
+  $("#wCmp").onclick = () => { const L = $$(".wsel").filter((x) => x.checked).map((x) => x.dataset.ws); lsSet("cmp", L); location.hash = `#/compare/${L.join(",")}`; };
+  upd();
+  $$("[data-note]").forEach((i) => (i.onchange = async () => { const it = WL.get(i.dataset.note); it.note = i.value.trim(); await WL.save(); toast("Đã lưu ghi chú"); }));
+  $$("[data-aoff]").forEach((b) => (b.onclick = async () => { const [s, id] = b.dataset.aoff.split("|"); const a = WL.get(s).alerts.find((x) => x.id === id); a.active = !a.active; if (a.active) a.id = "a" + Date.now().toString(36); await WL.save(); viewWatch(); }));
+  $$("[data-adel]").forEach((b) => (b.onclick = async () => { const [s, id] = b.dataset.adel.split("|"); const it = WL.get(s); it.alerts = it.alerts.filter((x) => x.id !== id); await WL.save(); viewWatch(); }));
+}
+
+// ================================================================ SO SÁNH 2–4 MÃ
+async function viewCompare(arg) {
+  const rows = await screenerRows();
+  const R = Object.fromEntries(rows.map((r) => [r.symbol, r]));
+  let syms = String(arg || "").toUpperCase().split(/[\s,]+/).filter((s) => R[s]).slice(0, 4);
+  if (!syms.length) syms = lsGet("cmp", []).filter((s) => R[s]);
+  lsSet("cmp", syms);
+  const D = {};
+  await Promise.all(syms.map(async (s) => { D[s] = await tryLoad(`data/stocks/${s}.json`); }));
+  const t = await load("data/today.json"), S = await secsData();
+  const per = lsGet("cmpPer", 250);
+  const first = syms[0] && R[syms[0]];
+  const sug = first ? rows.filter((x) => x.industry === first.industry && !syms.includes(x.symbol)).sort((a, b) => (b.mcap_bn || 0) - (a.mcap_bn || 0)).slice(0, 6) : [];
+  const COL = ["--brand", "--up", "--ref", "--ceil"];
+  // [nhãn, hàm lấy giá trị, định dạng, hướng tốt (1 cao tốt, -1 thấp tốt, 0 không so)]
+  const M = [
+    ["Định giá", null], ["P/E", (r) => (r.pe > 0 ? r.pe : null), (v) => nf(v, 1), -1], ["P/E ngành", (r) => r.pe_ind, (v) => nf(v, 1), 0], ["P/E so ngành", (r) => r.pe_vs_ind, (v) => vsCell(v), -1],
+    ["P/B", (r) => (r.pb > 0 ? r.pb : null), (v) => nf(v), -1], ["EV/EBITDA", (r) => (r.ev_ebitda > 0 ? r.ev_ebitda : null), (v) => nf(v, 1), -1], ["Giá trị hợp lý", (r) => r.fair, (v) => nf(v), 0], ["Tiềm năng", (r) => r.upside, (v) => `<span class="${cls(v)}">${pct(v, 0)}</span>`, 1],
+    ["Sinh lời & sức khoẻ", null], ["ROE", (r) => r.roe, (v) => pct(v, 1, false), 1], ["ROE TB 5 năm", (r) => r.roe_avg5, (v) => pct(v, 1, false), 1], ["Biên LN ròng", (r) => r.net_margin, (v) => pct(v, 1, false), 1], ["Vay/Vốn", (r) => r.de, (v) => nf(v), -1], ["F-Score", (r) => r.fscore, (v) => `${nf(v, 0)}/9`, 1], ["CFO/LN", (r) => r.cfo_ni, (v) => nf(v), 1],
+    ["Tăng trưởng", null], ["DT 12 tháng", (r) => r.rev_yoy, (v) => `<span class="${cls(v)}">${pct(v, 0)}</span>`, 1], ["LN 12 tháng", (r) => r.ni_yoy, (v) => `<span class="${cls(v)}">${pct(v, 0)}</span>`, 1], ["LN quý gần nhất", (r) => r.ni_q_yoy, (v) => `<span class="${cls(v)}">${pct(v, 0)}</span>`, 1], ["LN CAGR 3 năm", (r) => r.ni_cagr3, (v) => pct(v, 0), 1],
+    ["Cổ tức", null], ["Lợi suất", (r) => r.div_yield, (v) => pct(v, 1, false), 1], ["Năm trả liên tiếp", (r) => r.cash_years, (v) => nf(v, 0), 1],
+    ["Giá & kỹ thuật", null], ["1 tháng", (r) => r.chg1m, (v) => `<span class="${cls(v)}">${pct(v, 0)}</span>`, 1], ["1 năm", (r) => r.chg1y, (v) => `<span class="${cls(v)}">${pct(v, 0)}</span>`, 1], ["Cách đỉnh 52T", (r) => r.from_hi52, (v) => pct(v, 0), 1], ["Điểm kỹ thuật", (r) => r.ta_score, (v) => `${nf(v, 0)} <small>${""}</small>`, 1], ["RS", (r) => r.rs_rating, (v) => nf(v, 0), 1], ["Beta", (r) => r.beta, (v) => nf(v), -1], ["GTGD/ngày", (r) => r.avg_value_bn, (v) => bn(v), 1], ["Vốn hoá", (r) => r.mcap_bn, (v) => mcapFmt(v), 0],
+    ["Điểm phương pháp", null], ["Tổng hợp", (r) => r.composite, (v) => scoreCell(v), 1], ["Giá trị", (r) => r.value, (v) => scoreCell(v), 1], ["Chất lượng", (r) => r.quality, (v) => scoreCell(v), 1], ["Tăng trưởng", (r) => r.growth, (v) => scoreCell(v), 1], ["Cổ tức", (r) => r.dividend, (v) => scoreCell(v), 1], ["Động lượng", (r) => r.momentum, (v) => scoreCell(v), 1], ["SMC", (r) => r.smc, (v) => scoreCell(v), 1],
+  ];
+  const best = (f, dir) => { if (!dir) return null; const v = syms.map((s) => f(R[s])).filter(isNum); if (v.length < 2) return null; return dir > 0 ? Math.max(...v) : Math.min(...v); };
+  const planOf = (s) => STYLE_ORDER.map((k) => { const p = (t.styles?.[k]?.picks || []).find((x) => x.symbol === s), w = (t.styles?.[k]?.watch || []).find((x) => x.symbol === s); return p ? `<span class="pill buy">MUA · ${STYLE_SHORT[k]}</span>` : w ? `<span class="pill wait">chờ · ${STYLE_SHORT[k]}</span>` : ""; }).join(" ") || '<small class="faint">không trong kế hoạch</small>';
+  app().innerHTML = `<div class="ph"><h1>So sánh mã</h1><span class="meta">tối đa 4 mã · ô xanh = tốt nhất trong nhóm</span></div>
+    <section class="panel"><div class="filters">${syms.map((s) => `<span class="pill brand" style="font-size:.85rem">${s} <button class="chip" data-rm="${s}" aria-label="Bỏ ${s}">✕</button></span>`).join("")}
+      ${syms.length < 4 ? `<div class="field w90"><label for="cA">Thêm mã</label><input id="cA" placeholder="HPG" autocapitalize="characters"></div><button class="btn primary" id="cAB">Thêm</button>` : ""}
+      ${sug.length && syms.length < 4 ? `<span class="faint" style="font-size:.76rem">Cùng ngành ${esc(first.industry || "")}: ${sug.map((x) => `<a href="#" data-ca="${x.symbol}">${x.symbol}</a>`).join(", ")}</span>` : ""}</div></section>
+    ${syms.length < 2 ? `<div class="empty sec">Chọn ít nhất 2 mã để so sánh. Gợi ý: mở bộ lọc, tick nhiều mã rồi bấm "So sánh", hoặc gõ <b>so sánh FPT CMG</b> ở ô tìm nhanh (phím /).</div>` : `
+    <div class="cmp-heads sec" style="--n:${syms.length}">${syms.map((s, i) => { const r = R[s]; return `<section class="panel" style="border-top:3px solid var(${COL[i]})"><div class="pk-head"><div><a class="sym" href="#/s/${s}">${s}</a> ${starBtn(s)}<small class="pk-name">${esc(r.name || "")}</small></div><div class="pk-px"><div><b>${nf(r.price)}</b><small class="${cls(r.chg1d)}">${pct(r.chg1d, 1)}</small></div>${ring(r.composite, 34)}</div></div>
+      ${mini(r.spk, { w: 220, h: 34 }).replace('class="mini"', 'class="mini wide"')}<div class="tags" style="margin-top:4px">${planOf(s)}</div><small class="faint">${esc(r.sector || "")} · ${esc(r.verdict || "")}</small></section>`; }).join("")}</div>
+    <section class="panel sec"><div class="ph"><h2>Diễn biến giá (cùng gốc 100)</h2><span class="seg" id="cPer">${[[63, "3 tháng"], [126, "6 tháng"], [250, "1 năm"], [500, "2 năm"]].map(([n, l]) => `<button data-n="${n}" class="${n === per ? "on" : ""}">${l}</button>`).join("")}</span></div>
+      <div class="chart md" id="cChart"></div><div class="leg">${syms.map((s, i) => `<span><i style="background:var(${COL[i]})"></i>${s}</span>`).join("")}<span><i style="background:var(--ink-3)"></i>VN-Index</span></div></section>
+    <section class="panel flush sec"><div class="tw"><table class="cmpt"><thead><tr><th class="l"></th>${syms.map((s, i) => `<th style="color:var(${COL[i]})">${s}</th>`).join("")}</tr></thead><tbody>
+      ${M.map(([n, f, fm, dir]) => !f ? `<tr class="gh"><td class="l" colspan="${syms.length + 1}"><b>${n}</b></td></tr>` : (() => { const b = best(f, dir); return `<tr><td class="l">${n}</td>${syms.map((s) => { const v = f(R[s]); return `<td class="${isNum(b) && isNum(v) && v === b ? "best" : ""}">${isNum(v) ? fm(v) : "—"}</td>`; }).join("")}</tr>`; })()).join("")}
+      <tr class="gh"><td class="l" colspan="${syms.length + 1}"><b>Kế hoạch theo phong cách</b></td></tr>
+      ${STYLE_ORDER.map((k) => `<tr><td class="l">${STYLE_SHORT[k]}</td>${syms.map((s) => { const p = (t.styles?.[k]?.picks || []).find((x) => x.symbol === s) || (t.styles?.[k]?.watch || []).find((x) => x.symbol === s);
+        return `<td>${p ? `<small>${p.state === "now" ? '<b class="up">mua</b>' : '<b class="ref">chờ</b>'} ${nf(p.zone[0])}–${nf(p.zone[1])}<br>dừng ${nf(p.stop)} · MT ${nf(p.t1)}</small>` : '<small class="faint">—</small>'}</td>`; }).join("")}</tr>`).join("")}
+    </tbody></table></div></section>
+    <section class="panel sec"><div class="ph"><h2>P/E theo quý</h2></div><div id="cPE"></div></section>`}`;
+  const go = (L) => { location.hash = `#/compare/${L.join(",")}`; };
+  $$("[data-rm]").forEach((b) => (b.onclick = () => go(syms.filter((x) => x !== b.dataset.rm))));
+  const addS = (s) => { s = String(s || "").trim().toUpperCase(); if (!R[s]) { toast("Không thấy mã"); return; } go([...syms.filter((x) => x !== s), s].slice(0, 4)); };
+  if ($("#cAB")) { $("#cAB").onclick = () => addS($("#cA").value); $("#cA").onkeydown = (e) => { if (e.key === "Enter") addS($("#cA").value); }; }
+  $$("[data-ca]").forEach((a) => (a.onclick = (e) => { e.preventDefault(); addS(a.dataset.ca); }));
+  if (syms.length < 2) return;
+  const m = await tryLoad("data/market.json");
+  const drawC = () => {
+    disposeCharts();
+    const c = mkChart($("#cChart"));
+    const ser1 = (t_, c_, col, w) => { const n = Math.min(per, t_.length); const T = t_.slice(-n), V = c_.slice(-n); const b0 = V.find(isNum); c.addLineSeries({ color: col, lineWidth: w, priceLineVisible: false, lastValueVisible: true }).setData(T.map((d, i) => (isNum(V[i]) ? { time: d, value: (V[i] / b0) * 100 } : null)).filter(Boolean)); };
+    syms.forEach((s, i) => { const o = D[s]?.ohlc; if (o) ser1(o.t, o.c, css(COL[i]), 2); });
+    const vi = m?.indices?.VNINDEX?.ohlc; if (vi) ser1(vi.t, vi.c, css("--ink-3"), 1);
+    c.timeScale().fitContent();
+  };
+  drawC();
+  $$("#cPer button").forEach((b) => (b.onclick = () => { lsSet("cmpPer", Number(b.dataset.n)); $$("#cPer button").forEach((x) => x.classList.toggle("on", x === b)); viewCompare(syms.join(",")); }));
+  const labs = [...new Set(syms.flatMap((s) => (D[s]?.val_hist || []).map((x) => x.p)))];
+  const order = (p) => { const [q, y] = p.slice(1).split("/"); return Number(y) * 10 + Number(q); };
+  labs.sort((a, b) => order(a) - order(b));
+  $("#cPE").innerHTML = labs.length > 3 ? lineSvg(syms.map((s, i) => { const mp = Object.fromEntries((D[s]?.val_hist || []).map((x) => [x.p, x.pe])); return { name: s, color: css(COL[i]), width: 2, pts: labs.map((p) => ({ x: p, y: mp[p] })) }; }), { w: Math.max(340, Math.min(1200, $("#cPE").clientWidth || 640)), h: 220, label: "P/E theo quý" }) : `<p class="muted">Chưa đủ lịch sử P/E.</p>`;
+}
+
 // ================================================================ khởi động
 function initTheme() {
   const saved = lsGet("theme", null);
@@ -2574,7 +2923,8 @@ function initSearch() {
   box.addEventListener("click", () => { box.hidden = true; q.value = ""; });
 }
 (async function main() {
-  initTheme(); initSearch();
+  initTheme(); initSearch(); initGlobal();
+  WL.load().catch(() => {});
   try {
     const meta = await load("data/meta.json");
     window.__ver = meta.generated;

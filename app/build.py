@@ -30,7 +30,7 @@ from .analysis import technical as tech
 from .analysis import valuation as va
 from .analysis import forecast as fc
 from .data import store
-from .portfolio_store import apply_profile, load_holdings, load_overrides, load_profile
+from .portfolio_store import apply_profile, load_holdings, load_overrides, load_profile, load_watchlist
 
 log = logging.getLogger("build")
 INDEX_SYMS = {"VNINDEX", "HNXINDEX", "UPCOMINDEX", "VN30"}
@@ -452,7 +452,69 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     for key, key2 in (("elliott", "Elliott"), ("wyckoff", "Wyckoff"), ("dow", "Dow")):
         if isinstance(iw.get(key), dict):
             iw[key]["reliability"] = pstats_map.get(key2)
-    today = {"date": str(last_date.date()), "regime": regime, "plan": plan,
+    # ------------------------------------------------------------ cảnh báo giá (danh sách theo dõi)
+    alerts = []
+    f2 = lambda x: f"{x:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")  # noqa: E731
+    try:
+        plan_syms = {k: {p["symbol"] for p in sp["picks"]} for k, sp in style_plans.items()}
+        for it in load_watchlist():
+            s = str(it["symbol"]).upper()
+            if s not in g or g[s].empty:
+                continue
+            bar = g[s].iloc[-1]
+            if pd.Timestamp(g[s].index[-1]).normalize() != pd.Timestamp(last_date).normalize():
+                continue
+            prev_c = float(g[s]["close"].iloc[-2]) if len(g[s]) > 1 else float(bar["close"])
+            for a in it.get("alerts") or []:
+                if not a.get("active", True):
+                    continue
+                typ, val = a.get("type"), a.get("value")
+                hit, txt = False, ""
+                try:
+                    v = float(val) if val not in (None, "") else None
+                except (TypeError, ValueError):
+                    v = None
+                if typ == "below" and v and float(bar["low"]) <= v:
+                    hit, txt = True, f"giá chạm/giảm dưới {f2(v)} (thấp nhất {f2(float(bar['low']))}, đóng cửa {f2(float(bar['close']))})"
+                elif typ == "above" and v and float(bar["high"]) >= v:
+                    hit, txt = True, f"giá chạm/vượt {f2(v)} (cao nhất {f2(float(bar['high']))}, đóng cửa {f2(float(bar['close']))})"
+                elif typ == "pct" and v and prev_c and abs(float(bar["close"]) / prev_c - 1) * 100 >= v:
+                    hit, txt = True, f"biến động {100 * (float(bar['close']) / prev_c - 1):+.1f}% trong phiên"
+                elif typ == "plan" and s in plan_syms.get(a.get("style") or active_style, set()):
+                    hit, txt = True, f"vào danh sách MUA ({sty.STYLES.get(a.get('style') or active_style, {}).get('name', '')})"
+                if hit:
+                    alerts.append({"id": a.get("id") or f"{s}-{typ}-{val}", "symbol": s, "type": typ, "value": v, "text": txt,
+                                   "note": a.get("note") or it.get("note") or "", "close": round(float(bar["close"]), 2), "date": str(last_date.date())})
+    except Exception as e:  # noqa: BLE001
+        log.exception("Kiểm tra cảnh báo giá lỗi: %s", e)
+    # ------------------------------------------------------------ lịch sự kiện (cổ tức đã công bố + hạn nộp BCTC)
+    try:
+        dv = store.read("dividends")
+        evs = []
+        if not dv.empty:
+            dv["ex_date"] = pd.to_datetime(dv["ex_date"])
+            lo, hi = pd.Timestamp(last_date) - pd.Timedelta(days=45), pd.Timestamp(last_date) + pd.Timedelta(days=120)
+            for r in dv[(dv["ex_date"] >= lo) & (dv["ex_date"] <= hi)].itertuples():
+                px = float(u.at[r.symbol, "price"]) if r.symbol in u.index and pd.notna(u.at[r.symbol, "price"]) else None
+                cash = r.method == "cash"
+                evs.append({"date": str(r.ex_date.date()), "symbol": r.symbol, "type": "div_cash" if cash else "div_stock",
+                            "title": (f"Chốt quyền cổ tức tiền {r.cash_pct * 10000:,.0f}đ/cp".replace(",", ".") if cash else f"Chốt quyền cổ tức/thưởng cổ phiếu {r.cash_pct * 100:.0f}%"),
+                            "yield": round(r.cash_pct * 10 / px * 100, 2) if cash and px else None})
+        d0 = pd.Timestamp(last_date)
+        for y in (d0.year, d0.year + 1):
+            for q, (m_, dd_) in {1: (4, 30), 2: (7, 30), 3: (10, 30), 4: (1, 30)}.items():
+                yy = y + 1 if q == 4 else y
+                dt = pd.Timestamp(yy, m_, dd_)
+                if d0 - pd.Timedelta(days=15) <= dt <= d0 + pd.Timedelta(days=120):
+                    evs.append({"date": str((dt - pd.Timedelta(days=10)).date()), "symbol": "", "type": "earnings",
+                                "title": f"Hạn công bố BCTC quý {q}/{y} (riêng lẻ: 20 ngày, hợp nhất: 30 ngày sau quý)"})
+            agm = pd.Timestamp(d0.year + (1 if d0.month > 4 else 0), 4, 30)
+            if d0 <= agm <= d0 + pd.Timedelta(days=120):
+                evs.append({"date": str(agm.date()), "symbol": "", "type": "agm", "title": "Hạn tổ chức ĐHCĐ thường niên (trong 4 tháng sau năm tài chính)"})
+        dump(out_dir / "events.json", {"date": str(last_date.date()), "events": sorted(evs, key=lambda e: e["date"])})
+    except Exception as e:  # noqa: BLE001
+        log.exception("Lịch sự kiện lỗi: %s", e)
+    today = {"date": str(last_date.date()), "regime": regime, "plan": plan, "alerts": alerts,
              "allocation": cfg.get("allocation"), "risk": cfg.get("risk"), "capital": capital,
              "exposure_map": dict(mk.EXPOSURE), "strategy": cfg.get("strategy"),
              "style": active_style, "styles": {k: {**sp, **{x: sty.STYLES[k][x] for x in ("name", "horizon", "desc", "rules")}} for k, sp in style_plans.items()},

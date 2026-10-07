@@ -9,3 +9,5 @@ __pycache__/
 /portfolio.json
 /assumptions.json
 .DS_Store
+/watchlist.json
+/profile.json

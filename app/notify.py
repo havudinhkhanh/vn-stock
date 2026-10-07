@@ -60,8 +60,15 @@ def compose(today: dict) -> tuple[str | None, dict]:
     for w in pfo.get("warnings", []):
         if w not in prev.get("warnings", []):
             lines.append("⚠️ " + html.escape(w))
+    sent = set(prev.get("alerts_sent", []))
+    al_new = [a for a in today.get("alerts") or [] if f"{a['id']}@{a['date']}" not in sent and a["id"] not in sent]
+    if al_new:
+        lines.append("<b>🔔 CẢNH BÁO GIÁ</b>")
+        for a in al_new:
+            lines.append(f"• <b>{a['symbol']}</b>: {html.escape(a['text'])}" + (f"\n  <i>{html.escape(a['note'])}</i>" if a.get("note") else ""))
+    sent_ids = list(sent | {a["id"] for a in today.get("alerts") or []})[-500:]
     state = {"light": reg["light"], "picks": cur_syms,
-             "acts": {p["symbol"]: p["action"] for p in acts}, "warnings": pfo.get("warnings", [])}
+             "acts": {p["symbol"]: p["action"] for p in acts}, "warnings": pfo.get("warnings", []), "alerts_sent": sent_ids}
     if not lines and config.get("notify.only_when_action", True):
         return None, state
     head = (f"<b>VN-Stock {today['date']}</b> · Đèn {LIGHT[reg['light']]} · VN-Index "
