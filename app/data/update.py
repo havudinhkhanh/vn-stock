@@ -15,7 +15,7 @@ import pandas as pd
 
 from .. import config
 from . import kbs, normalize, store, vci, yahoo
-from .http import FetchError
+from .http import BREAKER, FetchError
 
 log = logging.getLogger("update")
 
@@ -118,6 +118,7 @@ def update_prices(symbols: list[str], workers: int = 4) -> pd.DataFrame:
         new = new.dropna(subset=["close"])
         new["volume"] = pd.to_numeric(new["volume"], errors="coerce").fillna(0)
     df = store.upsert("prices", new, ["symbol", "date"])
+    log.info("Thống kê request: %s", BREAKER.stats)
     store.touch("prices", sources=dict(used), rows=len(df),
                 last_date=str(df["date"].max().date()) if not df.empty else None)
     log.info("Giá: nguồn %s, tổng %d dòng", dict(used), len(df))
@@ -176,7 +177,7 @@ def update_financials(listing: pd.DataFrame, symbols: list[str], workers: int = 
         store.upsert("fin_y", allf[allf["quarter"] == 0], ["symbol", "year", "quarter"])
     if mark:
         store.touch("financials", sources=dict(used), symbols=len(symbols))
-    log.info("BCTC xong: %s", dict(used))
+    log.info("BCTC xong: %s · request: %s", dict(used), BREAKER.stats)
 
 
 def update_dividends(symbols: list[str], workers: int = 4, mark: bool = True) -> None:

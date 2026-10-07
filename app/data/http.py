@@ -72,8 +72,9 @@ def session() -> requests.Session:
     if s is None:
         s = requests.Session()
         retry = Retry(
-            total=int(__import__("os").environ.get("VNSTOCK_RETRIES", "4")),
-            backoff_factor=1.5,
+            total=int(__import__("os").environ.get("VNSTOCK_RETRIES", "3")),
+            backoff_factor=1.0,
+            respect_retry_after_header=False,
             status_forcelist=(429, 500, 502, 503, 504),
             allowed_methods=frozenset(["GET", "POST"]),
             raise_on_status=False,
@@ -96,8 +97,60 @@ class FetchError(RuntimeError):
     pass
 
 
+class Breaker:
+    """Cầu dao: nguồn lỗi liên tiếp quá nhiều thì tạm ngắt, tránh kẹt cả lần chạy."""
+
+    def __init__(self, limit: int = 12, cooldown: float = 240.0):
+        self.limit, self.cooldown = limit, cooldown
+        self.fails: dict[str, int] = {}
+        self.open_until: dict[str, float] = {}
+        self.lock = threading.Lock()
+        self.stats: dict[str, dict] = {}
+
+    def check(self, source: str):
+        with self.lock:
+            until = self.open_until.get(source, 0)
+        if until > time.monotonic():
+            raise FetchError(f"{source}: tạm ngắt do lỗi liên tiếp")
+
+    def ok(self, source: str):
+        with self.lock:
+            self.fails[source] = 0
+            self.stats.setdefault(source, {"ok": 0, "fail": 0, "tripped": 0})["ok"] += 1
+
+    def fail(self, source: str):
+        with self.lock:
+            n = self.fails.get(source, 0) + 1
+            self.fails[source] = n
+            st = self.stats.setdefault(source, {"ok": 0, "fail": 0, "tripped": 0})
+            st["fail"] += 1
+            if n >= self.limit:
+                self.open_until[source] = time.monotonic() + self.cooldown
+                self.fails[source] = 0
+                st["tripped"] += 1
+                log.warning("%s lỗi %d lần liên tiếp – tạm ngắt %ds", source, n, self.cooldown)
+
+
+BREAKER = Breaker()
+
+
 def request(source: str, method: str, url: str, *, params=None, payload=None,
-            timeout: int = 30, expect_json: bool = True):
+            timeout: int = 25, expect_json: bool = True):
+    BREAKER.check(source)
+    try:
+        res = _request(source, method, url, params=params, payload=payload, timeout=timeout,
+                       expect_json=expect_json)
+    except FetchError as e:
+        # 404 / dữ liệu rỗng là "không có dữ liệu", không phải nguồn hỏng
+        if "HTTP 404" not in str(e):
+            BREAKER.fail(source)
+        raise
+    BREAKER.ok(source)
+    return res
+
+
+def _request(source: str, method: str, url: str, *, params=None, payload=None,
+             timeout: int = 25, expect_json: bool = True):
     _THROTTLES.get(source, _THROTTLES["OTHER"]).wait()
     h = headers_for(source)
     try:
