@@ -25,6 +25,7 @@ from .analysis import vsa as vsa_
 from .analysis import patterns as pt
 from .analysis import portfolio as pf
 from .analysis import strategy as st
+from .analysis import styles as sty
 from .analysis import technical as tech
 from .analysis import valuation as va
 from .analysis import forecast as fc
@@ -337,6 +338,17 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     buyable = elig[~(elig["sector"].isin(xs) | elig["industry"].isin(xs) | elig.index.isin(xy))]
     members = st.basket_members(buyable, sc.loc[buyable.index], regime["light"])
     plan = st.plan(buyable, sc.loc[buyable.index], members, cfg, regime)
+    style_plans = {"position": plan}
+    for key, fn in (("swing", lambda: sty.plan_swing(buyable, g, regime)), ("long", lambda: sty.plan_long(buyable, sc.loc[buyable.index], regime, cfg)),
+                    ("income", lambda: sty.plan_income(buyable, regime))):
+        try:
+            style_plans[key] = fn()
+        except Exception as e:  # noqa: BLE001
+            log.exception("Kế hoạch phong cách %s lỗi: %s", key, e)
+            style_plans[key] = {"picks": [], "watch": [], "invested": 0, "cash": 100, "error": str(e)}
+    active_style = cfg.get("style") or "position"
+    if active_style not in style_plans:
+        active_style = "position"
     for b, ser in members.items():
         for s in ser.index:
             u.at[s, f"in_{b}"] = True
@@ -358,6 +370,14 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             res = bt.run(prices, fq, divs, listing, cfg)
             bt_path.write_text(json.dumps(_clean(res), ensure_ascii=False), encoding="utf-8")
             store.touch("backtest")
+            try:
+                log.info("Kiểm chứng từng phong cách (lướt sóng, dài hạn, cổ tức)…")
+                sbt = sty.backtest_styles(prices, fq, divs, listing, cfg, bt)
+                sbt["position"] = {k: (res.get("combo_regime") or {}).get(k) for k in ("cagr", "max_dd", "vol", "sharpe", "yearly", "curve", "win_years", "n_years")}
+                sbt["position"]["ok"] = bool(res.get("ok"))
+                store.path("styles_bt.json").write_text(json.dumps(_clean(sbt), ensure_ascii=False), encoding="utf-8")
+            except Exception as e:  # noqa: BLE001
+                log.exception("Kiểm chứng phong cách lỗi: %s", e)
             try:
                 log.info("Mô phỏng các mức khẩu vị (cắt lỗ × số mã)…")
                 grid = bt.profile_grid(prices, fq, divs, listing, cfg)
@@ -400,7 +420,12 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     dump(out_dir / "screener.json", {"cols": cols, "rows": scr.values.tolist()})
 
     pick_syms = {p["symbol"] for p in plan["picks"]}
-    for p in plan["picks"] + plan["watch"]:
+    plan = style_plans[active_style]
+    seen = set()
+    for p in [x for sp in style_plans.values() for x in sp["picks"] + sp["watch"]]:
+        if id(p) in seen:
+            continue
+        seen.add(id(p))
         rr = u.loc[p["symbol"]]
         p.update({"name": rr["name"], "price": rr["price"], "fair": rr.get("fair"), "upside": rr.get("upside"),
                   "fscore": rr.get("fscore"), "div_yield": rr.get("div_yield"), "pe": rr.get("pe"),
@@ -410,14 +435,14 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     try:
         flog = store.read("fwd_log")
         if not only:
-            new = fwd.log_rows(plan, regime, last_date)
+            new = pd.concat([fwd.log_rows(sp, regime, last_date, k) for k, sp in style_plans.items()], ignore_index=True)
             if not flog.empty:
                 flog["date"] = pd.to_datetime(flog["date"])
                 flog = flog[flog["date"] != pd.Timestamp(last_date).normalize()]
             flog = pd.concat([flog, new], ignore_index=True) if not new.empty else flog
             if not flog.empty:
                 store.write("fwd_log", flog.sort_values(["date", "kind", "symbol"]).reset_index(drop=True))
-        fres = fwd.evaluate(flog, wide, idx["close"])
+        fres = fwd.evaluate_styles(flog, wide, idx["close"])
     except Exception as e:  # noqa: BLE001
         log.exception("Theo dõi tín hiệu lỗi: %s", e)
         fres = {"ok": False, "reason": f"Lỗi khi đo: {e}"}
@@ -430,14 +455,16 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     today = {"date": str(last_date.date()), "regime": regime, "plan": plan,
              "allocation": cfg.get("allocation"), "risk": cfg.get("risk"), "capital": capital,
              "exposure_map": dict(mk.EXPOSURE), "strategy": cfg.get("strategy"),
+             "style": active_style, "styles": {k: {**sp, **{x: sty.STYLES[k][x] for x in ("name", "horizon", "desc", "rules")}} for k, sp in style_plans.items()},
              "profile": {"applied": prof_changed, "updated": (profile or {}).get("updated"),
                          "exclude_sectors": cfg.get("exclude_sectors") or [], "exclude_symbols": cfg.get("exclude_symbols") or []},
              "portfolio": advice}
     dump(out_dir / "today.json", today)
     dump(out_dir / "market.json", market)
     dump(out_dir / "backtest.json", backtest)
-    if store.path("profile_grid.json").exists():
-        shutil.copy(store.path("profile_grid.json"), out_dir / "profile_grid.json")
+    for fn in ("profile_grid.json", "styles_bt.json"):
+        if store.path(fn).exists():
+            shutil.copy(store.path(fn), out_dir / fn)
     dump(out_dir / "methods.json", {"methods": st.METHOD_INFO, "baskets": st.BASKETS,
                                     "weights": cfg.get("methods"), "pattern_stats": pstats})
     try:
@@ -489,6 +516,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             "levels": lv, "timing": {"ok": ok_t, "reason": why_t},
             "in_plan": s in pick_syms,
             "val_hist": _val_hist(fq_s),
+            "style_levels": sty.levels_for(r, d["df"], cfg),
             "beta": r.get("beta"),
             "mos": mos,
         }

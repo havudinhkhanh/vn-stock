@@ -16,7 +16,9 @@ const mcapFmt = (x) => !isNum(x) ? "—" : x >= 1e6 ? nf(x / 1e6, 2) + " triệu
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const enc = encodeURIComponent;
 const LIGHT_VI = { green: "Xanh", yellow: "Vàng", red: "Đỏ" };
-const BASKET_SHORT = { garp: "GARP", dividend: "Cổ tức", value: "Giá trị", defensive: "Phòng thủ", growth: "Tăng trưởng" };
+const BASKET_SHORT = { garp: "GARP", dividend: "Cổ tức", value: "Giá trị", defensive: "Phòng thủ", growth: "Tăng trưởng", swing: "Lướt sóng", long: "Dài hạn", income: "Cổ tức" };
+const STYLE_ORDER = ["swing", "position", "long", "income"];
+const STYLE_SHORT = { swing: "Lướt sóng", position: "Trung hạn", long: "Dài hạn", income: "Cổ tức" };
 const TREND_VI = { up: "Tăng", side: "Đi ngang", down: "Giảm" };
 const QUAD_COLOR = { "Dẫn dắt": "--up", "Suy yếu": "--ref", "Tụt hậu": "--down", "Cải thiện": "--floor" };
 const qcol = (q) => css(QUAD_COLOR[q] || "--ink-3");
@@ -141,7 +143,7 @@ async function screenerRows() {
   const i3 = Object.fromEntries((S.industry || []).map((x) => [x.name, x])), s2 = Object.fromEntries((S.sector || []).map((x) => [x.name, x]));
   SCREENER.forEach((r) => { const b = i3[r.industry] || s2[r.sector]; r.pe_ind = b?.pe_med ?? null; r.pb_ind = b?.pb_med ?? null;
     r.pe_vs_ind = vsPct(r.pe, r.pe_ind); r.pe_vs_mkt = vsPct(r.pe, M.pe_med); r.pb_vs_ind = vsPct(r.pb, r.pb_ind); });
-  SCREENER.forEach((r) => { if (isNum(r.ret_6m)) r.ret_6m_pct = r.ret_6m * 100; if (isNum(r.ret_12_1)) r.ret_12_1_pct = r.ret_12_1 * 100; if (isNum(r.vol_1y)) r.vol_1y_pct = r.vol_1y * 100; if (isNum(r.payout)) r.payout_pct = r.payout * 100; });
+  SCREENER.forEach((r) => { if (isNum(r.ret_6m)) r.ret_6m_pct = r.ret_6m * 100; if (isNum(r.ret_12_1)) r.ret_12_1_pct = r.ret_12_1 * 100; if (isNum(r.vol_1y)) r.vol_1y_pct = r.vol_1y * 100; if (isNum(r.payout)) r.payout_pct = r.payout; });
   return SCREENER;
 }
 // Độ tin cậy đo trên dữ liệu VN (backtest.pattern_stats) – tra theo tên tín hiệu
@@ -420,13 +422,13 @@ function ladder(p) {
     ${isNum(p.t1) ? `<i class="lk" style="left:${X(p.t1)}%"></i>` : ""}${isNum(p.t2) ? `<i class="lk" style="left:${X(p.t2)}%"></i>` : ""}${isNum(p.stop) ? `<i class="lk stop" style="left:${X(p.stop)}%"></i>` : ""}
     <i class="lp" style="left:${X(px)}%"><em>${nf(px)}</em></i>
     ${(() => { // nhãn: tránh chồng nhau bằng cách xuống dòng thứ 2
-      const L = [[X(p.stop), `cắt lỗ ${nf(p.stop)}`, ""], [(X(z0) + X(z1)) / 2, `mua ${nf(z0)}–${nf(z1)}`, "c"]];
+      const L = [[X(p.stop), `${p.stop_label || "cắt lỗ"} ${nf(p.stop)}`, ""], [(X(z0) + X(z1)) / 2, `mua ${nf(z0)}–${nf(z1)}`, "c"]];
       if (isNum(p.t1)) L.push([X(p.t1), `MT1 ${nf(p.t1)}`, "c"]);
       if (isNum(p.t2)) L.push([X(p.t2), `MT2 ${nf(p.t2)}`, "r"]);
       const last = [-99, -99];
       return L.sort((a, b) => a[0] - b[0]).map(([x, txt, al]) => { const w = txt.length * 0.9; let rw = x - last[0] > w ? 0 : x - last[1] > w ? 1 : 0; last[rw] = x; return `<span class="ll ${al}" style="left:${x}%;top:${29 + rw * 12}px">${txt}</span>`; }).join("");
     })()}
-  </div><div class="lleg"><span class="down">cắt lỗ ${nf(p.stop)}</span> · <span class="up">mua ${nf(z0)}–${nf(z1)}</span>${isNum(p.t1) ? ` · MT1 ${nf(p.t1)}` : ""}${isNum(p.t2) ? ` · MT2 ${nf(p.t2)}` : ""}</div>`;
+  </div><div class="lleg"><span class="down">${p.stop_label || "cắt lỗ"} ${nf(p.stop)}</span> · <span class="up">mua ${nf(z0)}–${nf(z1)}</span>${isNum(p.t1) ? ` · MT1 ${nf(p.t1)}` : ""}${isNum(p.t2) ? ` · MT2 ${nf(p.t2)}` : ""}</div>`;
 }
 
 async function viewToday() {
@@ -460,10 +462,11 @@ async function viewToday() {
       ${ladder(p)}
       <div class="pk-facts">
         <div><small>Tỷ trọng</small><b>${nf(p.weight, 1)}% vốn</b>${sh ? `<small>≈ ${nf(sh, 0)} cp</small>` : ""}</div>
-        <div><small>Lời / lỗ kỳ vọng</small><b>${nf(p.rr, 1)} lần</b><small>${pct(p.t1_pct, 0)} / ${pct(p.stop_pct, 0)}</small></div>
+        <div><small>Lời / lỗ kỳ vọng</small><b>${isNum(p.rr) ? nf(p.rr, 1) + " lần" : "—"}</b><small>${pct(p.t1_pct, 0)} / ${pct(p.stop_pct, 0)}</small></div>
         <div class="hlf"><small>P/E</small><b>${nf(p.pe, 1)}</b><small>ngành ${nf(r.pe_ind, 1)} · TT ${nf(MV.pe_med, 1)}</small></div>
         <div><small>ROE · F-Score</small><b>${nf(p.roe, 0)}% · ${nf(p.fscore, 0)}/9</b><small>cổ tức ${nf(p.div_yield, 1)}%</small></div>
       </div>
+      ${p.setup || p.tranches || p.exit_note ? `<div class="tags">${p.setup ? `<span class="pill brand">${esc(p.setup)}</span>` : ""}${p.tranches ? `<span class="pill">Mua dần: ${p.tranches.map((x) => nf(x)).join(" → ")}</span>` : ""}${isNum(p.yield) ? `<span class="pill buy">Cổ tức ${nf(p.yield, 1)}% · ${nf(p.dps, 0)} đ/cp</span>` : ""}${p.exit_note ? `<span class="pill">${esc(p.exit_note)}</span>` : ""}</div>` : ""}
       <p class="why">${inZone ? '<b class="up">Giá đang trong vùng mua.</b> ' : '<b class="ref">Chờ giá về vùng mua.</b> '}${esc(p.why || "")}</p></a>`;
   };
   const sellCard = (p) => `<a class="pick ${p.severity >= 2 ? "sell" : "wait"}" href="#/s/${p.symbol}">
@@ -496,14 +499,8 @@ async function viewToday() {
   <div class="g g-main sec">
     <div class="stack">
       ${sells.length ? `<section class="panel" id="secSell"><div class="ph"><h2>Danh mục – cần xử lý</h2><span class="meta">${sells.length} mã</span></div><div class="picks">${sells.map(sellCard).join("")}</div></section>` : ""}
-      <section class="panel" id="secBuy"><div class="ph"><h2>Mua theo kế hoạch</h2><span class="meta">${plan.picks.length} mã · ${nf(plan.invested, 0)}% vốn${capital ? ` · vốn ${big(capital)}` : ""}</span></div>
-        ${plan.picks.length ? `<div class="picks">${plan.picks.map(pickCard).join("")}</div>` : `<div class="empty">Hôm nay không mã nào đạt đủ điều kiện mua – giữ tiền mặt.</div>`}
-        ${!capital ? `<p class="faint" style="font-size:.76rem;margin-top:6px"><a href="#/portfolio">Nhập vốn</a> để thấy số cổ phiếu cần mua cho từng mã.</p>` : ""}</section>
+      <div id="planBox"></div>
       ${holds.length ? `<section class="panel"><div class="ph"><h2>Đang nắm – giữ nguyên</h2><span class="meta">${holds.length} mã</span></div><div class="rows">${holds.map((p) => row(`#/s/${p.symbol}`, p.symbol, esc((p.reasons || []).join("; ")), mini(R[p.symbol]?.spk), `<b class="${cls(p.pnl_pct)}">${pct(p.pnl_pct)}</b>`, "lãi/lỗ")).join("")}</div></section>` : ""}
-      ${plan.watch.length ? `<section class="panel" id="secWatch"><div class="ph"><h2>Chờ điểm mua</h2><span class="meta">tốt nhưng giá hoặc xu hướng chưa đạt</span></div><div class="rows">
-        ${plan.watch.map((w) => { const r = R[w.symbol] || {}; const dist = isNum(w.price) && isNum(w.zone?.[1]) ? (w.price / w.zone[1] - 1) * 100 : null;
-          return row(`#/s/${w.symbol}`, `${w.symbol} <span class="pill">${esc(BASKET_SHORT[w.basket] || w.basket)}</span>`, esc(w.reason), `<div class="r-mid">${mini(r.spk)}${ring(w.score, 28)}</div>`,
-            `<b>${nf(w.price)}</b>`, isNum(dist) ? (dist <= 1 ? `<b class="up">đang trong vùng mua</b>` : `cao hơn vùng mua <b class="ref">${nf(dist, 0)}%</b>`) : ""); }).join("")}</div></section>` : ""}
     </div>
 
     <div class="stack">
@@ -526,6 +523,25 @@ async function viewToday() {
     </div>
   </div>
   <p class="faint" style="margin-top:14px;font-size:.72rem">Cập nhật ${esc(meta.generated)} · ${nf(meta.symbols, 0)} mã · ${nf(meta.deep, 0)} mã phân tích sâu · Công cụ hỗ trợ ra quyết định, không phải lời khuyên đầu tư có giấy phép.</p>`;
+  const ST = t.styles || { position: { ...plan, name: "Trung hạn theo xu hướng" } };
+  const drawPlan = (sel) => {
+    const P = ST[sel] || plan, act = (t.style || "position") === sel;
+    $("#planBox").innerHTML = `<section class="panel" id="secBuy"><div class="ph"><h2>Mua theo kế hoạch</h2>
+        <span class="seg" id="stySel">${STYLE_ORDER.filter((k) => ST[k]).map((k) => `<button data-sty="${k}" class="${k === sel ? "on" : ""}">${STYLE_SHORT[k]}${(t.style || "position") === k ? " ●" : ""}</button>`).join("")}</span>
+        <span class="meta">${P.picks.length} mã · ${nf(P.invested, 0)}% vốn${capital ? ` · vốn ${big(capital)}` : ""}</span></div>
+      <p class="faint" style="font-size:.76rem;margin:-2px 0 8px">${esc(P.name || "")}${P.horizon ? ` · nắm ${esc(P.horizon)}` : ""} · ${act ? '<b class="up">đang áp dụng</b> (Telegram và danh mục theo phong cách này)' : `xem thử – <a href="#/portfolio/profile">đổi sang phong cách này</a>`}</p>
+      ${P.note ? `<p class="note" style="margin-bottom:8px">${esc(P.note)}</p>` : ""}
+      ${P.picks.length ? `<div class="picks">${P.picks.map(pickCard).join("")}</div>` : `<div class="empty">Hôm nay không mã nào đạt đủ điều kiện cho phong cách này – giữ tiền mặt.</div>`}
+      ${!capital ? `<p class="faint" style="font-size:.76rem;margin-top:6px"><a href="#/portfolio">Nhập vốn</a> để thấy số cổ phiếu cần mua cho từng mã.</p>` : ""}
+      ${P.rules ? `<details class="sec"><summary>Quy tắc vào/ra của phong cách ${esc(STYLE_SHORT[sel])}</summary><ul class="checks">${P.rules.map((x) => `<li class="ok">${esc(x)}</li>`).join("")}</ul></details>` : ""}</section>
+      ${P.watch.length ? `<section class="panel sec" id="secWatch"><div class="ph"><h2>Chờ điểm mua</h2><span class="meta">${esc(STYLE_SHORT[sel])} · tốt nhưng giá hoặc điều kiện chưa đạt</span></div><div class="rows">
+        ${P.watch.map((w) => { const r = R[w.symbol] || {}; const dist = isNum(w.price) && isNum(w.zone?.[1]) ? (w.price / w.zone[1] - 1) * 100 : null;
+          return row(`#/s/${w.symbol}`, `${w.symbol} <span class="pill">${esc(BASKET_SHORT[w.basket] || w.basket)}</span>`, esc(w.reason), `<div class="r-mid">${mini(r.spk)}${ring(w.score, 28)}</div>`,
+            `<b>${nf(w.price)}</b>`, isNum(dist) ? (dist <= 1 ? `<b class="up">đang trong vùng mua</b>` : `cao hơn vùng mua <b class="ref">${nf(dist, 0)}%</b>`) : ""); }).join("")}</div></section>` : ""}`;
+    $$("#stySel button").forEach((b) => (b.onclick = () => { lsSet("todayStyle", b.dataset.sty); drawPlan(b.dataset.sty); }));
+  };
+  const s0 = lsGet("todayStyle", null);
+  drawPlan(ST[s0] ? s0 : t.style || "position");
   runNow(meta);
 }
 
@@ -1413,7 +1429,8 @@ async function viewScreener(arg) {
 
 // ================================================================ KIỂM CHỨNG (BACKTEST)
 async function viewBacktest() {
-  const [b, meth, t, secs, F] = await Promise.all([load("data/backtest.json"), load("data/methods.json"), load("data/today.json"), tryLoad("data/sectors.json"), tryLoad("data/fwd.json")]);
+  const [b, meth, t, secs, F, SB] = await Promise.all([load("data/backtest.json"), load("data/methods.json"), load("data/today.json"), tryLoad("data/sectors.json"), tryLoad("data/fwd.json"), tryLoad("data/styles_bt.json")]);
+  const SBs = SB;
   if (!b.ok) { app().innerHTML = `<h1>Kiểm chứng</h1><div class="empty">${esc(b.reason || "Backtest chưa chạy – sẽ có sau lượt chạy cuối tuần.")}</div>`; return; }
   const series = [["combo", b.combo, css("--brand")], ["combo_regime", b.combo_regime, css("--up")], ["bench", b.benchmark, css("--ink-3")]];
   const bas = Object.entries(b.baskets);
@@ -1421,11 +1438,19 @@ async function viewBacktest() {
   const statRow = (name, s, c) => `<tr><td class="l"><i class="quad" style="background:${c || "transparent"}"></i>${esc(name)}</td><td class="${cls(s.cagr)}"><b>${pct(s.cagr)}</b></td><td class="down">${pct(s.max_dd)}</td><td>${nf(s.vol, 1)}%</td><td>${nf(s.sharpe)}</td><td>${s.win_years ?? "—"}/${s.n_years ?? "—"}</td><td>${s.avg_count ?? ""}</td></tr>`;
   const years = [...new Set([b.benchmark, b.combo, ...bas.map(([, v]) => v)].flatMap((s) => Object.keys(s.yearly || {})))].sort();
   const ps = meth.pattern_stats || {};
-  const SB = Object.entries(b.sectors || secs?.backtest || {}).sort((x, y) => (y[1].alpha ?? -99) - (x[1].alpha ?? -99));
+  const SECB = Object.entries(b.sectors || secs?.backtest || {}).sort((x, y) => (y[1].alpha ?? -99) - (x[1].alpha ?? -99));
   const grp = (k) => k.startsWith("SMC") ? "SMC" : k.startsWith("VSA") ? "VSA" : k.startsWith("Wyckoff") ? "Wyckoff" : ["Elliott", "Dow", "Harmonic"].includes(k) ? "Sóng" : "Mô hình giá";
   const pst = Object.entries(ps.stats || {});
   app().innerHTML = `
   ${fwdSection(F)}
+  ${SB ? `<section class="panel sec"><div class="ph"><h2>So sánh các phong cách đầu tư</h2><span class="meta">cùng giai đoạn, đã trừ phí · <a href="#/portfolio/profile">chọn phong cách</a></span></div>
+    <div class="tw"><table data-hm="c5 c6"><thead><tr><th class="l">Phong cách</th><th>Lãi kép/năm</th><th>Sụt tối đa</th><th>Sharpe</th><th>Biến động</th><th class="l">Ghi chú</th></tr></thead><tbody>
+    ${STYLE_ORDER.filter((k) => SB[k]?.ok).map((k) => { const x = SB[k]; return `<tr class="${(t.style || "position") === k ? "hl" : ""}"><td class="l"><b>${esc(STYLE_SHORT[k])}</b>${(t.style || "position") === k ? ' <span class="pill buy">đang dùng</span>' : ""}</td>
+      <td class="${cls(x.cagr)}"><b>${pct(x.cagr, 1)}</b></td><td class="down">${pct(x.max_dd, 1)}</td><td>${nf(x.sharpe)}</td><td>${nf(x.vol, 0)}%</td>
+      <td class="l"><small>${k === "swing" ? `${nf(x.trades_per_year, 0)} lệnh/năm · thắng ${nf(x.win_rate, 0)}% · lãi TB/lệnh ${pct(x.avg_ret, 2)} · nắm TB ${nf(x.avg_days, 0)} phiên` : k === "position" ? "rổ GARP/Tăng trưởng/Phòng thủ + đèn" : k === "long" ? "GARP/Phòng thủ/Cổ tức, không lọc xu hướng chặt, không cắt lỗ" : "Cổ tức/Phòng thủ, không cắt lỗ"}</small></td></tr>`; }).join("")}
+      <tr class="mk"><td class="l">VN-Index</td><td class="${cls(b.benchmark?.cagr)}">${pct(b.benchmark?.cagr, 1)}</td><td class="down">${pct(b.benchmark?.max_dd, 1)}</td><td>${nf(b.benchmark?.sharpe)}</td><td>${nf(b.benchmark?.vol, 0)}%</td><td></td></tr></tbody></table></div>
+    <div class="chart sm sec" id="styChart"></div><div class="leg">${STYLE_ORDER.filter((k) => SB[k]?.curve).map((k, i) => `<span><i style="background:var(--a${i})"></i>${STYLE_SHORT[k]}</span>`).join("")}<span><i style="background:var(--ink-3)"></i>VN-Index</span></div>
+    <p class="faint" style="font-size:.72rem;margin-top:4px">Lướt sóng mô phỏng theo ngày (mua giá mở cửa phiên sau tín hiệu, tôn trọng T+2, cắt lỗ/chốt lời/thoát theo thời gian); chưa dùng bộ lọc cơ bản tại thời điểm quá khứ.</p></section>` : ""}
   <div class="ph sec"><h1>Kiểm chứng bằng dữ liệu quá khứ</h1><span class="meta">${esc(b.start)} → ${esc(b.end)} · ${b.months} tháng · tái cơ cấu hằng tháng, chỉ dùng thông tin đã có tại thời điểm đó</span></div>
   ${kpis([["Hệ thống + đèn / năm", pct(b.combo_regime.cagr), cls(b.combo_regime.cagr)], ["Sụt tối đa", pct(b.combo_regime.max_dd), "down"], ["VN-Index / năm", pct(b.benchmark.cagr), cls(b.benchmark.cagr)],
     ["VN-Index sụt", pct(b.benchmark.max_dd), "down"], ["Sharpe", nf(b.combo_regime.sharpe)], ["Mục tiêu / năm", "30%"], ["Chấp nhận sụt", (t.risk?.max_drawdown_target ?? 25) + "%"]], true)}
@@ -1443,8 +1468,8 @@ async function viewBacktest() {
       `<tr><td class="l">${esc(n)}</td>${years.map((y) => `<td class="${cls(s.yearly?.[y])}">${pct(s.yearly?.[y], 0)}</td>`).join("")}</tr>`).join("")}</tbody></table></div></section>
   <div class="g g2 sec">
     <section class="panel flush"><div class="ph"><h2>Chọn mã trong từng ngành</h2><span class="meta">top 3 "Tốt nhất ngành" vs mua đều cả ngành</span></div>
-      ${SB.length ? `<div class="tw"><table><thead><tr><th class="l">Ngành</th><th>Top 3/năm</th><th>Cả ngành/năm</th><th>Alpha</th><th>Sụt top 3</th><th>Số mã</th><th class="l">Chọn gần nhất</th></tr></thead><tbody>
-        ${SB.map(([n, s]) => `<tr><td class="l"><a href="#/sector/${enc(n)}">${esc(n)}</a></td><td class="${cls(s.top?.cagr)}">${pct(s.top?.cagr)}</td><td class="${cls(s.all?.cagr)}">${pct(s.all?.cagr)}</td>
+      ${SECB.length ? `<div class="tw"><table><thead><tr><th class="l">Ngành</th><th>Top 3/năm</th><th>Cả ngành/năm</th><th>Alpha</th><th>Sụt top 3</th><th>Số mã</th><th class="l">Chọn gần nhất</th></tr></thead><tbody>
+        ${SECB.map(([n, s]) => `<tr><td class="l"><a href="#/sector/${enc(n)}">${esc(n)}</a></td><td class="${cls(s.top?.cagr)}">${pct(s.top?.cagr)}</td><td class="${cls(s.all?.cagr)}">${pct(s.all?.cagr)}</td>
           <td class="${cls(s.alpha)}"><b>${pct(s.alpha)}</b></td><td class="down">${pct(s.top?.max_dd, 0)}</td><td>${nf(s.avg_n, 0)}</td><td class="l">${(s.last_picks || []).map((x) => `<a href="#/s/${x}">${x}</a>`).join(" ") || "—"}</td></tr>`).join("")}</tbody></table></div>
         <p class="faint" style="font-size:.74rem;padding:6px 12px">Alpha dương = ở ngành đó, chọn mã theo cơ bản + xu hướng thật sự có ích. Alpha âm = khó chọn mã, nên coi trọng thời điểm vào ngành.</p>`
         : `<p class="muted" style="padding:0 12px 12px">Có sau lượt backtest kế tiếp.</p>`}</section>
@@ -1461,6 +1486,12 @@ async function viewBacktest() {
   };
   drawPT("Tất cả");
   drawFwd(F);
+  if (SB && $("#styChart")) {
+    const c2 = mkChart($("#styChart"), { rightPriceScale: { mode: 1, borderColor: css("--line") } });
+    STYLE_ORDER.filter((k) => SB[k]?.curve).forEach((k, i) => c2.addLineSeries({ color: css("--a" + i) || css("--brand"), lineWidth: 2, priceLineVisible: false, lastValueVisible: false }).setData(SB[k].curve.map((p) => ({ time: p.d, value: p.v }))));
+    c2.addLineSeries({ color: css("--ink-3"), lineWidth: 1, priceLineVisible: false, lastValueVisible: false }).setData(b.benchmark.curve.map((p) => ({ time: p.d, value: p.v })));
+    c2.timeScale().fitContent();
+  }
   $$("#pg button").forEach((x) => (x.onclick = () => { $$("#pg button").forEach((y) => y.classList.toggle("on", y === x)); drawPT(x.dataset.g); }));
   const c = mkChart($("#btChart"), { rightPriceScale: { mode: 1, borderColor: css("--line") } });
   const add = (s, color, w = 2) => { const l = c.addLineSeries({ color, lineWidth: w, priceLineVisible: false, lastValueVisible: false }); l.setData(s.curve.map((p) => ({ time: p.d, value: p.v }))); };
@@ -1520,7 +1551,8 @@ async function viewStock(sym, tabArg) {
     </div>
     <div class="stack">
       ${valCtx(d, secs || {})}
-      <section class="panel"><div class="ph"><h2>Kế hoạch giao dịch</h2><span class="meta">${d.timing?.ok ? '<b class="up">đủ điều kiện kỹ thuật</b>' : '<b class="ref">chưa đến lúc</b>'}</span></div>
+      ${styleLevels(d)}
+      <section class="panel" id="planPos" hidden><div class="ph"><h2>Kế hoạch giao dịch</h2><span class="meta">${d.timing?.ok ? '<b class="up">đủ điều kiện kỹ thuật</b>' : '<b class="ref">chưa đến lúc</b>'}</span></div>
         ${lv ? kpis([["Vùng mua", `${nf(lv.zone[0])}–${nf(lv.zone[1])}`], ["Cắt lỗ", `${nf(lv.stop)} <small>${pct(lv.stop_pct, 0)}</small>`, "down"], ["Mục tiêu 1", `${nf(lv.t1)} <small>${pct(lv.t1_pct, 0)}</small>`, "up"], ["Mục tiêu 2", nf(lv.t2), "up"], ["Lời / lỗ", nf(lv.rr, 1) + "x"], ["Trạng thái", lv.state === "now" ? "Mua được" : "Chờ giá"]], false, "c2")
           : `<p class="muted">Chưa có kế hoạch (thiếu định giá hoặc kỹ thuật).</p>`}
         ${d.timing && !d.timing.ok ? `<p class="note" style="margin-top:6px">${esc(d.timing.reason)}</p>` : ""}</section>
@@ -1633,8 +1665,31 @@ async function viewStock(sym, tabArg) {
   };
   $$(".subtabs button").forEach((b) => (b.onclick = () => { history.replaceState(null, "", `#/s/${sym}/${b.dataset.t}`); show(b.dataset.t); }));
   show(tabs[tabArg] ? tabArg : "ov");
+  bindStyleLevels();
 }
 
+function styleLevels(d) {
+  const L = d.style_levels || {}, lv = d.levels, sel0 = lsGet("stockStyle", "position");
+  const body = (k) => {
+    if (k === "position") return lv ? `${kpis([["Vùng mua", `${nf(lv.zone[0])}–${nf(lv.zone[1])}`], ["Cắt lỗ", `${nf(lv.stop)} <small>${pct(lv.stop_pct, 0)}</small>`, "down"], ["Mục tiêu 1", `${nf(lv.t1)} <small>${pct(lv.t1_pct, 0)}</small>`, "up"], ["Mục tiêu 2", nf(lv.t2), "up"], ["Lời / lỗ", nf(lv.rr, 1) + "x"], ["Trạng thái", lv.state === "now" ? "Mua được" : "Chờ giá"]], false, "c2")}
+      ${d.timing && !d.timing.ok ? `<p class="note" style="margin-top:6px">${esc(d.timing.reason)}</p>` : `<p class="faint" style="font-size:.74rem;margin-top:4px">Đủ điều kiện xu hướng. Nắm 1–6 tháng, cắt lỗ tối đa 20%.</p>`}` : `<p class="muted">Chưa có kế hoạch (thiếu định giá hoặc kỹ thuật).</p>`;
+    const x = L[k] || {};
+    if (x.none) return `<p class="muted">${esc(x.reason)}</p>`;
+    if (k === "swing") return `${kpis([["Điểm vào", `${nf(x.zone[0])}–${nf(x.zone[1])}`], ["Cắt lỗ", `${nf(x.stop)} <small>${pct(x.stop_pct, 1)}</small>`, "down"], ["Mục tiêu 1", `${nf(x.t1)} <small>${pct(x.t1_pct, 0)}</small>`, "up"], ["Mục tiêu 2", nf(x.t2), "up"]], false, "c2")}
+      <p style="font-size:.78rem;margin-top:6px"><span class="pill brand">${esc(x.setup)}</span> ${esc(x.exit_note || "")}. Hàng về T+2.</p>`;
+    if (k === "long") return `${kpis([["Vùng tích luỹ", `${nf(x.zone[0])}–${nf(x.zone[1])}`], ["Trạng thái", x.state === "now" ? "Đang rẻ – mua dần" : "Chờ giá", x.state === "now" ? "up" : "ref"], ["Mua dần 3 lần", x.tranches.map((y) => nf(y)).join(" → ")], ["Xem lại luận điểm", nf(x.review), "down"], ["Giá trị hợp lý", nf(x.t1), "up"], ["Bán một phần từ", nf(x.t1 * 1.2), "up"]], false, "c2")}
+      <p class="faint" style="font-size:.74rem;margin-top:4px">Không cắt lỗ theo giá – chỉ bán khi luận điểm gãy hoặc giá vượt xa giá trị.</p>`;
+    if (k === "income") return `${kpis([["Cổ tức tiền mặt", `${nf(x.yield, 1)}% <small>${nf(x.dps, 0)} đ/cp</small>`, x.yield >= 6 ? "up" : ""], ["Năm trả liên tiếp", nf(x.cash_years, 0)], ["Mua khi giá ≤", `${nf(x.buy_at_6)} <small>lợi suất 6%</small>`, "up"], ["Bán khi giá ≥", `${nf(x.sell_at_35)} <small>lợi suất 3,5%</small>`]], false, "c2")}`;
+    return "";
+  };
+  const sel = L[sel0] || sel0 === "position" ? sel0 : "position";
+  return `<section class="panel"><div class="ph"><h2>Kế hoạch theo phong cách</h2><span class="seg" id="slSel">${STYLE_ORDER.map((k) => `<button data-sl="${k}" class="${k === sel ? "on" : ""}">${STYLE_SHORT[k]}</button>`).join("")}</span></div>
+    <div id="slBody">${body(sel)}</div><template id="slTpl">${STYLE_ORDER.map((k) => `<div data-k="${k}">${body(k)}</div>`).join("")}</template></section>`;
+}
+function bindStyleLevels() {
+  $$("#slSel button").forEach((b) => (b.onclick = () => { lsSet("stockStyle", b.dataset.sl); $$("#slSel button").forEach((x) => x.classList.toggle("on", x === b));
+    const tpl = $("#slTpl").content.querySelector(`[data-k="${b.dataset.sl}"]`); $("#slBody").innerHTML = tpl ? tpl.innerHTML : ""; }));
+}
 function recentSignals(d) {
   const w = d.waves || {}, o = d.ohlc, cut = o.t[Math.max(0, o.t.length - 30)];
   const L = [];
@@ -2143,7 +2198,7 @@ function navStats(dates, nav, rf = 0.03) {
 }
 
 async function viewProfile() {
-  const [t, G, saved] = await Promise.all([load("data/today.json"), tryLoad("data/profile_grid.json"), Store.get("profile")]);
+  const [t, G, saved, SB, BT] = await Promise.all([load("data/today.json"), tryLoad("data/profile_grid.json"), Store.get("profile"), tryLoad("data/styles_bt.json"), tryLoad("data/backtest.json")]);
   const prof0 = saved.data && Object.keys(saved.data).length ? saved.data : null;
   const risk = t.risk || {};
   const P = {
@@ -2154,6 +2209,7 @@ async function viewProfile() {
     max_positions: Number(prof0?.max_positions ?? risk.max_positions ?? 8), margin_of_safety: Number(prof0?.margin_of_safety ?? risk.margin_of_safety ?? 20),
     risk_per_trade: Number(prof0?.risk_per_trade ?? risk.risk_per_trade ?? 1.5), max_weight_per_stock: Number(prof0?.max_weight_per_stock ?? risk.max_weight_per_stock ?? 20),
     max_weight_per_sector: Number(prof0?.max_weight_per_sector ?? risk.max_weight_per_sector ?? 30), min_mcap_bn: Number(prof0?.min_mcap_bn ?? t.strategy?.min_mcap_bn ?? 1000),
+    style: prof0?.style || t.style || "position",
     trend_filter: prof0?.trend_filter || t.strategy?.trend_filter || "up", exclude_sectors: [...(prof0?.exclude_sectors || [])], exclude_symbols: [...(prof0?.exclude_symbols || [])],
   };
   if (G && G.ok && !G.stops.includes(P.stop)) P.stop = G.stops.reduce((a, b) => (Math.abs(b - P.stop) < Math.abs(a - P.stop) ? b : a), G.stops[0]);
@@ -2164,24 +2220,28 @@ async function viewProfile() {
   const num = (id, label, v, hint, w = "w90") => `<div class="field ${w}"><label for="${id}" title="${esc(hint || "")}">${label}</label><input id="${id}" inputmode="decimal" value="${v}"></div>`;
   app().innerHTML = `${pfTabs("profile")}
   <div class="ph"><h1>Khẩu vị đầu tư của tôi</h1><span class="meta">${prof0 ? `đang dùng bản lưu ${esc((prof0.updated || "").slice(0, 10))}` : "chưa lưu – hệ thống đang dùng config.yaml"}</span></div>
+  <section class="panel hero"><div class="ph"><h2>1. Chọn phong cách đầu tư</h2><span class="meta">mỗi phong cách chọn mã, giá vào, cắt lỗ và thời gian nắm khác nhau</span></div>
+    <div class="styles" id="styCards"></div>
+    <p class="faint" style="font-size:.72rem;margin-top:6px">Kết quả kiểm chứng ${esc(BT?.start || "")} → ${esc(BT?.end || "")}, đã trừ phí, VN-Index cùng kỳ ${pct(BT?.benchmark?.cagr, 1)}/năm. Trang Hôm nay xem được kế hoạch của cả 4 phong cách; phong cách anh chọn ở đây quyết định danh sách MUA chính, tin Telegram và danh mục giấy.</p></section>
+  <details class="panel sec" id="pDetail" ${P.style === "position" ? "open" : ""}><summary>2. Tuỳ chỉnh chi tiết (áp dụng cho phong cách Trung hạn)</summary><div class="sec">
   ${!G || !G.ok ? `<p class="note">Chưa có dữ liệu mô phỏng – sẽ có sau lượt chạy kiểm chứng kế tiếp (thứ Bảy, hoặc bấm chạy lại có chọn "backtest"). Anh vẫn lưu được khẩu vị.</p>` : ""}
   <div class="views" id="presets"><small class="muted" style="align-self:center">Mẫu:</small>${Object.entries(PROFILE_PRESETS).map(([k, x]) => `<button data-pp="${k}">${esc(x.name)}</button>`).join("")}
     <button data-pp="find" class="on" title="Thử hàng chục nghìn tổ hợp, chọn tổ hợp lãi cao nhất mà vẫn nằm trong giới hạn sụt của anh">Tự tìm phương án tốt nhất trong giới hạn sụt</button></div>
   <div class="g g-main">
     <div class="stack">
-      <section class="panel"><div class="ph"><h2>1. Mục tiêu & giới hạn</h2></div>
+      <section class="panel"><div class="ph"><h2>Mục tiêu & giới hạn</h2></div>
         <div class="weights">${slider("target", "Lợi nhuận mục tiêu / năm", P.target, 5, 40, 1, "%", "chỉ để so sánh, hệ thống không đuổi theo con số này")}
           ${slider("max_dd", "Mức sụt tối đa chấp nhận", P.max_dd, 5, 50, 1, "%", "từ đỉnh xuống đáy của cả danh mục")}</div></section>
-      <section class="panel"><div class="ph"><h2>2. Phân bổ vốn theo rổ</h2><span class="meta" id="alSum"></span></div>
+      <section class="panel"><div class="ph"><h2>Phân bổ vốn theo rổ</h2><span class="meta" id="alSum"></span></div>
         <div class="weights">${BK.map((b) => slider("al_" + b, BK_NAME[b], P.allocation[b] || 0, 0, 100, 5, "", "")).join("")}</div>
         <p class="faint" style="font-size:.72rem">Tổng không cần bằng 100 – hệ thống tự chia theo tỷ lệ.</p></section>
-      <section class="panel"><div class="ph"><h2>3. Tỷ trọng cổ phiếu theo đèn thị trường</h2><span class="meta">phần còn lại để tiền mặt</span></div>
+      <section class="panel"><div class="ph"><h2>Tỷ trọng cổ phiếu theo đèn thị trường</h2><span class="meta">phần còn lại để tiền mặt</span></div>
         <div class="weights">${slider("ex_green", "Đèn xanh", P.exposure.green, 0, 100, 10, "%", "")}${slider("ex_yellow", "Đèn vàng", P.exposure.yellow, 0, 100, 10, "%", "")}${slider("ex_red", "Đèn đỏ", P.exposure.red, 0, 100, 10, "%", "")}</div></section>
-      <section class="panel"><div class="ph"><h2>4. Cắt lỗ & độ tập trung</h2></div>
+      <section class="panel"><div class="ph"><h2>Cắt lỗ & độ tập trung</h2></div>
         <div class="filters"><div class="field w140"><label>Cắt lỗ khi giảm</label><select id="stop">${(G?.stops || [0, 10, 15, 20, 25]).map((x) => `<option value="${x}" ${x === P.stop ? "selected" : ""}>${x ? x + "% so với giá mua" : "Không cắt lỗ"}</option>`).join("")}</select></div>
           <div class="field w140"><label>Số mã mỗi rổ (mô phỏng)</label><select id="slots">${(G?.slots || [5, 8, 12]).map((x) => `<option value="${x}" ${x === P.slots ? "selected" : ""}>${x} mã${x === 5 ? " – tập trung" : x === 12 ? " – dàn trải" : ""}</option>`).join("")}</select></div>
           ${num("max_positions", "Số mã tối đa (thật)", P.max_positions, "Số mã tối đa trong danh mục thật")}</div></section>
-      <section class="panel"><div class="ph"><h2>5. Quy tắc khác (áp dụng cho danh sách MUA thật)</h2><span class="meta">chưa được mô phỏng ở bên phải</span></div>
+      <section class="panel"><div class="ph"><h2>Quy tắc khác (áp dụng cho danh sách MUA thật)</h2><span class="meta">chưa được mô phỏng ở bên phải</span></div>
         <div class="filters">${num("margin_of_safety", "Biên an toàn %", P.margin_of_safety, "Chỉ mua khi giá thấp hơn giá trị hợp lý ít nhất ngần này")}
           ${num("risk_per_trade", "Rủi ro/lệnh % vốn", P.risk_per_trade, "Nếu chạm cắt lỗ thì chỉ mất ngần này % tổng vốn")}
           ${num("max_weight_per_stock", "Tối đa/mã % vốn", P.max_weight_per_stock)}${num("max_weight_per_sector", "Tối đa/ngành % vốn", P.max_weight_per_sector)}
@@ -2197,7 +2257,7 @@ async function viewProfile() {
     </div>
   </div>
   <section class="panel sec" id="findBox" hidden><div class="ph"><h2 id="findTitle">Phương án lãi cao nhất trong giới hạn sụt</h2>
-    <label style="display:flex;gap:5px;align-items:center;font-size:.78rem"><input type="checkbox" id="robust" checked> Chỉ xét phương án đa dạng (≥ 2 rổ, ≥ 8 mã/rổ) – giảm rủi ro "tối ưu quá khứ"</label><span class="meta" id="findMeta"></span></div><div id="findOut"></div></section>`;
+    <label style="display:flex;gap:5px;align-items:center;font-size:.78rem"><input type="checkbox" id="robust" checked> Chỉ xét phương án đa dạng (≥ 2 rổ, ≥ 8 mã/rổ) – giảm rủi ro "tối ưu quá khứ"</label><span class="meta" id="findMeta"></span></div><div id="findOut"></div></section></div></details>`;
   const read = () => {
     P.target = Number($("#target").value); P.max_dd = Number($("#max_dd").value);
     BK.forEach((b) => (P.allocation[b] = Number($("#al_" + b).value)));
@@ -2285,7 +2345,7 @@ async function viewProfile() {
   }));
   const save = async (run) => {
     read();
-    const out = { allocation: P.allocation, exposure: P.exposure, max_stop_loss_pct: P.stop || 100, sim_stop: P.stop, sim_slots: P.slots, target_return: P.target, max_drawdown_target: P.max_dd,
+    const out = { style: P.style, allocation: P.allocation, exposure: P.exposure, max_stop_loss_pct: P.stop || 100, sim_stop: P.stop, sim_slots: P.slots, target_return: P.target, max_drawdown_target: P.max_dd,
       max_positions: P.max_positions, margin_of_safety: P.margin_of_safety, risk_per_trade: P.risk_per_trade, max_weight_per_stock: P.max_weight_per_stock,
       max_weight_per_sector: P.max_weight_per_sector, min_mcap_bn: P.min_mcap_bn, trend_filter: P.trend_filter, exclude_sectors: P.exclude_sectors, exclude_symbols: P.exclude_symbols,
       updated: new Date().toISOString() };
@@ -2293,6 +2353,23 @@ async function viewProfile() {
     $("#pMsg").innerHTML = ok ? "Đã lưu. Lượt chạy kế tiếp sẽ dùng khẩu vị này." : "Đã lưu trên trình duyệt này, nhưng <b>chưa đồng bộ lên máy chủ</b> – hệ thống chạy hằng ngày chưa đọc được.";
     if (ok && run) { try { const r = await fetch("api/run", { method: "POST" }); $("#pMsg").textContent = r.ok ? "Đã lưu và yêu cầu chạy lại – khoảng 10–30 phút nữa xem trang Hôm nay." : "Đã lưu; chưa gọi chạy lại được – sẽ áp dụng ở lượt chạy kế tiếp."; } catch (e) { /* bỏ qua */ } }
   };
+  const drawStyles = () => {
+    const bench = BT?.benchmark?.cagr;
+    $("#styCards").innerHTML = STYLE_ORDER.map((k) => {
+      const S = (t.styles || {})[k] || {}, b = (SB || {})[k] || {}, on = P.style === k;
+      const lose = isNum(b.cagr) && isNum(bench) && b.cagr < bench;
+      return `<div class="sty ${on ? "on" : ""}"><div class="ph"><h3>${esc(S.name || STYLE_SHORT[k])}</h3><span class="pill">${esc(S.horizon || "")}</span>${on ? '<span class="pill buy">đang dùng</span>' : ""}</div>
+        <p style="font-size:.78rem">${esc(S.desc || "")}</p>
+        ${b.ok ? kpis([["Lãi kép/năm", pct(b.cagr, 1), cls(b.cagr)], ["Sụt tối đa", pct(b.max_dd, 0), "down"], ...(k === "swing" ? [["Tỷ lệ thắng", pct(b.win_rate, 0, false)], ["Lệnh/năm", nf(b.trades_per_year, 0)]] : [["Sharpe", nf(b.sharpe)], ["Năm có lãi", `${b.win_years ?? "—"}/${b.n_years ?? "—"}`]])], false, "c2")
+          : `<p class="faint" style="font-size:.74rem">Kết quả kiểm chứng có sau lượt chạy cuối tuần.</p>`}
+        ${lose ? `<p class="note" style="font-size:.74rem;margin-top:6px">Kiểm chứng: lãi thấp hơn VN-Index (${pct(bench, 1)}/năm${isNum(BT?.benchmark?.max_dd) ? `, nhưng VN-Index từng sụt ${pct(BT.benchmark.max_dd, 0)}` : ""}). ${k === "swing" ? "Lướt sóng ở VN khó có lợi thế vì T+2 và phí – chỉ nên dùng phần vốn nhỏ." : "Phù hợp khi ưu tiên ổn định hơn lợi nhuận."}</p>` : ""}
+        <p class="faint" style="font-size:.72rem;margin-top:4px">Hôm nay: ${(S.picks || []).length} mã nên mua · ${(S.watch || []).length} mã chờ</p>
+        <details><summary style="font-size:.76rem">Quy tắc vào/ra</summary><ul class="checks">${(S.rules || []).map((x) => `<li class="ok">${esc(x)}</li>`).join("")}</ul></details>
+        <p style="margin-top:6px">${on ? `<a class="btn" href="#/">Xem kế hoạch hôm nay</a>` : `<button class="btn primary" data-use-sty="${k}">Dùng phong cách này</button>`}</p></div>`;
+    }).join("");
+    $$("[data-use-sty]").forEach((b) => (b.onclick = async () => { P.style = b.dataset.useSty; $("#pDetail").open = P.style === "position"; await save(false); drawStyles(); toast(`Đã chọn phong cách ${STYLE_SHORT[P.style]} – áp dụng từ lượt chạy kế tiếp`); }));
+  };
+  drawStyles();
   $("#pSave").onclick = () => save(false);
   $("#pRun").onclick = () => save(true);
   if ($("#pReset")) $("#pReset").onclick = async () => { await Store.put("profile", {}); toast("Đã bỏ khẩu vị – dùng lại config.yaml từ lượt chạy kế tiếp"); viewProfile(); };
@@ -2443,6 +2520,8 @@ function fwdSection(F) {
     ${kpis([["Danh mục giấy", pct(F.nav_ret, 1), cls(F.nav_ret), "Làm đúng hệ thống: mua giá đóng cửa ngày báo, theo tỷ trọng; thoát khi thủng cắt lỗ, chạm mục tiêu 1 hoặc sau 60 phiên"], ["VN-Index cùng kỳ", pct(F.bench_ret, 1), cls(F.bench_ret)],
       ["Số lượt mua", `${S.n ?? 0} <small>(${S.open ?? 0} đang giữ)</small>`], ["Tỷ lệ có lãi", pct(S.all_win, 0, false)], ["Thắng VN-Index", pct(S.all_beat, 0, false)], ["Vượt VNI TB/lượt", pct(S.all_excess, 1), cls(S.all_excess)], ...hz,
       ["Nếu mua ngay mã đang chờ", F.watch20?.n ? `${pct(F.watch20.avg_excess, 1)} <small>vs VNI sau 20 phiên (${F.watch20.n} mã)</small>` : "<small>chưa đủ</small>", cls(F.watch20?.avg_excess), "Âm = việc chờ giá về vùng mua là đúng"]], true)}
+    ${F.by_style && Object.keys(F.by_style).length ? `<div class="tw sec"><table><thead><tr><th class="l">Phong cách</th><th>Từ ngày</th><th>Lượt mua</th><th>Có lãi</th><th>Vượt VNI TB</th><th>Danh mục giấy</th><th>VN-Index</th></tr></thead><tbody>
+      ${STYLE_ORDER.filter((k) => F.by_style[k]).map((k) => { const x = F.by_style[k], s_ = x.summary || {}; return `<tr><td class="l"><b>${esc(STYLE_SHORT[k])}</b></td><td>${esc(x.start)}</td><td>${s_.n ?? 0} <small class="faint">(${s_.open ?? 0} mở)</small></td><td>${pct(s_.all_win, 0, false)}</td><td class="${cls(s_.all_excess)}">${pct(s_.all_excess, 1)}</td><td class="${cls(x.nav_ret)}">${pct(x.nav_ret, 1)}</td><td class="${cls(x.bench_ret)}">${pct(x.bench_ret, 1)}</td></tr>`; }).join("")}</tbody></table></div>` : ""}
     ${(F.nav || []).length > 2 ? `<div class="chart sm sec" id="fwdChart"></div><div class="leg"><span><i style="background:${css("--brand")}"></i>Danh mục giấy theo hệ thống</span><span><i style="background:${css("--ink-3")}"></i>VN-Index</span></div>` : ""}
     <div class="g g2 sec">
       <div class="tw"><table><thead><tr><th class="l">Rổ</th><th>Lượt</th><th>Có lãi</th><th>Lãi TB</th><th>Vượt VNI</th></tr></thead><tbody>${Object.entries(F.by_basket || {}).map(([k, s]) => `<tr><td class="l">${esc(BASKET_SHORT[k] || k)}</td><td>${s.n}</td><td>${pct(s.all_win, 0, false)}</td><td class="${cls(s.all_ret)}">${pct(s.all_ret, 1)}</td><td class="${cls(s.all_excess)}">${pct(s.all_excess, 1)}</td></tr>`).join("")}</tbody></table></div>

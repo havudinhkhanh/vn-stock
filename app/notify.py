@@ -15,7 +15,7 @@ log = logging.getLogger("notify")
 LIGHT = {"green": "🟢 XANH", "yellow": "🟡 VÀNG", "red": "🔴 ĐỎ"}
 
 
-BASKET_VI = {"garp": "GARP", "dividend": "Cổ tức", "value": "Giá trị", "defensive": "Phòng thủ",
+BASKET_VI = {"swing": "Lướt sóng", "long": "Dài hạn", "income": "Cổ tức", "garp": "GARP", "dividend": "Cổ tức", "value": "Giá trị", "defensive": "Phòng thủ",
              "growth": "Tăng trưởng"}
 
 

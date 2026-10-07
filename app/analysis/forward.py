@@ -24,7 +24,10 @@ def _r(x, nd=2):
         return None
 
 
-def log_rows(plan: dict, regime: dict, date) -> pd.DataFrame:
+HOLD_BY_STYLE = {"swing": 20, "position": 60, "long": 250, "income": 250}
+
+
+def log_rows(plan: dict, regime: dict, date, style: str = "position") -> pd.DataFrame:
     rows = []
     for kind, lst in (("pick", plan.get("picks") or []), ("watch", plan.get("watch") or [])):
         for p in lst:
@@ -32,11 +35,31 @@ def log_rows(plan: dict, regime: dict, date) -> pd.DataFrame:
             rows.append({"date": pd.Timestamp(date).normalize(), "symbol": p["symbol"], "kind": kind,
                          "basket": p.get("basket"), "price": p.get("price"), "zone_lo": z[0], "zone_hi": z[1],
                          "stop": p.get("stop"), "t1": p.get("t1"), "weight": p.get("weight") if kind == "pick" else 0.0,
-                         "score": p.get("score"), "light": regime.get("light"), "exposure": regime.get("exposure")})
+                         "score": p.get("score"), "light": regime.get("light"), "exposure": regime.get("exposure"), "style": style})
     return pd.DataFrame(rows)
 
 
-def evaluate(log: pd.DataFrame, wide: pd.DataFrame, idx: pd.Series) -> dict:
+def evaluate_styles(log: pd.DataFrame, wide: pd.DataFrame, idx: pd.Series) -> dict:
+    if log is None or log.empty:
+        return {"ok": False, "reason": "Chưa có tín hiệu nào được ghi lại – bắt đầu từ lượt chạy kế tiếp."}
+    log = log.copy()
+    if "style" not in log:
+        log["style"] = "position"
+    log["style"] = log["style"].fillna("position").astype(str)
+    res = evaluate(log[log["style"] == "position"], wide, idx)
+    res["by_style"] = {}
+    for st, g in log.groupby("style"):
+        r = evaluate(g, wide, idx, hold_max=HOLD_BY_STYLE.get(st, 60))
+        if r.get("ok"):
+            res["by_style"][st] = {k: r[k] for k in ("start", "days_logged", "summary", "nav_ret", "bench_ret", "nav", "episodes")}
+    if not res.get("ok") and res["by_style"]:
+        res.update({"ok": True, "start": min(v["start"] for v in res["by_style"].values()), "last": str(wide.index[-1].date()),
+                    "days_logged": max(v["days_logged"] for v in res["by_style"].values()), "summary": {}, "episodes": [], "nav": [],
+                    "by_basket": {}, "by_light": {}, "watch20": {}})
+    return res
+
+
+def evaluate(log: pd.DataFrame, wide: pd.DataFrame, idx: pd.Series, hold_max: int = HOLD_MAX) -> dict:
     if log is None or log.empty:
         return {"ok": False, "reason": "Chưa có tín hiệu nào được ghi lại – bắt đầu từ lượt chạy kế tiếp."}
     log = log.copy()
@@ -62,7 +85,7 @@ def evaluate(log: pd.DataFrame, wide: pd.DataFrame, idx: pd.Series) -> dict:
         c = wide[s]
         entry = float(r.price) if r.price and r.price == r.price else float(c.iloc[i0])
         exit_i, why = None, None
-        for j in range(i0 + 1, min(len(days), i0 + 1 + HOLD_MAX)):
+        for j in range(i0 + 1, min(len(days), i0 + 1 + hold_max)):
             px = c.iloc[j]
             if px != px:
                 continue
@@ -74,8 +97,8 @@ def evaluate(log: pd.DataFrame, wide: pd.DataFrame, idx: pd.Series) -> dict:
                 break
         last_i = len(days) - 1
         if exit_i is None:
-            if i0 + HOLD_MAX <= last_i:
-                exit_i, why = i0 + HOLD_MAX, "Hết 60 phiên"
+            if i0 + hold_max <= last_i:
+                exit_i, why = i0 + hold_max, f"Hết {hold_max} phiên"
             else:
                 exit_i, why = last_i, "Đang giữ"
         px_exit = float(c.iloc[exit_i]) if c.iloc[exit_i] == c.iloc[exit_i] else entry

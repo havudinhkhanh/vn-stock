@@ -80,6 +80,9 @@ def apply_profile(cfg: dict, prof: dict) -> list[str]:
     if isinstance(ex, dict):
         cfg["regime_exposure"] = {k: float(ex[k]) for k in ("green", "yellow", "red") if ex.get(k) not in (None, "")}
         changed.append("tỷ trọng theo đèn")
+    if prof.get("style") in ("swing", "position", "long", "income"):
+        cfg["style"] = prof["style"]
+        changed.append("phong cách " + prof["style"])
     cfg["exclude_sectors"] = [str(x) for x in (prof.get("exclude_sectors") or [])]
     cfg["exclude_symbols"] = [str(x).upper() for x in (prof.get("exclude_symbols") or [])]
     if cfg["exclude_sectors"] or cfg["exclude_symbols"]:
