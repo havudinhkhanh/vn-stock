@@ -1671,7 +1671,7 @@ async function viewStock(sym, tabArg) {
   <div class="stock-head">
     <div><h1>${sym} <small class="muted" style="font-size:.8rem;font-weight:400">${esc(d.exchange)} · <a href="#/sector/${enc(d.sector || "")}">${esc(d.sector || "")}</a>${d.industry && d.industry !== d.sector ? ` › <a href="#/sector/${enc(d.industry)}/l3">${esc(d.industry)}</a>` : ""}</small></h1>
       <div class="muted" style="font-size:.8rem">${esc(d.name)}</div></div>
-    <div class="px">${nf(last)}</div><div class="${cls(chg)}" style="font-weight:600">${pct(chg, 2)}</div>
+    <div class="px ${boardCls(chg, d.exchange)}">${nf(last)}</div><div class="${boardCls(chg, d.exchange)} pxc">${arrow(boardCls(chg, d.exchange))} ${pct(chg, 2)}</div>
     <div class="tags" style="margin-left:auto">${d.in_plan ? '<span class="pill buy">Trong danh sách MUA</span>' : ""}${(d.baskets || []).map((b) => `<span class="pill brand">${esc(BASKET_SHORT[b] || b)}</span>`).join("")}
       <span class="pill ${r.trend === "up" ? "buy" : r.trend === "down" ? "sell" : ""}">Xu hướng ${TREND_VI[r.trend] || "—"}</span>
       ${secRec ? `<span class="pill" title="Vị trí ngành trên biểu đồ xoay vòng"><span class="quad" style="background:${qcol(secRec.quadrant)}"></span>Ngành ${esc(secRec.quadrant)}</span>` : ""}
@@ -3008,6 +3008,55 @@ function initSearch() {
   document.addEventListener("click", (e) => { if (!e.target.closest(".search")) box.hidden = true; });
   box.addEventListener("click", () => { box.hidden = true; q.value = ""; });
 }
+
+// ================================================================ BẢNG ĐIỆN (dải chạy đầu trang)
+const LIMIT = { HOSE: 7, HNX: 10, UPCOM: 15 };
+function boardCls(chg, ex) {
+  if (!isNum(chg)) return "";
+  const lim = LIMIT[ex] || 7;
+  if (chg >= lim - 0.35) return "ceil";
+  if (chg <= -(lim - 0.35)) return "floor";
+  return Math.abs(chg) < 0.005 ? "ref" : chg > 0 ? "up" : "down";
+}
+const arrow = (c) => (c === "ceil" || c === "up" ? "▲" : c === "floor" || c === "down" ? "▼" : "■");
+const IDX_VI = { VNINDEX: "VN-Index", HNXINDEX: "HNX-Index", UPCOMINDEX: "UPCoM", VN30: "VN30" };
+async function drawBoard(t, m, meta) {
+  const br = m.regime.breadth_now || {}, light = t.regime.light;
+  const L = $("#bdLight");
+  L.className = `bd-light ${light}`;
+  L.querySelector("span").innerHTML = `<b>Đèn ${LIGHT_VI[light].toLowerCase()}</b><small>nắm tối đa ${t.regime.exposure}%</small>`;
+  $("#brandDot").style.background = `var(--l-${light})`;
+  $("#bdDate").textContent = meta.data_date ? new Date(meta.data_date + "T00:00:00").toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" }) : "";
+  const it = (href, name, px, chg, cl, extra = "") => `<a class="bi ${cl}" href="${href}"><b>${esc(name)}</b><span class="px">${px}</span><span class="ch">${arrow(cl)} ${pct(Math.abs(chg ?? 0), 2, false)}</span>${extra}</a>`;
+  const grp = (name) => `<span class="bg">${esc(name)}</span>`;
+  const head = Object.entries(m.indices).map(([k, v]) => it("#/market", IDX_VI[k] || k, nf(v.close), v.chg, boardCls(v.chg, "IDX"))).join("");
+  const adv = br.adv || 0, dec = br.dec || 0, tot = adv + dec || 1;
+  const breadth = `<a class="bi br" href="#/market"><b>Độ rộng</b><span class="up">${adv} tăng</span><i class="brbar"><i style="width:${(adv / tot) * 100}%"></i></i><span class="down">${dec} giảm</span></a>`;
+  const pe = SECS?.market?.pe_med ? `<a class="bi pe" href="#/sector"><b>P/E thị trường</b><span class="px">${nf(SECS.market.pe_w_pos ?? SECS.market.pe_w, 1)}</span><small>trung vị ${nf(SECS.market.pe_med, 1)}</small></a>` : "";
+  const roll = $("#ticker");
+  const paint = (rest) => {
+    const one = `<div class="bd-set">${head}${breadth}${pe}${rest}</div>`;
+    roll.innerHTML = `<div class="bd-track">${one}${one.replace('class="bd-set"', 'class="bd-set" aria-hidden="true"')}</div>`;
+    const tr = roll.firstChild, w = tr.firstChild.getBoundingClientRect().width;
+    tr.style.setProperty("--dur", `${Math.max(30, w / 42)}s`);
+  };
+  paint("");
+  try {
+    const [rows, pfr] = await Promise.all([screenerRows(), Store.get("portfolio"), WL.load()]);
+    const R = Object.fromEntries(rows.map((r) => [r.symbol, r]));
+    const stock = (s) => { const r = R[s]; if (!r) return ""; const c = boardCls(r.chg1d, r.exchange); return it(`#/s/${s}`, s, nf(r.price), r.chg1d, c); };
+    const mine = [...new Set((pfr.data?.holdings || []).map((h) => h.symbol))].filter((s) => R[s]);
+    const watch = (WL.data?.items || []).map((x) => x.symbol).filter((s) => R[s] && !mine.includes(s)).slice(0, 12);
+    const liq = rows.filter((r) => r.liquid_ok && isNum(r.chg1d));
+    const ceil = rows.filter((r) => boardCls(r.chg1d, r.exchange) === "ceil").length, floor = rows.filter((r) => boardCls(r.chg1d, r.exchange) === "floor").length;
+    const gain = liq.slice().sort((a, b) => b.chg1d - a.chg1d).slice(0, 5), lose = liq.slice().sort((a, b) => a.chg1d - b.chg1d).slice(0, 5);
+    const rest = `<span class="bi tf"><span class="ceil">${ceil} mã trần</span><span class="floor">${floor} mã sàn</span></span>`
+      + (mine.length ? grp("Danh mục của anh") + mine.map(stock).join("") : "")
+      + (watch.length ? grp("Đang theo dõi") + watch.map(stock).join("") : "")
+      + grp("Tăng mạnh") + gain.map((r) => stock(r.symbol)).join("") + grp("Giảm mạnh") + lose.map((r) => stock(r.symbol)).join("");
+    paint(rest);
+  } catch (e) { /* giữ phần chỉ số */ }
+}
 (async function main() {
   initTheme(); initSearch(); initGlobal();
   WL.load().catch(() => {});
@@ -3017,13 +3066,7 @@ function initSearch() {
     if (meta.demo) $("#demo").innerHTML = `<div class="demo-banner">DỮ LIỆU GIẢ LẬP để xem thử giao diện – không dùng để đầu tư</div>`;
     const [t, m, meth] = await Promise.all([load("data/today.json"), tryLoad("data/market.json"), tryLoad("data/methods.json"), secsData()]);
     PSTATS = meth?.pattern_stats?.stats || {};
-    const col = { green: "#2FD08F", yellow: "#F4C32F", red: "#F0444B" }[t.regime.light];
-    $("#brandDot").style.background = col;
-    if (m) {
-      const br = m.regime.breadth_now || {};
-      $("#ticker").innerHTML = Object.entries(m.indices).map(([k, v]) => `<span><b>${esc(k)}</b>${nf(v.close)} <span class="${cls(v.chg)}">${pct(v.chg, 2)}</span></span>`).join("") +
-        (m && SECS?.market?.pe_med ? `<a href="#/sector" style="color:inherit"><b>P/E TT</b>${nf(SECS.market.pe_w_pos ?? SECS.market.pe_w, 1)} <small class="faint">TV ${nf(SECS.market.pe_med, 1)}</small></a>` : "") + `<span><b>Tăng/giảm</b><span class="up">${br.adv ?? "—"}</span>/<span class="down">${br.dec ?? "—"}</span></span><span><b>Đèn</b>${LIGHT_VI[t.regime.light]} ${t.regime.exposure}%</span><span class="faint">${esc(meta.data_date)}</span>`;
-    }
+    if (m) drawBoard(t, m, meta);
   } catch (e) { /* chưa có dữ liệu */ }
   window.addEventListener("hashchange", route);
   route();

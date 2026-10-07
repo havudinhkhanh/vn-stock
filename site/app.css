@@ -11,6 +11,16 @@
 @font-face{font-family:"Be Vietnam Pro";font-weight:700;font-display:swap;src:url(vendor/fonts/be-vietnam-pro-latin-ext-700-normal.woff2) format("woff2");unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0}
 @font-face{font-family:"Be Vietnam Pro";font-weight:700;font-display:swap;src:url(vendor/fonts/be-vietnam-pro-latin-700-normal.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215}
 
+@font-face{font-family:"Barlow Condensed";font-weight:500;font-display:swap;src:url(vendor/fonts/barlow-condensed-vietnamese-500-normal.woff2) format("woff2");unicode-range:U+0102-0103,U+0110-0111,U+0128-0129,U+0168-0169,U+01A0-01A1,U+01AF-01B0,U+0300-0301,U+0303-0304,U+0308-0309,U+0323,U+0329,U+1EA0-1EF9,U+20AB}
+@font-face{font-family:"Barlow Condensed";font-weight:500;font-display:swap;src:url(vendor/fonts/barlow-condensed-latin-ext-500-normal.woff2) format("woff2");unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0}
+@font-face{font-family:"Barlow Condensed";font-weight:500;font-display:swap;src:url(vendor/fonts/barlow-condensed-latin-500-normal.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+25A0,U+25B2,U+25BC}
+@font-face{font-family:"Barlow Condensed";font-weight:600;font-display:swap;src:url(vendor/fonts/barlow-condensed-vietnamese-600-normal.woff2) format("woff2");unicode-range:U+0102-0103,U+0110-0111,U+0128-0129,U+0168-0169,U+01A0-01A1,U+01AF-01B0,U+0300-0301,U+0303-0304,U+0308-0309,U+0323,U+0329,U+1EA0-1EF9,U+20AB}
+@font-face{font-family:"Barlow Condensed";font-weight:600;font-display:swap;src:url(vendor/fonts/barlow-condensed-latin-ext-600-normal.woff2) format("woff2");unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0}
+@font-face{font-family:"Barlow Condensed";font-weight:600;font-display:swap;src:url(vendor/fonts/barlow-condensed-latin-600-normal.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+25A0,U+25B2,U+25BC}
+@font-face{font-family:"Barlow Condensed";font-weight:700;font-display:swap;src:url(vendor/fonts/barlow-condensed-vietnamese-700-normal.woff2) format("woff2");unicode-range:U+0102-0103,U+0110-0111,U+0128-0129,U+0168-0169,U+01A0-01A1,U+01AF-01B0,U+0300-0301,U+0303-0304,U+0308-0309,U+0323,U+0329,U+1EA0-1EF9,U+20AB}
+@font-face{font-family:"Barlow Condensed";font-weight:700;font-display:swap;src:url(vendor/fonts/barlow-condensed-latin-ext-700-normal.woff2) format("woff2");unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0}
+@font-face{font-family:"Barlow Condensed";font-weight:700;font-display:swap;src:url(vendor/fonts/barlow-condensed-latin-700-normal.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+25A0,U+25B2,U+25BC}
+
 /* Bàn làm việc VN-Stock: dày thông tin, bảng gọn, màu theo quy ước bảng điện VN */
 :root{
   --bg:#EEF1F5; --surface:#FFFFFF; --sunk:#F3F5F8; --sunk-2:#E7EBF0; --ink:#121A24; --ink-2:#4F5B6B; --ink-3:#8590A0;
@@ -554,3 +564,106 @@ table.cmpt tr.gh td{text-align:left}
 }
 .pos>*,.exit,.exl,.exr>*{min-width:0}
 @media (max-width:640px){.exr{grid-template-columns:minmax(0,1fr) minmax(0,auto) minmax(0,auto)}.ex-q b,.ex-m b{white-space:normal}}
+
+/* =====================================================================
+   BẢNG ĐIỆN – nhận diện riêng: dải bảng điện chạy ở đầu trang, số liệu thị trường
+   đặt trên "tấm bảng" tối như bảng điện sàn, chữ số đứng hẹp như đèn LED bảng giá;
+   phần phân tích là giấy trắng, không viền, không đổ bóng.
+   ===================================================================== */
+:root{
+  --num:"Barlow Condensed","Be Vietnam Pro",system-ui,sans-serif;
+  --l-green:#2FD08F; --l-yellow:#F4C32F; --l-red:#F0444B;
+  --bd-bg:#05080A; --bd-ink:#C7D0D4; --bd-ink-3:#6F7C83; --bd-line:#1A2126;
+  --bd-up:#25DE7C; --bd-down:#FF5257; --bd-ref:#F5D040; --bd-ceil:#E070FF; --bd-floor:#3CCFEF;
+  --bg:#E4E8EB; --line-2:#E7EBEE; --brand:#13264F; --brand-2:#E3E9F4; --plate:#0C1115;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0E1419;--surface:#151C22;--sunk:#1A222A;--brand:#A9BCF5;--brand-2:#1A2438;--plate:#06090C}}
+:root[data-theme="dark"]{--bg:#0E1419;--surface:#151C22;--sunk:#1A222A;--brand:#A9BCF5;--brand-2:#1A2438;--plate:#06090C}
+
+/* ---- dải bảng điện ---- */
+.board{display:flex;align-items:stretch;height:34px;background:var(--bd-bg);color:var(--bd-ink);font:500 15px/34px var(--num);
+  letter-spacing:.01em;overflow:hidden;position:relative;z-index:31;border-bottom:1px solid #000}
+.bd-light{flex:none;display:flex;gap:9px;align-items:center;padding:0 16px 0 14px;color:#fff;background:#000;text-decoration:none!important}
+.bd-light i{width:11px;height:11px;border-radius:50%;background:var(--lamp-off)}
+.bd-light.green i{background:var(--l-green);box-shadow:0 0 10px var(--l-green)}
+.bd-light.yellow i{background:var(--l-yellow);box-shadow:0 0 10px var(--l-yellow)}
+.bd-light.red i{background:var(--l-red);box-shadow:0 0 10px var(--l-red);animation:lampPulse 2.4s ease-in-out infinite}
+@keyframes lampPulse{50%{box-shadow:0 0 3px var(--l-red)}}
+.bd-light b{font-weight:600}
+.bd-light small{color:var(--bd-ink-3);font-size:14px;margin-left:7px}
+.bd-roll{flex:1;min-width:0;overflow:hidden;position:relative;outline-offset:-2px;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 28px,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(90deg,transparent,#000 28px,#000 calc(100% - 28px),transparent)}
+.bd-track{display:flex;width:max-content;animation:bdRoll var(--dur,60s) linear infinite;will-change:transform}
+.bd-roll:hover .bd-track,.bd-roll:focus-within .bd-track{animation-play-state:paused}
+@keyframes bdRoll{to{transform:translateX(-50%)}}
+.bd-set{display:flex;align-items:stretch}
+.bi{display:inline-flex;align-items:baseline;gap:7px;padding:0 15px;color:var(--bd-ink);white-space:nowrap;border-right:1px solid var(--bd-line);--c:var(--bd-ink)}
+.bi:hover{text-decoration:none;background:#11181D}
+.bi b{font-weight:600;color:#F4F7F8}
+.bi .px{color:var(--c);font-weight:600}
+.bi .ch{color:var(--c);font-size:14px}
+.bi small{color:var(--bd-ink-3);font-size:14px}
+.bi.up{--c:var(--bd-up)}.bi.down{--c:var(--bd-down)}.bi.ref{--c:var(--bd-ref)}.bi.ceil{--c:var(--bd-ceil)}.bi.floor{--c:var(--bd-floor)}
+.bi.ceil b,.bi.floor b{color:var(--c)}
+.board .up{color:var(--bd-up)}.board .down{color:var(--bd-down)}.board .ceil{color:var(--bd-ceil)}.board .floor{color:var(--bd-floor)}
+.bi.br{align-items:center}
+.brbar{display:inline-block;width:64px;height:5px;background:var(--bd-down)}
+.brbar i{display:block;height:100%;background:var(--bd-up)}
+.bi.tf{gap:12px}
+.bg{display:inline-flex;align-items:center;padding:0 10px 0 22px;color:var(--bd-ref);font:600 12px/1 "Be Vietnam Pro",system-ui,sans-serif;white-space:nowrap;position:relative}
+.bg::before{content:"";position:absolute;left:10px;top:50%;width:6px;height:6px;margin-top:-3px;background:var(--bd-ref)}
+.bd-date{flex:none;padding:0 14px;color:var(--bd-ink-3);border-left:1px solid var(--bd-line)}
+@media (prefers-reduced-motion:reduce){.bd-track{animation:none}.bd-roll{overflow-x:auto;-webkit-mask-image:none;mask-image:none}.bd-set[aria-hidden]{display:none}.bd-light.red i{animation:none}}
+@media (max-width:700px){.board{height:32px;line-height:32px;font-size:14px}.bd-light{padding:0 10px}.bd-light small,.bd-date{display:none}.bi{padding:0 11px}}
+
+/* ---- chữ ---- */
+h1{font:700 1.9rem/1.02 var(--num);letter-spacing:0}
+.ph h2,.ph h3,.panel>h2{font:600 1.16rem/1.15 var(--num);letter-spacing:.005em}
+details.panel>summary{font:600 1.04rem/1.2 var(--num)}
+.brand{font:700 1.2rem/1 var(--num);letter-spacing:.02em}
+.sym{font-family:var(--num);font-weight:700;letter-spacing:.02em}
+.pick .sym,.pos .sym,.wl .sym{font-size:1.45rem;line-height:1}
+.exposure,.dk-big b,.big>b,.pk-px b,.kpis dd,.pk-facts b,.tdo b,.exr .ex-p b,.exr .ex-m b,.r-val b,.al span{font-family:var(--num);font-weight:600;letter-spacing:.005em}
+.dk-big b{font-size:1.85rem}.dk.light .exposure{font-size:2.6rem}.big>b{font-size:1.7rem}.kpis dd{font-size:1.02rem}.kpis.lg dd{font-size:1.2rem}
+.pk-px b{font-size:1.5rem}.pk-facts b{font-size:1.08rem}
+td{font-family:var(--num);font-size:.93rem;font-weight:500}
+td.l,td.wrap,td.name,td.cb{font-family:"Be Vietnam Pro",system-ui,sans-serif;font-size:.8rem;font-weight:400}
+td.sym{font-size:.98rem;font-weight:700}
+th{font-size:.72rem;letter-spacing:0}
+
+/* ---- giấy: khối phân tích không viền, không bóng ---- */
+.panel{border:0;border-radius:3px}
+.pill{border-radius:2px;font:600 .82rem/1.45 var(--num);letter-spacing:.015em;padding:0 6px}
+.btn{border-radius:3px}
+.btn.primary{background:var(--brand);border-color:var(--brand)}
+.seg{border-radius:3px;background:var(--sunk-2)}
+.seg button{border-radius:2px;font-weight:500}
+.seg button.on{background:var(--brand);color:var(--brand-ink);box-shadow:none}
+.views button{border-radius:3px}
+.views button.on{background:var(--brand);border-color:var(--brand)}
+.iconbtn,.search input{border-radius:3px}
+.empty{border-radius:3px}
+
+/* ---- tấm bảng: mọi con số "sống" của thị trường và tiền của anh ---- */
+.deck,.panel.hero{--surface:var(--plate);--sunk:#141B21;--sunk-2:#1C242B;--ink:#EEF2F3;--ink-2:#A6B1B7;--ink-3:#6D7A81;--line:#27313A;--line-2:#1D252C;
+  --brand:#AFC2FF;--brand-2:#17213A;--brand-ink:#05080A;--up:#2BD989;--down:#FF5A5F;--ref:#F2CC45;--ceil:#D67CFF;--floor:#45C8EE;
+  --up-bg:#0E2C1F;--down-bg:#371619;--ref-bg:#30270B;background:var(--plate);color:var(--ink);border:0;border-radius:3px}
+.deck{box-shadow:inset 5px 0 0 var(--lc)}
+.panel.hero{box-shadow:inset 5px 0 0 var(--brand)}
+.deck .lamps{background:#000}
+.deck .dk.hlb,.panel.hero .big.hlb{background:#121C2E}
+.deck .tdo{background:transparent}
+.deck .tdo.buy{background:var(--up-bg)}
+
+/* ---- thanh trang: chữ đứng hẹp như bảng chỉ dẫn ---- */
+@media (min-width:980px){
+  .tabs a{font:600 .98rem/1 var(--num);letter-spacing:.02em;padding:9px 15px 8px;border-bottom-width:3px}
+  .tabs a.on{color:var(--ink);border-bottom-color:var(--ink)}
+}
+.tabs a.on svg{color:var(--brand)}
+h1 small{font-family:"Be Vietnam Pro",system-ui,sans-serif;letter-spacing:0}
+.stock-head .px{font:700 2.7rem/.95 var(--num);letter-spacing:-.005em}
+.stock-head .pxc{font:600 1.15rem/1 var(--num)}
+.exr .ex-p b,.exr .ex-m b,.exr .ex-q b{font-size:1.02rem}
+.exr .ex-q b{font-family:var(--num);font-weight:600}
+.lleg{font-family:var(--num);font-size:.86rem}

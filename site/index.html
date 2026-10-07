@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#22408F">
+<meta name="theme-color" content="#0B0F13">
 <meta name="robots" content="noindex,nofollow">
 <title>VN-Stock</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%2315202B'/><circle cx='9' cy='16' r='4' fill='%23F0444B' opacity='.4'/><circle cx='16' cy='16' r='4' fill='%23F4C32F' opacity='.4'/><circle cx='23' cy='16' r='4' fill='%232FD08F'/></svg>">
@@ -12,6 +12,11 @@
 </head>
 <body>
 <div id="demo"></div>
+<div class="board" id="board" aria-label="Bảng điện: chỉ số, độ rộng, danh mục và mã biến động mạnh">
+  <a class="bd-light" id="bdLight" href="#/" title="Đèn thị trường"><i></i><span>Đang tải…</span></a>
+  <div class="bd-roll" id="ticker" tabindex="0"></div>
+  <span class="bd-date" id="bdDate"></span>
+</div>
 <header class="top">
   <div class="top-in">
     <a class="brand" href="#/"><span class="brand-dot" id="brandDot"></span>VN-Stock</a>
