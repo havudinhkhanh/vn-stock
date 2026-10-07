@@ -2066,7 +2066,12 @@ function tabPeers(d) {
 // ================================================================ HƯỚNG DẪN
 async function viewGuide() {
   const [m, t] = await Promise.all([load("data/methods.json"), load("data/today.json")]);
-  app().innerHTML = `<div class="ph"><h1>Hệ thống chọn mã thế nào?</h1></div>
+  const glo = Object.entries(GLOSS).sort((a, b) => a[1].t.localeCompare(b[1].t, "vi"));
+  const gloHtml = `<section class="panel sec" id="gloss"><div class="ph"><h2>Từ điển chỉ số và ký hiệu</h2><span class="meta">${glo.length} mục · rê chuột hoặc chạm vào chữ gạch chấm ở bất kỳ trang nào để xem nhanh</span></div>
+    <div class="filters"><div class="field w200"><label for="gq">Tìm</label><input id="gq" placeholder="P/E, ROE, sụt tối đa, RRG…" autocomplete="off"></div></div>
+    <div class="gloss sec">${glo.map(([k, g]) => `<article class="gi" id="g-${k}" data-s="${esc((g.t + " " + g.d + " " + Object.entries(GLOSS_ALIAS).filter(([, v]) => v === k).map(([a]) => a).join(" ")).toLowerCase())}"><h3>${esc(g.t)}</h3><p>${esc(g.d)}</p>
+      ${g.f ? `<p class="gr"><i>Công thức</i><span>${esc(g.f)}</span></p>` : ""}${g.hi ? `<p class="gr hi"><i>Cao</i><span>${esc(g.hi)}</span></p>` : ""}${g.lo ? `<p class="gr lo"><i>Thấp</i><span>${esc(g.lo)}</span></p>` : ""}${g.n ? `<p class="gn">${esc(g.n)}</p>` : ""}</article>`).join("")}</div></section>`;
+  app().innerHTML = `<div class="ph"><h1>Hệ thống chọn mã thế nào?</h1><a class="meta" href="#/guide" onclick="setTimeout(()=>document.getElementById('gloss')?.scrollIntoView({behavior:'smooth'}),50)">Từ điển chỉ số</a></div>
   <div class="g g2">
   ${panel("Quy trình mỗi ngày", `<ol style="margin:0;padding-left:18px">
     <li>15h35 các ngày giao dịch: tải giá toàn bộ HOSE, HNX, UPCOM và khớp lệnh theo bước giá (Order Flow). Thứ Bảy tải lại báo cáo tài chính, cổ tức và chạy kiểm chứng.</li>
@@ -2086,7 +2091,9 @@ async function viewGuide() {
     <p class="faint" style="font-size:.76rem">Mọi tín hiệu đều được đo tỷ lệ đúng trên dữ liệu VN (tab Kiểm chứng). Chỉ tín hiệu có lợi thế thật mới được cộng/trừ điểm.</p>`)}
   ${panel("Các rổ", Object.entries(m.baskets).map(([k, b]) => `<div class="ev"><time><a href="#/screener/${k}">${esc(b.name)}</a></time><span>${esc(b.rule)} <small class="faint">· rủi ro ${esc(b.risk)}</small></span></div>`).join(""))}
   </div>
-  <section class="sec">${panel(`${Object.keys(m.methods).length} phương pháp chấm điểm`, `<div class="weights">${Object.entries(m.methods).map(([k, x]) => `<div class="w-item"><header><b>${esc(x.name)}</b><small>trọng số ${m.weights[k] ?? 0}</small></header><p>${esc(x.desc)}</p></div>`).join("")}</div>`)}</section>`;
+  <section class="sec">${panel(`${Object.keys(m.methods).length} phương pháp chấm điểm`, `<div class="weights">${Object.entries(m.methods).map(([k, x]) => `<div class="w-item"><header><b>${esc(x.name)}</b><small>trọng số ${m.weights[k] ?? 0}</small></header><p>${esc(x.desc)}</p></div>`).join("")}</div>`)}</section>${gloHtml}`;
+  $("#gq").oninput = (e) => { const q = e.target.value.trim().toLowerCase(); $$(".gi").forEach((x) => (x.hidden = q && !x.dataset.s.includes(q))); };
+  if (location.hash.includes("gloss")) setTimeout(() => $("#gloss")?.scrollIntoView(), 50);
 }
 
 // ================================================================ ĐỊNH GIÁ SO SÁNH (dùng chung)
@@ -2787,6 +2794,7 @@ async function palette(q0 = "") {
     if (qs) {
       (S.sector || []).concat(S.industry || []).filter((x) => strip(x.name).includes(qs)).slice(0, 5).forEach((x) => items.push({ t: x.name, s: `ngành · ${x.n} mã · P/E ${nf(x.pe_med, 1)}`, go: `#/sector/${enc(x.name)}${(S.industry || []).includes(x) ? "/l3" : ""}`, ic: "▦" }));
       PAGES.filter(([n]) => strip(n).includes(qs)).forEach(([n, h]) => items.push({ t: n, s: "trang", go: h, ic: "→" }));
+      Object.entries(GLOSS).filter(([k, g]) => strip(g.t).includes(qs) || Object.entries(GLOSS_ALIAS).some(([al, v]) => v === k && strip(al) === qs)).slice(0, 4).forEach(([k, g]) => items.push({ t: g.t, s: "giải thích", fn: () => { location.hash = "#/guide"; setTimeout(() => { const el = document.getElementById("g-" + k); el?.scrollIntoView({ behavior: "smooth", block: "center" }); el?.classList.add("flash"); }, 600); }, ic: "?" }));
     } else PAGES.forEach(([n, h, k]) => items.push({ t: n, s: `g ${k}`, go: h, ic: "→" }));
     sel = 0; draw();
   };
@@ -3058,7 +3066,7 @@ async function drawBoard(t, m, meta) {
   } catch (e) { /* giữ phần chỉ số */ }
 }
 (async function main() {
-  initTheme(); initSearch(); initGlobal();
+  initTheme(); initSearch(); initGlobal(); GL.init();
   WL.load().catch(() => {});
   try {
     const meta = await load("data/meta.json");
