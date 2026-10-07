@@ -241,6 +241,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             "rs_raw": ind.rs_rating_raw(c),
             "vol_1y": float(c.iloc[-250:].pct_change().std() * np.sqrt(250)) if len(c) > 60 else None,
             "beta": va.beta(c, idx["close"]) if len(c) > 120 else 1.0,
+            "spk": [round(float(x), 2) for x in c.iloc[-30:]] if (s in deep and len(c) >= 30) else None,
         }
         for k in ("pe", "pb", "ps", "ev_ebitda", "earnings_yield", "roe", "roa", "roic", "gross_margin",
                   "net_margin", "de", "cfo_ni", "rev_yoy", "ni_yoy", "rev_q_yoy", "ni_q_yoy", "rev_cagr3",
@@ -391,7 +392,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             "roa", "roic", "gross_margin", "net_margin", "cfo_ni", "fcf_yield", "earnings_yield", "ps", "ev_ebitda",
             "rev_cagr3", "ni_cagr3", "ni_q_yoy", "rev_q_yoy", "ni_growth_streak", "roe_avg5", "payout", "eps", "bvps",
             "smc_bias", "smc_zone", "vsa_bias", "wy_phase", "of_bias", "of_delta5",
-            "smc", "vsa", "wyckoff_ev", "orderflow", "ind_rank", "ind_n", "ni_ttm"] + [f"in_{b}" for b in st.BASKETS]
+            "smc", "vsa", "wyckoff_ev", "orderflow", "ind_rank", "ind_n", "ni_ttm", "spk"] + [f"in_{b}" for b in st.BASKETS]
     for c in cols:
         if c not in u:
             u[c] = None
