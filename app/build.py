@@ -294,6 +294,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         u["verdict"] = None
 
     # ------------------------------------------------------------ điểm, rổ, kế hoạch
+    st.STRATEGY.update({k: v for k, v in (cfg.get("strategy") or {}).items() if k in st.STRATEGY})
     elig = u[u["has_fin"] & (u["days"] >= 60)].copy()
     sc = st.score_methods(elig, regime["light"])
     weights = cfg.get("methods") or {}

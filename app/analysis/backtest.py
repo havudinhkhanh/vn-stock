@@ -118,6 +118,7 @@ def snapshot_at(t, wide, wide_val, fund, divs, listing_sector, cfg) -> pd.DataFr
     s200 = c.iloc[-200:].mean()
     s50 = c.iloc[-50:].mean()
     d["trend_up"] = (c.iloc[-1] > s50) & (s50 > s200)
+    d["above200"] = c.iloc[-1] > s200
     d["trend_down"] = (c.iloc[-1] < s50) & (s50 < s200)
     if divs is not None and not divs.empty:
         dv = divs[(divs["ex_date"] <= t) & (divs["ex_date"] > t - pd.Timedelta(days=365))
@@ -132,6 +133,7 @@ def snapshot_at(t, wide, wide_val, fund, divs, listing_sector, cfg) -> pd.DataFr
         d["div_yield"], d["cash_years"] = 0.0, 0
     mcap_pit = (d["pe"] * d["ni_parent_ttm"]).where(d["pe"] > 0)                 # tỷ đồng
     mcap_pit = mcap_pit.fillna((d["pb"] * d["equity"]).where(d["pb"] > 0))
+    d["mcap"] = mcap_pit
     y_cf = 100 * d["div_cf_ttm"] / mcap_pit
     d["div_yield"] = d["div_yield"].where(d["div_yield"] > 0, y_cf).fillna(0).clip(upper=30)
     d["cash_years"] = np.maximum(d["cash_years"], d["cf_years"].fillna(0))
@@ -141,9 +143,16 @@ def snapshot_at(t, wide, wide_val, fund, divs, listing_sector, cfg) -> pd.DataFr
     return d
 
 
+GUARDS = {"min_mcap_bn": 0.0, "value_guard": False, "trend": "not_down"}
+
+
 def pick(d: pd.DataFrame, basket: str, n: int) -> list[str]:
     if d.empty:
         return []
+    if GUARDS["min_mcap_bn"] > 0 and "mcap" in d:
+        d = d[d["mcap"].fillna(0) >= GUARDS["min_mcap_bn"]]
+        if d.empty:
+            return []
     r = lambda s, asc=True: s.rank(pct=True, ascending=asc)  # noqa: E731
     if basket == "garp":
         m = (d["roe"] >= 15) & (d["ni_yoy"] >= 10) & (d["fs"] >= 5) & ((d["de"].fillna(0) < 1.5)) & (d["cfo_ttm"] > 0)
@@ -155,6 +164,8 @@ def pick(d: pd.DataFrame, basket: str, n: int) -> list[str]:
         sc = 2 * r(d["div_yield"]) + r(d["roe"])
     elif basket == "value":
         m = (d["pe_pct"] <= 0.35) & (d["pb_pct"] <= 0.5) & (d["fs"] >= 5) & (d["roe"] >= 8)
+        if GUARDS["value_guard"]:  # tránh bẫy giá trị: lợi nhuận không sụt mạnh, dòng tiền thật, nợ vừa phải
+            m &= (d["ni_yoy"].fillna(-100) > -10) & (d["cfo_ttm"] > 0) & (d["de"].fillna(0) < 2)
         sc = r(d["pe"], False) + r(d["pb"], False) + r(d["fs"])
     elif basket == "defensive":
         m = (r(d["vol_1y"], False) >= 0.6) & (d["de"].fillna(0) < 1) & (d["cash_years"] >= 3) & (d["roe"] >= 10)
@@ -164,7 +175,13 @@ def pick(d: pd.DataFrame, basket: str, n: int) -> list[str]:
         sc = r(d["ret_12_1"]) + r(d["ni_yoy"])
     else:
         return []
-    m &= ~d["trend_down"]  # hàng rào kỹ thuật giống hệ thống thật
+    # hàng rào kỹ thuật giống hệ thống thật
+    if GUARDS["trend"] == "up":
+        m &= d["trend_up"]
+    elif GUARDS["trend"] == "above200":
+        m &= d["above200"]
+    else:
+        m &= ~d["trend_down"]
     return list(sc[m.fillna(False)].sort_values(ascending=False).index[:n])
 
 
@@ -196,7 +213,11 @@ def run(prices: pd.DataFrame, fq_ttm: pd.DataFrame, divs: pd.DataFrame, listing:
     alloc = {k: float(v) for k, v in (cfg.get("allocation") or {}).items()}
     maxpos = int((cfg.get("risk") or {}).get("max_positions", 8))
     ucfg = {"min_price": float((cfg.get("universe") or {}).get("min_price", 5)),
-            "min_val": float((cfg.get("universe") or {}).get("min_avg_value_bn", 3)) * 0.5}
+            "min_val": float((cfg.get("universe") or {}).get("min_avg_value_bn", 3)) * float(bcfg.get("liquidity_factor", 0.5))}
+    scfg = {**(cfg.get("strategy") or {}), **bcfg}   # backtest dùng chung quy tắc chọn mã với hệ thống thật
+    GUARDS["min_mcap_bn"] = float(scfg.get("min_mcap_bn", 0))
+    GUARDS["value_guard"] = bool(scfg.get("value_guard", False))
+    GUARDS["trend"] = str(scfg.get("trend_filter", "not_down"))
 
     stocks = prices[~prices["symbol"].isin(["VNINDEX", "HNXINDEX", "UPCOMINDEX", "VN30"])]
     wide = stocks.pivot_table(index="date", columns="symbol", values="close").sort_index()
@@ -227,7 +248,11 @@ def run(prices: pd.DataFrame, fq_ttm: pd.DataFrame, divs: pd.DataFrame, listing:
     holdings_hist = {b: [] for b in baskets}
     prev_w = {b: {} for b in baskets}
     prev_combo, prev_combo_reg = {}, {}
-    nslots = {b: max(1, round(maxpos * alloc.get(b, 0) / tot_alloc)) if alloc.get(b, 0) > 0 else 5 for b in baskets}
+    per_basket = int(bcfg.get("slots_per_basket", 0))
+    if per_basket > 0:
+        nslots = {b: per_basket for b in baskets}
+    else:
+        nslots = {b: max(1, round(maxpos * alloc.get(b, 0) / tot_alloc)) if alloc.get(b, 0) > 0 else 5 for b in baskets}
 
     msl = float((cfg.get("risk") or {}).get("max_stop_loss_pct", 12)) / 100
     stop_lvl = (1 - msl) if bcfg.get("use_stop", True) else None

@@ -104,9 +104,13 @@ def composite(scores: pd.DataFrame, weights: dict) -> pd.Series:
     return sum(scores[k] * v for k, v in w.items()) / tot
 
 
+STRATEGY = {"trend_filter": "up", "min_mcap_bn": 1000.0, "value_guard": True}
+
+
 def basket_members(u: pd.DataFrame, sc: pd.DataFrame, light: str) -> dict[str, pd.Series]:
     """Trả về {rổ: điểm xếp hạng (chỉ mã đạt điều kiện)}."""
     ct = u["ctype"] == "CT"
+    big = u["mcap_bn"].fillna(0) >= STRATEGY["min_mcap_bn"]
     pos_cfo = (u["cfo_ni"].fillna(0) > 0) | ~ct
     peg = u["pe"] / u[["ni_cagr3", "ni_yoy"]].min(axis=1).clip(lower=0.1)
     res = {}
@@ -118,13 +122,15 @@ def basket_members(u: pd.DataFrame, sc: pd.DataFrame, light: str) -> dict[str, p
     res["dividend"] = (0.6 * sc["dividend"] + 0.2 * sc["quality"] + 0.2 * sc["value"])[m]
     m = ((u["price"] <= u["buy_below"]) & (u["fscore"].fillna(0) >= 5) & (u["roe"].fillna(0) >= 8)
          & (u["loss_years"].fillna(9) == 0))
+    if STRATEGY["value_guard"]:  # tránh bẫy giá trị (đã kiểm chứng ở backtest)
+        m &= (u["ni_yoy"].fillna(-100) > -10) & pos_cfo & ((u["de"].fillna(0) < 2) | ~ct)
     res["value"] = (0.6 * sc["value"] + 0.25 * sc["piotroski"] + 0.15 * sc["quality"])[m]
     m = ((sc["low_vol"] >= 60) & ((u["de"].fillna(0) < 1) | ~ct) & (u["cash_years"].fillna(0) >= 3)
          & (u["roe"].fillna(0) >= 10))
     res["defensive"] = (0.5 * sc["low_vol"] + 0.3 * sc["dividend"] + 0.2 * sc["quality"])[m]
     m = (sc["canslim"] >= 4 / 6 * 100 - 0.1) & (u["trend"] == "up")
     res["growth"] = (0.6 * sc["canslim"] + 0.4 * sc["momentum"])[m]
-    return {k: v.sort_values(ascending=False) for k, v in res.items()}
+    return {k: v[big.reindex(v.index).fillna(False)].sort_values(ascending=False) for k, v in res.items()}
 
 
 # ------------------------------------------------------------------ tín hiệu
@@ -171,7 +177,12 @@ def trade_levels(row: pd.Series, risk_cfg: dict) -> dict:
 
 
 def timing_ok(row: pd.Series) -> tuple[bool, str]:
-    """Hàng rào kỹ thuật: không bắt dao rơi."""
+    """Hàng rào kỹ thuật. Backtest 2020-2026: chỉ mua khi giá đã vào xu hướng tăng (giá > MA50 > MA200)
+    giảm mức sụt danh mục từ ~-50% xuống ~-26%."""
+    if STRATEGY["trend_filter"] == "up" and row.get("trend") != "up":
+        if row.get("trend") == "down":
+            return False, "Giá đang trong xu hướng giảm – chờ giá lên trên MA50 và MA50 trên MA200"
+        return False, "Chưa xác nhận xu hướng tăng (cần giá > MA50 > MA200) – theo dõi, chưa mua"
     if row.get("trend") == "down" and row.get("wyckoff") not in ("accum", "markup_start"):
         return False, "Giá đang trong xu hướng giảm – chờ tạo đáy (giá lên trên MA50 hoặc nền tích luỹ)"
     if row.get("st_dir", 1) < 0 and row.get("trend") != "up" and row.get("ta_score", 50) < 35:

@@ -36,6 +36,14 @@ methods:
   low_vol: 0          # biến động thấp
 
 # ---------------------------------------------------------------------
+#  QUY TẮC CHỌN MÃ (đã kiểm chứng bằng backtest 2020-2026 trên ~430 mã có BCTC)
+# ---------------------------------------------------------------------
+strategy:
+  trend_filter: up       # up = chỉ mua khi giá > MA50 > MA200 | above200 = giá > MA200 | not_down = chỉ tránh mã đang giảm
+  min_mcap_bn: 1000      # chỉ chọn doanh nghiệp vốn hoá từ 1.000 tỷ (tránh mã nhỏ, dễ bị bẫy giá trị)
+  value_guard: true      # rổ Giá trị: loại mã lợi nhuận sụt >10%, dòng tiền KD âm, nợ vay > 2 lần vốn
+
+# ---------------------------------------------------------------------
 #  QUẢN TRỊ RỦI RO
 # ---------------------------------------------------------------------
 risk:
@@ -78,3 +86,5 @@ backtest:
   cost_pct: 0.25              # phí + thuế mỗi chiều (%)
   report_lag_days: 45         # BCTC quý chỉ được dùng sau 45 ngày (tránh "nhìn trước tương lai")
   use_stop: true              # mô phỏng cắt lỗ như hệ thống thật
+  slots_per_basket: 8         # mỗi rổ đo bằng 8 mã (đa dạng hoá, kết quả ổn định hơn)
+  liquidity_factor: 1.0       # thanh khoản tối thiểu = đúng mức của hệ thống thật
