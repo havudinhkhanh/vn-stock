@@ -19,6 +19,9 @@ from .analysis import indicators as ind
 from .analysis import market as mk
 from .analysis import orderflow as ofl
 from .analysis import sector as sec_
+from .analysis import seasonal as seas
+from .analysis import mtf as mtf_
+from .analysis import sector_outlook as sec_out
 from .analysis import signals as sgn
 from .analysis import smc as smc_
 from .analysis import vsa as vsa_
@@ -74,6 +77,21 @@ def _val_hist(q, n: int = 24) -> list:
         pb = float(pb) if pb is not None and pb == pb and 0 < pb < 30 else None
         out.append({"p": f"Q{int(r.quarter)}/{int(r.year) % 100:02d}", "pe": round(pe, 1) if pe else None, "pb": round(pb, 2) if pb else None})
     return out
+
+
+def _f(x):
+    try:
+        x = float(x)
+        return None if math.isnan(x) or math.isinf(x) else round(x, 2)
+    except (TypeError, ValueError):
+        return None
+
+
+def _sup_extra(r) -> list:
+    comp, ni = r.get("composite"), r.get("ni_yoy")
+    return [(bool(comp >= 55) if pd.notna(comp) else None, f"điểm tổng hợp {comp:.0f}" if pd.notna(comp) else "", f"điểm tổng hợp chỉ {comp:.0f}" if pd.notna(comp) else ""),
+            (bool(ni > 0) if pd.notna(ni) else None, f"lợi nhuận 12 tháng {ni:+.0f}%" if pd.notna(ni) else "", f"lợi nhuận 12 tháng {ni:+.0f}%" if pd.notna(ni) else ""),
+            (r.get("trend") != "down", "xu hướng ngày không giảm", "xu hướng ngày đang giảm")]
 
 
 def _ohlc_payload(df: pd.DataFrame, n: int = 750) -> dict:
@@ -206,7 +224,10 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             c = g[s]["close"]
             market["indices"][s] = {"close": round(float(c.iloc[-1]), 2),
                                     "chg": round(100 * float(c.iloc[-1] / c.iloc[-2] - 1), 2),
-                                    "ohlc": _ohlc_payload(g[s], 500)}
+                                    "ohlc": _ohlc_payload(g[s], 500),
+                                    "ohlc_w": mtf_.payload(mtf_.resample(g[s], "W")), "ohlc_m": mtf_.payload(mtf_.resample(g[s], "M")),
+                                    "mtf": mtf_.full(g[s]),
+                                    "season": seas.profile(g[s]["close"], None if s == "VNINDEX" else g["VNINDEX"]["close"] if "VNINDEX" in g else None, g[s].index[-1])}
 
     # ------------------------------------------------------------ từng mã
     rows, details = {}, {}
@@ -282,7 +303,24 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
                 r["ta_score"] = int(np.clip(r["ta_score"] + boost, 0, 100))
                 ta["score"] = r["ta_score"]
                 ta["pattern_boost"] = {"points": boost, "patterns": used_p}
-            details[s] = {"df": df, "ti": ti, "ta": ta, "fa": fa, "pat": pat}
+            try:
+                mt = mtf_.full(df)
+            except Exception as e:  # noqa: BLE001
+                mt = {"tf": {}, "summary": {"text": f"lỗi: {e}"}}
+            for k in ("D", "W", "M", "Q"):
+                x = mt["tf"].get(k) or {}
+                r[f"tf_{k.lower()}"] = x.get("score") if x.get("ok") else None
+            r["mtf_align"] = mt["summary"].get("align")
+            try:
+                sp = seas.profile(df["close"], idx["close"], last_date)
+            except Exception:  # noqa: BLE001
+                sp = None
+            h1 = ((sp or {}).get("same") or {}).get("h1") or {}
+            r["ss1_rel"], r["ss1_hit"], r["ss1_mean"], r["ss_n"] = h1.get("rel"), h1.get("relhit"), h1.get("mean"), h1.get("n")
+            nx = (sp or {}).get("next") or []
+            r["ss_strong"] = bool(nx and nx[0].get("strong")) or bool(h1 and seas.is_strong({"n": h1.get("n"), "rel": h1.get("rel"), "relhit": h1.get("relhit")}))
+            r["mtf_conflict"] = mt["summary"].get("conflict")
+            details[s] = {"df": df, "ti": ti, "ta": ta, "fa": fa, "pat": pat, "mtf": mt, "season": sp}
         rows[s] = r
         if n % 200 == 0:
             log.info("  %d/%d mã", n, len(symbols))
@@ -414,7 +452,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             "roa", "roic", "gross_margin", "net_margin", "cfo_ni", "fcf_yield", "earnings_yield", "ps", "ev_ebitda",
             "rev_cagr3", "ni_cagr3", "ni_q_yoy", "rev_q_yoy", "ni_growth_streak", "roe_avg5", "payout", "eps", "bvps",
             "smc_bias", "smc_zone", "vsa_bias", "wy_phase", "of_bias", "of_delta5",
-            "smc", "vsa", "wyckoff_ev", "orderflow", "ind_rank", "ind_n", "ni_ttm", "spk", "atr", "e20", "e20_below2", "fair_hi"] + [f"in_{b}" for b in st.BASKETS]
+            "smc", "vsa", "wyckoff_ev", "orderflow", "ind_rank", "ind_n", "ni_ttm", "spk", "atr", "e20", "e20_below2", "fair_hi", "tf_d", "tf_w", "tf_m", "tf_q", "mtf_align", "mtf_conflict", "ss1_rel", "ss1_hit", "ss1_mean", "ss_n", "ss_strong"] + [f"in_{b}" for b in st.BASKETS]
     for c in cols:
         if c not in u:
             u[c] = None
@@ -537,12 +575,68 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     except Exception as e:  # noqa: BLE001
         log.exception("Phân tích ngành lỗi: %s", e)
         sec_l2, sec_l3 = [], []
+    outlook = {}
+    try:
+        for lv, recs in (("sector", sec_l2), ("industry", sec_l3)):
+            o = sec_out.run(u, wide, idx["close"], fq, lv)
+            if not o:
+                continue
+            for rec in recs:
+                if rec["name"] in o["current"]:
+                    rec["outlook"] = o["current"][rec["name"]]
+            outlook[lv] = {k: v for k, v in o.items() if k != "current"}
+    except Exception as e:  # noqa: BLE001
+        log.exception("Triển vọng ngành lỗi: %s", e)
+    # ------------------------------------------------------------ mùa vụ ngành + kiểm chứng ngoài mẫu
+    season = {"thresholds": seas.STRONG, "oos": {}, "sectors": [], "stocks": []}
+    try:
+        for lv, recs in (("sector", sec_l2), ("industry", sec_l3)):
+            ser_ = {rec["name"]: rec.pop("_il") for rec in recs if rec.get("_il") is not None}
+            for rec in recs:
+                if rec["name"] in ser_:
+                    rec["season"] = seas.profile(ser_[rec["name"]], idx["close"], last_date)
+                    rec["season_support"] = seas.support(rec.get("outlook"), rec.get("mtf"))
+            season["oos"][lv] = seas.oos(ser_, idx["close"], last_date, min_prior=seas.STRONG["n"], th_rel=seas.STRONG["rel"], th_hit=seas.STRONG["hit"])
+            for rec in recs:
+                spf = rec.get("season") or {}
+                h1 = (spf.get("same") or {}).get("h1") or {}
+                nx = spf.get("next") or []
+                strong_now = seas.is_strong({"n": h1.get("n"), "rel": h1.get("rel"), "relhit": h1.get("relhit")})
+                strong_m = [x for x in nx[:2] if x.get("strong")]
+                if strong_now or strong_m:
+                    season["sectors"].append({"level": lv, "name": rec["name"], "h1": h1, "h2": (spf.get("same") or {}).get("h2"), "months": strong_m,
+                                              "support": rec.get("season_support"), "outlook": (rec.get("outlook") or {}).get("m3")})
+        so_path = store.path("season_oos.json")
+        if so_path.exists() and store.age_days("season_oos") <= 6:
+            season["oos"]["stock"] = json.loads(so_path.read_text(encoding="utf-8"))
+        else:
+            liq_syms = [s_ for s_ in u.index[u["avg_value_bn"].fillna(0) >= 3] if s_ in wide.columns]
+            res_ = seas.oos({s_: wide[s_] for s_ in liq_syms}, idx["close"], last_date, min_prior=seas.STRONG["n"], th_rel=seas.STRONG["rel"], th_hit=seas.STRONG["hit"])
+            so_path.write_text(json.dumps(_clean(res_), ensure_ascii=False), encoding="utf-8")
+            store.touch("season_oos")
+            season["oos"]["stock"] = res_
+    except Exception as e:  # noqa: BLE001
+        log.exception("Mùa vụ ngành lỗi: %s", e)
+    for recs in (sec_l2, sec_l3):
+        for rec in recs:
+            rec.pop("_il", None)
+    try:
+        cand = u[(u["ss_strong"] == True) & (u["avg_value_bn"].fillna(0) >= 3)]  # noqa: E712
+        for s_, r_ in cand.sort_values("ss1_rel", ascending=False).iterrows():
+            sg = {"W": 1 if (r_.get("tf_w") or 0) >= 0.35 else -1 if (r_.get("tf_w") or 0) <= -0.35 else 0,
+                  "M": 1 if (r_.get("tf_m") or 0) >= 0.35 else -1 if (r_.get("tf_m") or 0) <= -0.35 else 0}
+            sup = seas.support(None, {"summary": {"signs": sg}}, _sup_extra(r_))
+            season["stocks"].append({"symbol": s_, "sector": r_.get("sector"), "rel": _f(r_.get("ss1_rel")), "hit": _f(r_.get("ss1_hit")), "mean": _f(r_.get("ss1_mean")),
+                                     "n": _f(r_.get("ss_n")), "support": sup, "composite": _f(r_.get("composite"))})
+        season["stocks"] = season["stocks"][:30]
+    except Exception as e:  # noqa: BLE001
+        log.exception("Mùa vụ mã lỗi: %s", e)
     try:
         mkt_val = sec_.market_summary(u, fq, float(vcfg.get("risk_free", 3.2)))
     except Exception as e:  # noqa: BLE001
         log.exception("Định giá toàn thị trường lỗi: %s", e)
         mkt_val = {}
-    dump(out_dir / "sectors.json", {"sector": sec_l2, "industry": sec_l3, "market": mkt_val,
+    dump(out_dir / "sectors.json", {"sector": sec_l2, "industry": sec_l3, "market": mkt_val, "outlook": outlook, "season": season,
                                     "backtest": (backtest or {}).get("sectors", {}),
                                     "backtest_range": [backtest.get("start"), backtest.get("end")] if backtest.get("ok") else None})
 
@@ -568,6 +662,9 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             "industry": r["industry"], "date": str(last_date.date()),
             "row": {k: r.get(k) for k in cols},
             "ohlc": _ohlc_payload(d["df"]),
+            "ohlc_w": mtf_.payload(mtf_.resample(d["df"], "W")), "ohlc_m": mtf_.payload(mtf_.resample(d["df"], "M")),
+            "mtf": d.get("mtf"), "season": d.get("season"),
+            "season_support": seas.support(None, d.get("mtf"), _sup_extra(r)),
             "ta": d["ta"], "waves": pat,
             "fa": d["fa"], "history": fu.history_table(fq_s, fy_by.get(s)),
             "valuation": d.get("val"),

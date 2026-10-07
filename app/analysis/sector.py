@@ -28,7 +28,7 @@ def _wret(w: pd.DataFrame, syms, wt, n):
 def index_series(w: pd.DataFrame, syms: list[str], wt: pd.Series) -> pd.Series:
     """Chỉ số ngành tự tính: lợi nhuận ngày gia quyền theo giá trị giao dịch (đổi trọng số hằng tháng là
     lý tưởng; ở đây dùng trọng số hiện tại cho đơn giản), chuẩn hoá 100."""
-    rets = w[syms].pct_change(fill_method=None)
+    rets = w[syms].pct_change(fill_method=None).replace([np.inf, -np.inf], np.nan).clip(-0.5, 1.0)
     ww = wt.reindex(syms).fillna(0)
     ww = ww / ww.sum() if ww.sum() > 0 else pd.Series(1 / len(syms), index=syms)
     valid = rets.notna()
@@ -190,6 +190,18 @@ def analyze(u: pd.DataFrame, wide: pd.DataFrame, wide_val: pd.DataFrame, idx_clo
                          if a == a and b == b],
             "index": [{"d": str(d.date()), "v": _r(v, 2)} for d, v in idx.iloc[-260:].items()],
         }
+        try:
+            from . import mtf as mtf_
+            il = index_series(wide, liq, wt)
+            il = il[il.index >= w.index[0] - pd.Timedelta(days=4000)]
+            rec["_il"] = il
+            il = il[il.index >= pd.Timestamp("2016-01-01")]
+            dl = pd.DataFrame({"open": il, "high": il, "low": il, "close": il, "volume": 0})
+            rec["index_w"] = {k: v for k, v in mtf_.payload(mtf_.resample(dl, "W")).items() if k in ("t", "c")}
+            rec["index_m"] = {k: v for k, v in mtf_.payload(mtf_.resample(dl, "M")).items() if k in ("t", "c")}
+            rec["mtf"] = mtf_.full(dl)
+        except Exception:  # noqa: BLE001
+            pass
         x, y = rec["rs_ratio"] or 100, rec["rs_mom"] or 100
         rec["quadrant"] = ("Dẫn dắt" if x >= 100 and y >= 100 else "Suy yếu" if x >= 100 else
                            "Cải thiện" if y >= 100 else "Tụt hậu")
