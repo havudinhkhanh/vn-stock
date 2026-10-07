@@ -49,8 +49,26 @@ def prepare_fund(fq: pd.DataFrame, lag_days: int) -> pd.DataFrame:
     f["roe"] = 100 * f["ni_parent_ttm"] / f["equity"].where(f["equity"] > 0)
     f["de"] = f["debt"] / f["equity"].where(f["equity"] > 0)
     f["qend"] = _period_end(f["year"], f["quarter"])
+    # cổ tức tiền mặt từ lưu chuyển tiền tệ (TTM) và số năm tài chính liên tiếp có trả cổ tức
+    if "dividends_paid_ttm" in f:
+        f["div_cf_ttm"] = f["dividends_paid_ttm"].abs()
+        q4 = f[f["quarter"] == 4][["symbol", "year", "div_cf_ttm"]].copy()
+        q4["paid"] = (q4["div_cf_ttm"].fillna(0) > 0).astype(int)
+        streaks = []
+        for sym, gq in q4.sort_values("year").groupby("symbol"):
+            run_ = 0
+            for _, r in gq.iterrows():
+                run_ = run_ + 1 if r["paid"] else 0
+                streaks.append((sym, int(r["year"]), run_))
+        st = pd.DataFrame(streaks, columns=["symbol", "fy", "cf_years"])
+        # năm tài chính đã kết thúc gần nhất trước kỳ đang xét
+        f["fy"] = np.where(f["quarter"] == 4, f["year"], f["year"] - 1)
+        f = f.merge(st, on=["symbol", "fy"], how="left")
+        f["cf_years"] = f["cf_years"].fillna(0)
+    else:
+        f["div_cf_ttm"], f["cf_years"] = np.nan, 0
     keep = ["symbol", "avail", "qend", "ni_parent_ttm", "equity", "shares", "fs", "ni_yoy", "rev_yoy", "roe", "de",
-            "cfo_ttm", "pe_src", "pb_src"]
+            "cfo_ttm", "pe_src", "pb_src", "div_cf_ttm", "cf_years"]
     return f[[c for c in keep if c in f]].sort_values("avail")
 
 
@@ -112,6 +130,11 @@ def snapshot_at(t, wide, wide_val, fund, divs, listing_sector, cfg) -> pd.DataFr
         d["cash_years"] = yrs.reindex(d.index).fillna(0)
     else:
         d["div_yield"], d["cash_years"] = 0.0, 0
+    mcap_pit = (d["pe"] * d["ni_parent_ttm"]).where(d["pe"] > 0)                 # tỷ đồng
+    mcap_pit = mcap_pit.fillna((d["pb"] * d["equity"]).where(d["pb"] > 0))
+    y_cf = 100 * d["div_cf_ttm"] / mcap_pit
+    d["div_yield"] = d["div_yield"].where(d["div_yield"] > 0, y_cf).fillna(0).clip(upper=30)
+    d["cash_years"] = np.maximum(d["cash_years"], d["cf_years"].fillna(0))
     d["sector"] = listing_sector.reindex(d.index)
     for m in ("pe", "pb"):
         d[m + "_pct"] = d.groupby("sector")[m].rank(pct=True)
@@ -188,6 +211,10 @@ def run(prices: pd.DataFrame, fq_ttm: pd.DataFrame, divs: pd.DataFrame, listing:
         return {"ok": False, "reason": "Thiếu dữ liệu BCTC"}
     sector = listing.set_index("symbol")["sector"]
     reg = regime_series(idx).reindex(wide.index).ffill()
+    # bắt đầu khi ≥ 60% số mã có BCTC đã có dữ liệu dùng được (tránh giai đoạn rổ trống vì thiếu số liệu)
+    first_avail = fund.groupby("symbol")["avail"].min().sort_values()
+    if len(first_avail) >= 10:
+        start = max(start, first_avail.iloc[int(len(first_avail) * 0.6)] + pd.Timedelta(days=380))
     dates = wide.loc[start:].groupby(wide.loc[start:].index.to_period("M")).tail(1).index
     if len(dates) < 12:
         return {"ok": False, "reason": "Lịch sử quá ngắn để backtest"}
@@ -202,12 +229,20 @@ def run(prices: pd.DataFrame, fq_ttm: pd.DataFrame, divs: pd.DataFrame, listing:
     prev_combo, prev_combo_reg = {}, {}
     nslots = {b: max(1, round(maxpos * alloc.get(b, 0) / tot_alloc)) if alloc.get(b, 0) > 0 else 5 for b in baskets}
 
+    msl = float((cfg.get("risk") or {}).get("max_stop_loss_pct", 12)) / 100
+    stop_lvl = (1 - msl) if bcfg.get("use_stop", True) else None
+
     def period_path(weights: dict, t0, t1):
         sub = wide.loc[t0:t1, list(weights)] if weights else None
         if sub is None or sub.empty:
             return pd.Series(1.0, index=wide.loc[t0:t1].index)
         rel = sub / sub.iloc[0]
         rel = rel.ffill().fillna(1.0)
+        # cắt lỗ giống hệ thống thật: giảm quá max_stop_loss_pct so với giá mua -> bán, giữ tiền đến kỳ sau
+        if stop_lvl is not None:
+            hit = rel.le(stop_lvl)
+            first = hit.cummax()
+            rel = rel.where(~first, stop_lvl * (1 - cost))
         cash = 1 - sum(weights.values())
         return (rel * pd.Series(weights)).sum(axis=1) + cash
 
@@ -251,6 +286,8 @@ def run(prices: pd.DataFrame, fq_ttm: pd.DataFrame, divs: pd.DataFrame, listing:
                "Chỉ gồm các mã đang niêm yết (bỏ sót mã đã huỷ niêm yết) → kết quả có thể lạc quan hơn thực tế.",
                "Rổ Giá trị trong backtest dùng P/E, P/B thấp so với ngành thay cho định giá DCF.",
                f"Đã trừ phí + thuế {bcfg.get('cost_pct', 0.25)}% mỗi chiều; BCTC chỉ dùng sau {lag} ngày kết thúc quý.",
+               f"Có mô phỏng cắt lỗ {int(msl * 100)}% như hệ thống thật (bán khi giảm quá mức so với giá mua, mua lại ở kỳ sau nếu vẫn đạt điều kiện).",
+               "Bắt đầu từ khi đa số doanh nghiệp đã có báo cáo tài chính trên nguồn dữ liệu (từ 2018).",
                "Lợi nhuận quá khứ không đảm bảo lợi nhuận tương lai."]}
     bench = idx.loc[dates[0]:dates[-1]]
     bench = bench / bench.iloc[0]

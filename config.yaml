@@ -44,7 +44,8 @@ risk:
   max_weight_per_stock: 20    # % vốn tối đa cho 1 mã
   max_weight_per_sector: 30   # % vốn tối đa cho 1 ngành
   risk_per_trade: 1.5         # % vốn chấp nhận lỗ cho mỗi lệnh (nếu chạm cắt lỗ)
-  max_stop_loss_pct: 12       # cắt lỗ không sâu quá 12% (đánh cơ bản nên rộng hơn lướt sóng)
+  max_stop_loss_pct: 20       # cắt lỗ khi giảm 20% so với giá mua. Backtest 2020-2026: 12% làm giảm lợi nhuận
+                              # (bán đáy rồi mua lại); 20% cân bằng hơn cho chiến lược đánh cơ bản
   max_drawdown_target: 25     # mức sụt danh mục chấp nhận (anh chọn ưu tiên lợi nhuận)
   margin_of_safety: 20        # chỉ mua khi giá thấp hơn giá trị hợp lý ít nhất 20%
   use_margin: false
@@ -76,3 +77,4 @@ backtest:
   rebalance: monthly
   cost_pct: 0.25              # phí + thuế mỗi chiều (%)
   report_lag_days: 45         # BCTC quý chỉ được dùng sau 45 ngày (tránh "nhìn trước tương lai")
+  use_stop: true              # mô phỏng cắt lỗ như hệ thống thật
