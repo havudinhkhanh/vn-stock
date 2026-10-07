@@ -31,6 +31,12 @@ def _div(a, b):
     return a / b
 
 
+def _pc(a, b):
+    """100 * a / b, hoặc None nếu thiếu số liệu."""
+    v = _div(a, b)
+    return None if v is None else 100 * v
+
+
 def _r(x, nd=2):
     x = _num(x)
     return None if x is None else round(x, nd)
@@ -258,14 +264,14 @@ def analyze_symbol(sym: str, qs: pd.DataFrame, ys: pd.DataFrame, price: float,
         "pb": _r(price * 1000 / bvps, 2) if bvps and bvps > 0 else None,
         "ps": _r(_div(mcap, rev), 2),
         "ev_ebitda": _r(_div(ev, ebitda), 1) if ebitda and ebitda > 0 else None,
-        "earnings_yield": _r(100 * _div(ebit, ev), 2) if ev and ev > 0 and ebit is not None else None,
+        "earnings_yield": _r(_pc(ebit, ev), 2) if ev and ev > 0 and ebit is not None else None,
         "revenue_ttm": _r(rev, 0), "ni_ttm": _r(ni, 0),
-        "roe": _r(100 * _div(ni, eq_avg), 1) if eq_avg and eq_avg > 0 else None,
-        "roa": _r(100 * _div(ni, ta_avg), 2),
+        "roe": _r(_pc(ni, eq_avg), 1) if eq_avg and eq_avg > 0 else None,
+        "roa": _r(_pc(ni, ta_avg), 2),
         "roic": _r(100 * roic, 1) if roic is not None else None,
-        "gross_margin": _r(100 * _div(T("gross_profit"), rev), 1) if ctype == "CT" else None,
-        "op_margin": _r(100 * _div(T("operating_profit"), rev), 1),
-        "net_margin": _r(100 * _div(ni, rev), 1),
+        "gross_margin": _r(_pc(T("gross_profit"), rev), 1) if ctype == "CT" else None,
+        "op_margin": _r(_pc(T("operating_profit"), rev), 1),
+        "net_margin": _r(_pc(ni, rev), 1),
         "de": _r(_div(debt, equity), 2) if equity and equity > 0 else None,
         "liab_equity": _r(_div(_num(L.get("total_liab")), equity), 2) if equity and equity > 0 else None,
         "net_debt_ebitda": _r(_div(debt - cash, ebitda), 2) if ebitda and ebitda > 0 else None,
@@ -273,7 +279,7 @@ def analyze_symbol(sym: str, qs: pd.DataFrame, ys: pd.DataFrame, price: float,
         "interest_cover": _r(_div(ebit, T("interest_exp")), 1) if T("interest_exp") else None,
         "cfo_ni": _r(_div(cfo, ni), 2) if ni and ni > 0 else None,
         "fcf_ttm": _r(T("fcf"), 0),
-        "fcf_yield": _r(100 * _div(T("fcf"), mcap), 2) if mcap else None,
+        "fcf_yield": _r(_pc(T("fcf"), mcap), 2) if mcap else None,
         "rev_yoy": _r(yoy("revenue") if ctype == "CT" else (yoy("toi") or yoy("revenue")), 1),
         "ni_yoy": _r(yoy("ni_parent") or yoy("net_income"), 1),
         "rev_q_yoy": _r(q_yoy("revenue"), 1),
@@ -314,8 +320,8 @@ def history_table(qs: pd.DataFrame, ys: pd.DataFrame, n_q: int = 12, n_y: int = 
             for c in cols:
                 row[c] = _r(r.get(c), 0)
             rev = _num(r.get("revenue"))
-            row["gm"] = _r(100 * _div(r.get("gross_profit"), rev), 1) if rev else None
-            row["nm"] = _r(100 * _div(r.get("ni_parent"), rev), 1) if rev else None
+            row["gm"] = _r(_pc(r.get("gross_profit"), rev), 1) if rev else None
+            row["nm"] = _r(_pc(r.get("ni_parent"), rev), 1) if rev else None
             rows.append(row)
         return rows
 
