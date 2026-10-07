@@ -15,11 +15,12 @@ universe:
 #  PHÂN BỔ VỐN THEO RỔ (tổng = 100)
 # ---------------------------------------------------------------------
 allocation:
+  # Anh chọn ngày 07/10/2026 dựa trên backtest 2020-2026 (có đèn thị trường): ~+14%/năm, sụt tối đa ~-18%
   garp: 40        # Chất lượng + tăng trưởng hợp lý
-  dividend: 30    # Cổ tức
-  value: 30       # Giá trị (mua dưới giá trị hợp lý)
-  defensive: 0    # Phòng thủ
-  growth: 0       # Tăng trưởng mạnh (CANSLIM) - rủi ro cao
+  growth: 30      # Tăng trưởng mạnh (CANSLIM)
+  defensive: 30   # Phòng thủ (biến động thấp, nợ thấp, có cổ tức)
+  dividend: 0     # Cổ tức  – backtest 2020-2026 yếu (+3,8%/năm) khi kèm điều kiện xu hướng tăng
+  value: 0        # Giá trị – backtest 2020-2026 yếu (+2,0%/năm)
 
 # ---------------------------------------------------------------------
 #  TRỌNG SỐ CÁC PHƯƠNG PHÁP KHI CHẤM ĐIỂM TỔNG HỢP (0 = tắt)
