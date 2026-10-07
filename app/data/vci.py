@@ -14,7 +14,8 @@ from .http import FetchError, get, post
 
 TRADING = "https://trading.vietcap.com.vn/api/"
 MT = "https://mt.vietcap.com.vn/api/"
-GRAPHQL = "https://api.vietcap.com.vn/data-mt/graphql"
+GRAPHQL = "https://trading.vietcap.com.vn/data-mt/graphql"
+IQ = "https://iq.vietcap.com.vn/api/iq-insight-service"
 
 INDEX_MAP = {"VNINDEX": "VNINDEX", "HNXINDEX": "HNXIndex", "UPCOMINDEX": "HNXUpcomIndex",
              "VN30": "VN30"}
@@ -58,14 +59,11 @@ def listing() -> pd.DataFrame:
     df = df[df["exchange"].isin(["HOSE", "HNX", "UPCOM"])]
     df = df[df["symbol"].astype(str).str.len() == 3]
 
-    q = ("{CompaniesListingInfo { ticker organName icbName2 icbName3 icbName4 "
-         "icbCode1 icbCode2 icbCode3 icbCode4 comTypeCode } }")
     try:
-        icb = post("VCI", GRAPHQL, {"query": q, "variables": {}})["data"]["CompaniesListingInfo"]
-        icb = pd.DataFrame(icb).rename(columns={"ticker": "symbol", "organName": "name_full"})
+        icb = industries()
         df = df.merge(icb, on="symbol", how="left")
-    except (FetchError, KeyError, TypeError):
-        for c in ("icbName2", "icbName3", "icbName4", "comTypeCode"):
+    except (FetchError, KeyError, TypeError, ValueError):
+        for c in ("icbName2", "icbName3", "icbName4", "comTypeCode", "name_full"):
             df[c] = None
     if "name" not in df:
         df["name"] = df.get("name_full")
@@ -76,6 +74,21 @@ def listing() -> pd.DataFrame:
     out = df[[c for c in keep if c in df]].rename(
         columns={"icbName2": "sector", "icbName3": "industry", "icbName4": "subindustry"})
     return out.drop_duplicates("symbol").reset_index(drop=True)
+
+
+def industries() -> pd.DataFrame:
+    """Phân ngành ICB cấp 1-4 + loại doanh nghiệp (CT/NH/CK/BH) cho mọi mã."""
+    data = get("VCI", f"{IQ}/v2/company/search-bar", params={"language": 1}).get("data") or []
+    rows = []
+    for c in data:
+        r = {"symbol": c.get("code"), "name_full": c.get("name"), "comTypeCode": c.get("comTypeCode")}
+        for lv in (1, 2, 3, 4):
+            v = c.get(f"icbLv{lv}") or {}
+            r[f"icbName{lv}"] = v.get("name") if isinstance(v, dict) else None
+        rows.append(r)
+    if not rows:
+        raise FetchError("VCI search-bar rỗng")
+    return pd.DataFrame(rows).drop_duplicates("symbol")
 
 
 # ----------------------------------------------------------------- giá
@@ -125,45 +138,104 @@ def prices(symbols: list[str], start: datetime, end: datetime | None = None,
     return res
 
 
-# ----------------------------------------------------------------- BCTC
-_RATIO_FIELDS = (
-    "ticker yearReport lengthReport updateDate revenue revenueGrowth netProfit "
-    "netProfitGrowth ebitMargin roe roic roa pe pb eps currentRatio cashRatio quickRatio "
-    "interestCoverage ae netProfitMargin grossMargin ev issueShare ps pcf bvps evPerEbitda "
-    "at fat acp dso dpo ccc de le ebitda ebit dividend epsTTM charterCapital"
-)
+# ----------------------------------------------------------------- BCTC (Vietcap IQ)
+SECTIONS = {"IS": "INCOME_STATEMENT", "BS": "BALANCE_SHEET", "CF": "CASH_FLOW"}
+_metrics_cache: dict[str, pd.DataFrame] = {}
 
 
-_mapping_cache: pd.DataFrame | None = None
+def metrics(symbol: str, ctype: str = "CT") -> pd.DataFrame:
+    """Từ điển mã trường -> tên chỉ tiêu (theo loại doanh nghiệp, lưu tạm để đỡ gọi lại)."""
+    if ctype in _metrics_cache:
+        return _metrics_cache[ctype]
+    data = get("VCI", f"{IQ}/v1/company/{symbol}/financial-statement/metrics").get("data") or {}
+    rows = []
+    for sec, items in data.items():
+        for it in items or []:
+            rows.append({"section": str(sec).upper(), "field": it.get("field"), "parent": it.get("parent"),
+                         "en": it.get("titleEn") or it.get("fullTitleEn"), "vi": it.get("titleVi") or it.get("fullTitleVi"),
+                         "level": it.get("level")})
+    df = pd.DataFrame(rows)
+    if df.empty:
+        raise FetchError(f"VCI metrics {symbol}: rỗng")
+    _metrics_cache[ctype] = df
+    return df
 
 
-def ratio_dictionary() -> pd.DataFrame:
-    """Từ điển mã trường (ISA1, BSA2...) -> tên chỉ tiêu."""
-    global _mapping_cache
-    if _mapping_cache is not None:
-        return _mapping_cache
-    q = ("query Query { ListFinancialRatio { id type name unit isDefault fieldName "
-         "en_Type en_Name tagName comTypeCode order } }")
-    data = post("VCI", GRAPHQL, {"query": q, "variables": {}})["data"]["ListFinancialRatio"]
-    _mapping_cache = pd.DataFrame(data)
-    return _mapping_cache
+def statement(symbol: str, section: str) -> dict[str, pd.DataFrame]:
+    """Một loại báo cáo (IS/BS/CF): trả về {'years': df, 'quarters': df} với mã trường gốc."""
+    data = get("VCI", f"{IQ}/v1/company/{symbol}/financial-statement",
+               params={"section": SECTIONS[section]}).get("data") or {}
+    return {k: pd.DataFrame(data.get(k) or []) for k in ("years", "quarters")}
 
 
-def financial_raw(symbol: str, period: str = "Q") -> pd.DataFrame:
-    """Toàn bộ chỉ tiêu BCTC thô (mã trường) theo quý (Q) hoặc năm (Y)."""
-    mp = ratio_dictionary()
-    codes = " ".join(sorted(set(mp["fieldName"].dropna().astype(str))))
-    q = ("query Query($ticker: String!, $period: String!) { CompanyFinancialRatio("
-         "ticker: $ticker, period: $period) { ratio { " + _RATIO_FIELDS + " " + codes +
-         " } period } }")
-    try:
-        data = post("VCI", GRAPHQL, {"query": q, "variables": {"ticker": symbol, "period": period}})
-    except FetchError:
-        # Một số trường có thể không còn tồn tại -> hỏi tối thiểu
-        q2 = q.replace(" " + codes, "")
-        data = post("VCI", GRAPHQL, {"query": q2, "variables": {"ticker": symbol, "period": period}})
-    rows = (((data or {}).get("data") or {}).get("CompanyFinancialRatio") or {}).get("ratio") or []
+def ratios(symbol: str) -> pd.DataFrame:
+    data = get("VCI", f"{IQ}/v1/company/{symbol}/statistics-financial").get("data") or []
+    return pd.DataFrame(data)
+
+
+def dividends(symbol: str, years: int = 12) -> pd.DataFrame:
+    """Lịch sử cổ tức tiền mặt & cổ phiếu từ lịch sự kiện (mã sự kiện DIV, ISS)."""
+    to = datetime.now()
+    fr = to - timedelta(days=365 * years)
+    rows, page = [], 0
+    while page < 6:
+        data = get("VCI", f"{IQ}/v1/events", params={
+            "ticker": symbol, "fromDate": fr.strftime("%Y%m%d"), "toDate": to.strftime("%Y%m%d"),
+            "eventCode": "DIV,ISS", "page": page, "size": 50}).get("data") or {}
+        content = data.get("content") if isinstance(data, dict) else data
+        if not content:
+            break
+        rows.extend(content)
+        if isinstance(data, dict) and data.get("last", True):
+            break
+        page += 1
     return pd.DataFrame(rows)
+
+
+def _pick(row: dict, *names):
+    for n in names:
+        if n in row and row[n] not in (None, ""):
+            return row[n]
+    return None
+
+
+def parse_dividends(symbol: str, raw: pd.DataFrame) -> pd.DataFrame:
+    """Chuẩn hoá sự kiện DIV (cổ tức tiền) / ISS (cổ phiếu thưởng, cổ tức cổ phiếu).
+
+    cash_pct: tỷ lệ trên mệnh giá 10.000đ (0,15 = 1.500đ/cp)."""
+    cols = ["symbol", "ex_date", "year", "cash_pct", "method"]
+    if raw is None or raw.empty:
+        return pd.DataFrame(columns=cols)
+    out = []
+    for r in raw.to_dict("records"):
+        code = str(_pick(r, "eventCode", "eventListCode", "eventType", "code") or "").upper()
+        d = _pick(r, "exrightDate", "exRightDate", "exDate", "recordDate", "issueDate", "publicDate", "displayDate")
+        if isinstance(d, (int, float)):
+            d = pd.to_datetime(d, unit="ms", errors="coerce")
+        else:
+            d = pd.to_datetime(d, errors="coerce")
+        if pd.isna(d):
+            continue
+        val = _pick(r, "valuePerShare", "value", "cashValue", "dividendValue")
+        ratio = _pick(r, "ratio", "exerciseRatio", "dividendRatio", "rate")
+        try:
+            val = float(val) if val is not None else None
+        except (TypeError, ValueError):
+            val = None
+        try:
+            ratio = float(ratio) if ratio is not None else None
+        except (TypeError, ValueError):
+            ratio = None
+        is_cash = code.startswith("DIV") and "ISS" not in code
+        if val is not None and val > 50:          # đồng / cổ phiếu
+            pct = val / 10000
+        elif ratio is not None:
+            pct = ratio / 100 if ratio > 1 else ratio
+        else:
+            continue
+        out.append({"symbol": symbol, "ex_date": d.normalize().tz_localize(None) if d.tzinfo else d.normalize(),
+                    "year": d.year, "cash_pct": pct, "method": "cash" if is_cash else "stock"})
+    return pd.DataFrame(out, columns=cols)
 
 
 def snapshot(symbols: list[str]) -> pd.DataFrame:

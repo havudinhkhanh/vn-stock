@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 
 from .. import config
-from . import normalize, store, tcbs, vci, yahoo
+from . import kbs, normalize, store, vci, yahoo
 from .http import FetchError
 
 log = logging.getLogger("update")
@@ -46,14 +46,14 @@ def update_listing(force: bool = False) -> pd.DataFrame:
 # ------------------------------------------------------------------ prices
 def _fallback_price(sym: str, start: datetime) -> tuple[pd.DataFrame | None, str]:
     is_index = sym in INDICES
-    days = max(30, (datetime.now() - start).days)
+    days = max(30, (datetime.now() - start).days + 5)
     try:
-        df = tcbs.prices(sym, count_back=int(days * 0.72) + 10, is_index=is_index)
-        return df[df["date"] >= start - timedelta(days=1)], "TCBS"
+        df = kbs.prices(sym, days=days, is_index=is_index)
+        return df[df["date"] >= start - timedelta(days=1)], "KBS"
     except FetchError:
         pass
     try:
-        if not is_index or sym == "VNINDEX":
+        if not is_index:
             df = yahoo.prices(sym, years=max(1, days // 365 + 1))
             return df[df["date"] >= start - timedelta(days=1)], "YAHOO"
     except FetchError:
@@ -126,33 +126,36 @@ def update_prices(symbols: list[str], workers: int = 4) -> pd.DataFrame:
 
 # ------------------------------------------------------------------ BCTC
 def _fin_one(sym: str, ctype: str) -> tuple[list[pd.DataFrame], str]:
-    # Nguồn 1: VCI GraphQL (2 request/mã)
+    # Nguồn 1: Vietcap IQ (4–5 request/mã, có cả năm lẫn quý)
     try:
-        mp = vci.ratio_dictionary()
-        q = normalize.normalize_vci(sym, vci.financial_raw(sym, "Q"), mp, ctype, yearly=False)
-        y = normalize.normalize_vci(sym, vci.financial_raw(sym, "Y"), mp, ctype, yearly=True)
-        if not q.empty or not y.empty:
-            return [q, y], "VCI"
+        mp = vci.metrics(sym, ctype)
+        stmts = {sec: vci.statement(sym, sec) for sec in ("IS", "BS", "CF")}
+        try:
+            rt = vci.ratios(sym)
+        except FetchError:
+            rt = None
+        df = normalize.normalize_iq(sym, stmts, mp, rt)
+        if not df.empty:
+            return [df], "VCI"
     except (FetchError, KeyError, TypeError, ValueError) as e:
         log.debug("VCI BCTC %s lỗi: %s", sym, e)
-    # Nguồn 2: TCBS (8 request/mã)
+    # Nguồn 2: KBS (6 request/mã)
     try:
         res = []
         for yearly in (False, True):
-            parts = {}
-            for kind in ("incomestatement", "balancesheet", "cashflow", "financialratio"):
+            reps = []
+            for kind in ("IS", "BS", "CF"):
                 try:
-                    parts[kind] = tcbs.statement(sym, kind, yearly)
+                    reps.append(kbs.finance(sym, kind, yearly, periods=8 if yearly else 12))
                 except FetchError:
-                    parts[kind] = None
-            if parts["incomestatement"] is None and parts["balancesheet"] is None:
-                raise FetchError("TCBS rỗng")
-            res.append(normalize.normalize_tcbs(sym, parts["incomestatement"],
-                                                parts["balancesheet"], parts["cashflow"],
-                                                parts["financialratio"], yearly))
-        return res, "TCBS"
-    except FetchError as e:
-        log.debug("TCBS BCTC %s lỗi: %s", sym, e)
+                    reps.append(None)
+            df = normalize.normalize_kbs(sym, reps, yearly)
+            if not df.empty:
+                res.append(df)
+        if res:
+            return res, "KBS"
+    except (FetchError, KeyError, TypeError, ValueError) as e:
+        log.debug("KBS BCTC %s lỗi: %s", sym, e)
     return [], "FAIL"
 
 
@@ -180,7 +183,7 @@ def update_dividends(symbols: list[str], workers: int = 4) -> None:
 
     def one(s):
         try:
-            return tcbs.dividends(s), "TCBS"
+            return vci.parse_dividends(s, vci.dividends(s)), "VCI"
         except FetchError:
             return None, "FAIL"
 

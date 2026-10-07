@@ -7,7 +7,7 @@ import traceback
 from datetime import datetime, timedelta
 
 from ..config import DATA_DIR
-from . import normalize, tcbs, vci, yahoo
+from . import kbs, normalize, vci, yahoo
 
 
 def _try(name, fn, report):
@@ -51,33 +51,100 @@ def run() -> dict:
     return report
 
 
+KEY = ["revenue", "gross_profit", "pbt", "net_income", "ni_parent", "toi", "nii", "total_assets", "equity",
+       "debt", "cash", "cfo", "capex", "shares", "pe_src", "roe_src"]
+
+
+def _summary(df):
+    import pandas as pd
+    if df is None or df.empty:
+        return {}
+    d = normalize.finalize(df.copy())
+    y = d[d["quarter"] == 0].tail(3)
+    q = d[d["quarter"] > 0].tail(2)
+    pick = lambda x: x[["year", "quarter"] + [c for c in KEY if c in x]].round(1).to_dict("records")  # noqa: E731
+    return {"annual": pick(y), "quarterly": pick(q), "n_rows": int(len(d)),
+            "missing_canon": [c for c in normalize.CANON if c not in df.columns]}
+
+
 def _run(report: dict) -> None:
+    import pandas as pd
     start = datetime.now() - timedelta(days=30)
     _try("vci.listing", vci.listing, report)
+    lst = report.get("vci.listing", {})
+    try:
+        ind = vci.industries()
+        report["vci.industries"] = {"n": len(ind), "sample": ind.head(5).to_dict("records"),
+                                    "comType": ind["comTypeCode"].value_counts().to_dict()}
+        print("OK   vci.industries", len(ind), flush=True)
+    except Exception as e:  # noqa: BLE001
+        report["vci.industries"] = {"ok": False, "error": str(e)[:400]}
+        print("FAIL vci.industries", e, flush=True)
     _try("vci.prices[FPT,VCB,VNINDEX]",
-         lambda: __import__("pandas").concat(
-             [d.assign(symbol=s) for s, d in vci.prices(["FPT", "VCB", "VNINDEX"], start).items()]),
+         lambda: pd.concat([d.assign(symbol=s) for s, d in vci.prices(["FPT", "VCB", "VNINDEX"], start).items()]),
          report)
-    _try("vci.ratio_dictionary", vci.ratio_dictionary, report)
-    for sym, ct in (("FPT", "CT"), ("VCB", "NH"), ("SSI", "CK")):
-        _try(f"vci.financial_raw[{sym},Q]", lambda s=sym: vci.financial_raw(s, "Q"), report)
+    for sym, ct in (("FPT", "CT"), ("VCB", "NH"), ("SSI", "CK"), ("BVH", "BH"), ("HPG", "CT")):
         try:
-            mp = vci.ratio_dictionary()
-            fmap = normalize.build_vci_map(mp, ct)
-            names = dict(zip(mp["fieldName"], mp["en_Name"]))
-            report[f"vci.map[{ct}]"] = {k: f"{v} <- {names.get(k)}" for k, v in fmap.items()}
-            raw = vci.financial_raw(sym, "Y")
-            _try(f"vci.normalized[{sym},Y]",
-                 lambda: normalize.finalize(normalize.normalize_vci(sym, raw, mp, ct, True)), report)
+            mp = vci.metrics(sym, ct + sym)  # không dùng cache trong lúc kiểm tra
+            stm = {sec: vci.statement(sym, sec) for sec in ("IS", "BS", "CF")}
+            try:
+                rt = vci.ratios(sym)
+            except Exception as e:  # noqa: BLE001
+                rt = None
+                report[f"vci.ratios[{sym}]"] = str(e)[:300]
+            info = {"ok": True, "metrics_rows": len(mp),
+                    "sections": mp["section"].value_counts().to_dict()}
+            for sec, by in stm.items():
+                info[f"{sec}_shape"] = {k: list(v.shape) for k, v in by.items()}
+                q = by.get("quarters")
+                if q is not None and not q.empty:
+                    info[f"{sec}_cols"] = list(q.columns)[:40]
+                    info[f"{sec}_row0"] = {k: q.iloc[0][k] for k in list(q.columns)[:25]}
+            m2 = mp.copy()
+            names = {r.field: f"[{r.section}] {r.en} | {r.vi}" for r in m2.itertuples()}
+            fmap = {}
+            for sec in ("IS", "BS", "CF"):
+                mm = m2[m2["section"].str.contains({"IS": "INCOME", "BS": "BALANCE", "CF": "CASH"}[sec])]
+                fmap.update(normalize.match_items([{"key": r.field, "en": r.en, "vi": r.vi} for r in mm.itertuples()]))
+            info["mapping"] = {canon: names.get(f) for f, canon in fmap.items()}
+            if sym in ("FPT", "VCB"):
+                info["all_titles"] = [names[f] for f in list(names)[:400]]
+            if rt is not None and not rt.empty:
+                info["ratio_cols"] = list(rt.columns)[:60]
+                info["ratio_row0"] = {k: rt.iloc[0][k] for k in list(rt.columns)[:30]}
+            info["normalized"] = _summary(normalize.normalize_iq(sym, stm, mp, rt))
+            report[f"vci.fin[{sym}]"] = info
+            print("OK   vci.fin", sym, json.dumps(info["normalized"].get("annual", [])[-1:], default=str)[:400], flush=True)
         except Exception as e:  # noqa: BLE001
-            report[f"vci.map[{ct}]"] = str(e)
+            report[f"vci.fin[{sym}]"] = {"ok": False, "error": f"{type(e).__name__}: {e}"[:500],
+                                         "trace": traceback.format_exc()[-1200:]}
+            print("FAIL vci.fin", sym, e, flush=True)
+        _save(report)
+    try:
+        raw = vci.dividends("FPT")
+        report["vci.dividends_raw[FPT]"] = {"shape": list(raw.shape), "cols": list(raw.columns),
+                                            "rows": raw.head(4).to_dict("records")}
+        par = vci.parse_dividends("FPT", raw)
+        report["vci.dividends[FPT]"] = par.tail(8).to_dict("records")
+        print("OK   vci.dividends", raw.shape, len(par), flush=True)
+    except Exception as e:  # noqa: BLE001
+        report["vci.dividends[FPT]"] = {"ok": False, "error": str(e)[:400]}
+        print("FAIL vci.dividends", e, flush=True)
     _try("vci.snapshot", lambda: vci.snapshot(["FPT", "VCB", "HPG"]), report)
-    _try("tcbs.prices[FPT]", lambda: tcbs.prices("FPT", 30), report)
-    _try("tcbs.prices[VNINDEX]", lambda: tcbs.prices("VNINDEX", 30, is_index=True), report)
-    for kind in ("incomestatement", "balancesheet", "cashflow", "financialratio"):
-        _try(f"tcbs.{kind}[FPT]", lambda k=kind: tcbs.statement("FPT", k, False), report)
-    _try("tcbs.dividends[FPT]", lambda: tcbs.dividends("FPT"), report)
-    _try("tcbs.overview[FPT]", lambda: tcbs.overview("FPT"), report)
+    for sym in ("FPT", "VCB"):
+        try:
+            reps = {k: kbs.finance(sym, k, True) for k in ("IS", "BS", "CF")}
+            r0 = reps["IS"]
+            info = {"ok": True, "head": (r0.get("Head") or [])[:4],
+                    "content_keys": {k: list((v.get("Content") or {}).keys()) for k, v in reps.items()},
+                    "is_items": [(x.get("Name"), x.get("NameEn"), x.get("Value1")) for v in (r0.get("Content") or {}).values() for x in v][:40],
+                    "normalized": _summary(normalize.normalize_kbs(sym, list(reps.values()), True))}
+            report[f"kbs.fin[{sym}]"] = info
+            print("OK   kbs.fin", sym, json.dumps(info["normalized"].get("annual", [])[-1:], default=str)[:300], flush=True)
+        except Exception as e:  # noqa: BLE001
+            report[f"kbs.fin[{sym}]"] = {"ok": False, "error": f"{type(e).__name__}: {e}"[:500]}
+            print("FAIL kbs.fin", sym, e, flush=True)
+        _save(report)
+    _try("kbs.prices[FPT]", lambda: kbs.prices("FPT", 40), report)
+    _try("kbs.prices[VNINDEX]", lambda: kbs.prices("VNINDEX", 40, is_index=True), report)
     _try("yahoo.prices[FPT]", lambda: yahoo.prices("FPT", 1), report)
-    _try("yahoo.prices[VNINDEX]", lambda: yahoo.prices("VNINDEX", 1), report)
-

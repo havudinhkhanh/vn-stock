@@ -88,117 +88,228 @@ def normalize_tcbs(symbol: str, is_df, bs_df, cf_df, ratio_df, yearly: bool) -> 
     return out
 
 
-# ------------------------------------------------------------------ VCI
-# (chỉ tiêu chuẩn, mẫu tên tiếng Anh, mẫu loại trừ)
-_VCI_RULES = [
-    ("revenue", r"^net (sales|revenue)$|^revenue$|^net operating revenue", r"growth|yoy|deduction"),
-    ("cogs", r"^cost of (goods )?sold|^cost of sales", r""),
-    ("gross_profit", r"^gross (profit|margin)$", r"%"),
-    ("selling_exp", r"^selling expenses", r""),
-    ("admin_exp", r"^general (&|and) admin", r""),
-    ("fin_income", r"^financial (income|revenue)", r""),
-    ("fin_exp", r"^financial expenses", r""),
-    ("interest_exp", r"interest expenses", r"of which.*income|loans"),
-    ("operating_profit", r"^operating profit|^net operating profit|^profit from business activities", r""),
-    ("pbt", r"^profit before tax|^accounting profit before tax", r""),
-    ("tax", r"business income tax( -)? current|^corporate income tax", r"deferred"),
-    ("net_income", r"^net profit for the (year|period)|^net profit after tax", r"parent|minority"),
-    ("ni_parent", r"attribut\w* to (the )?parent|parent company", r""),
-    ("nii", r"^net interest income", r""),
-    ("toi", r"^total operating income", r""),
-    ("provision", r"provision for credit losses|^provision expenses", r""),
-    ("total_assets", r"^total assets", r""),
-    ("current_assets", r"^current assets|^short-term assets", r"other"),
-    ("cash", r"^cash and cash equivalents", r""),
-    ("st_invest", r"^short-term (financial )?investments", r""),
-    ("receivables", r"^(short-term )?accounts receivable$|^short-term receivables", r""),
-    ("inventory", r"^inventor(y|ies)", r"provision|allowance"),
-    ("fixed_assets", r"^fixed assets", r""),
-    ("total_liab", r"^liabilities$|^total liabilities", r""),
-    ("current_liab", r"^current liabilities|^short-term liabilities", r""),
-    ("st_debt", r"^short-term borrowings", r""),
-    ("lt_debt", r"^long-term borrowings", r""),
-    ("equity", r"^owner'?s'? equity|^total equity|^capital and reserves", r"other"),
-    ("minority", r"^minority interest", r"profit|income"),
-    ("loans", r"^loans (and advances )?to customers", r"provision|net"),
-    ("deposits", r"^deposits from customers", r""),
-    ("cfo", r"net cash (inflows?/outflows?|flows?) from operating", r""),
-    ("capex", r"^purchase of fixed assets|^acquisition of fixed assets", r""),
-    ("dividends_paid", r"^dividends paid", r""),
-    ("cfi", r"net cash (inflows?/outflows?|flows?) from investing", r""),
-    ("cff", r"net cash (inflows?/outflows?|flows?) from financing", r""),
+# ------------------------------------------------------------------ nhận diện chỉ tiêu theo tên
+# (chỉ tiêu chuẩn, mẫu tên tiếng Anh, mẫu tên tiếng Việt, mẫu loại trừ)  – so khớp trên tên đã làm sạch
+RULES = [
+    ("revenue", r"^net (sales|revenue)s?$|^revenue$|^net revenue from sales",
+     r"^doanh thu thuần( về bán hàng và cung cấp dịch vụ)?$|^doanh thu thuần$", r"growth|tăng trưởng"),
+    ("cogs", r"^cost of (goods sold|sales)$", r"^giá vốn hàng bán$", r""),
+    ("gross_profit", r"^gross profit$", r"^lợi nhuận gộp( về bán hàng và cung cấp dịch vụ)?$", r""),
+    ("selling_exp", r"^selling expenses?$", r"^chi phí bán hàng$", r""),
+    ("admin_exp", r"^general (and|&) admin\w* expenses?$", r"^chi phí quản lý doanh nghiệp$", r""),
+    ("fin_income", r"^financial (income|revenue)$", r"^doanh thu hoạt động tài chính$", r""),
+    ("fin_exp", r"^financial expenses?$", r"^chi phí tài chính$", r""),
+    ("interest_exp", r"^(of which,? )?interest expenses?$", r"^(trong đó:? )?chi phí lãi vay$", r""),
+    ("operating_profit", r"^(net )?operating profit$|^net profit from operating activities$",
+     r"^lợi nhuận thuần từ hoạt động kinh doanh$", r""),
+    ("pbt", r"^(total )?(accounting )?profit before tax$|^profit before tax$",
+     r"^(tổng )?lợi nhuận (kế toán )?trước thuế$", r""),
+    ("tax", r"^(current )?corporate income tax expenses?$|^business income tax.*current$",
+     r"^chi phí thuế (thu nhập doanh nghiệp|tndn) hiện hành$", r""),
+    ("net_income", r"^net profit after tax$|^profit after tax$|^net profit for the (year|period)$",
+     r"^lợi nhuận sau thuế( thu nhập doanh nghiệp)?$", r"parent|minority|mẹ|không kiểm soát"),
+    ("ni_parent", r"attributable to (the )?(shareholders of the )?parent|parent company",
+     r"(công ty|cổ đông( của)? công ty) mẹ", r"minority|không kiểm soát"),
+    ("nii", r"^net interest income$", r"^thu nhập lãi thuần$", r""),
+    ("toi", r"^total operating income$", r"^tổng thu nhập hoạt động$", r""),
+    ("provision", r"^(credit )?provision (for credit losses|expenses?)$|^provision for credit losses$",
+     r"^chi phí dự phòng rủi ro tín dụng$", r""),
+    ("total_assets", r"^total assets$", r"^tổng (cộng )?tài sản$", r""),
+    ("current_assets", r"^(current|short-term) assets$", r"^tài sản ngắn hạn$", r""),
+    ("cash", r"^cash and cash equivalents$", r"^tiền và (các khoản )?tương đương tiền$", r""),
+    ("st_invest", r"^short-term (financial )?investments$", r"^(các khoản )?đầu tư tài chính ngắn hạn$", r""),
+    ("receivables", r"^(short-term )?(accounts )?receivables?$|^short-term receivables$",
+     r"^(các khoản )?phải thu ngắn hạn$", r""),
+    ("inventory", r"^inventor(y|ies)$", r"^hàng tồn kho$", r""),
+    ("fixed_assets", r"^fixed assets$", r"^tài sản cố định$", r""),
+    ("total_liab", r"^(total )?liabilities$", r"^(tổng )?nợ phải trả$", r""),
+    ("current_liab", r"^(current|short-term) liabilities$", r"^nợ ngắn hạn$", r""),
+    ("st_debt", r"^short-term (borrowings|loans)( and finance lease liabilities)?$",
+     r"^vay (và nợ thuê tài chính )?ngắn hạn$", r""),
+    ("lt_debt", r"^long-term (borrowings|loans)( and finance lease liabilities)?$",
+     r"^vay (và nợ thuê tài chính )?dài hạn$", r""),
+    ("equity", r"^(total )?(owners?'? )?equity$|^owner'?s'? equity$|^capital and reserves$",
+     r"^(tổng )?vốn chủ sở hữu$", r""),
+    ("minority", r"^(minority interests?|non-controlling interests?)$",
+     r"^lợi ích (của )?cổ đông không kiểm soát$", r""),
+    ("loans", r"^loans (and advances )?to customers$", r"^cho vay khách hàng$", r""),
+    ("deposits", r"^deposits from customers$", r"^tiền gửi của khách hàng$", r""),
+    ("cfo", r"^net cash (flows? )?(from|used in) operating activities$",
+     r"^lưu chuyển tiền thuần (từ|sử dụng vào) hoạt động kinh doanh$", r""),
+    ("capex", r"^(purchases?|acquisitions?) of fixed assets", r"^(tiền chi để )?mua sắm.*tài sản cố định", r""),
+    ("dividends_paid", r"^dividends?.*paid", r"^cổ tức.*(đã trả|cho chủ sở hữu)", r""),
+    ("cfi", r"^net cash (flows? )?(from|used in) investing activities$",
+     r"^lưu chuyển tiền thuần (từ|sử dụng vào) hoạt động đầu tư$", r""),
+    ("cff", r"^net cash (flows? )?(from|used in) financing activities$",
+     r"^lưu chuyển tiền thuần (từ|sử dụng vào) hoạt động tài chính$", r""),
 ]
 
-_VCI_TOP = {"revenue": "revenue_top", "netProfit": "ni_top", "roe": "roe_src", "pe": "pe_src",
-            "pb": "pb_src", "eps": "eps", "bvps": "bvps", "ev": "ev_src", "ebitda": "ebitda",
-            "ebit": "ebit", "issueShare": "shares_raw", "dividend": "dividend_src",
-            "epsTTM": "eps_ttm_src"}
+_PREFIX = re.compile(r"^\s*(([a-z]|[ivx]+|\d+(\.\d+)*)\s*[.\-)/:]\s*)+", re.I)
 
 
-def _clean(name: str) -> str:
-    name = (name or "").lower()
+def _clean(name) -> str:
+    name = str(name or "").lower().strip()
     name = re.sub(r"\(.*?\)", "", name)
-    return re.sub(r"\s+", " ", name).strip(" .:-")
+    name = _PREFIX.sub("", name)
+    return re.sub(r"\s+", " ", name).strip(" .:-*")
 
 
-def build_vci_map(mapping: pd.DataFrame, ctype: str) -> dict[str, str]:
-    """Trả về {mã trường VCI -> chỉ tiêu chuẩn} cho loại doanh nghiệp ctype."""
-    m = mapping.copy()
-    m["clean"] = m["en_Name"].map(_clean)
-    m["pri"] = np.where(m["comTypeCode"] == ctype, 0, np.where(m["comTypeCode"] == "CT", 1, 2))
-    m = m[m["pri"] < 2].sort_values(["pri", "order"])
-    res: dict[str, str] = {}
-    used = set()
-    for canon, pat, excl in _VCI_RULES:
-        for _, row in m.iterrows():
-            if row["fieldName"] in res:
+def match_items(items: list[dict]) -> dict[str, str]:
+    """items: [{'key':..., 'en':..., 'vi':...}] theo thứ tự trên báo cáo -> {key: chỉ tiêu chuẩn}."""
+    out, used = {}, set()
+    cleaned = [(it["key"], _clean(it.get("en")), _clean(it.get("vi"))) for it in items]
+    for canon, pen, pvi, excl in RULES:
+        for key, en, vi in cleaned:
+            if key in out:
                 continue
-            c = row["clean"]
-            if re.search(pat, c) and not (excl and re.search(excl, c)):
-                res[row["fieldName"]] = canon
+            hit = (en and re.search(pen, en)) or (vi and re.search(pvi, vi))
+            if hit and not (excl and (re.search(excl, en) or re.search(excl, vi))):
+                out[key] = canon
                 used.add(canon)
                 break
-    return res
+    return out
 
 
-def normalize_vci(symbol: str, raw: pd.DataFrame, mapping: pd.DataFrame, ctype: str,
-                  yearly: bool) -> pd.DataFrame:
-    if raw is None or raw.empty:
-        return pd.DataFrame()
-    fmap = build_vci_map(mapping, ctype)
-    out = pd.DataFrame({
-        "year": pd.to_numeric(raw["yearReport"], errors="coerce").astype("Int64"),
-        "quarter": 0 if yearly else pd.to_numeric(raw["lengthReport"], errors="coerce").astype("Int64"),
-    })
-    for field, canon in fmap.items():
-        if field in raw.columns and canon not in out:
-            out[canon] = pd.to_numeric(raw[field], errors="coerce")
-    for field, canon in _VCI_TOP.items():
-        if field in raw.columns:
-            out[canon] = pd.to_numeric(raw[field], errors="coerce")
-    # Đơn vị: VCI trả theo đồng -> tỷ đồng
-    money = [c for c in CANON if c in out and c not in
-             ("shares", "eps", "bvps", "roe_src", "pe_src", "pb_src")] + \
-            [c for c in ("revenue_top", "ni_top") if c in out]
-    ref = out.get("total_assets", out.get("revenue_top"))
-    if ref is not None and ref.abs().median() > 1e6:
-        out[money] = out[money] / 1e9
-    if "revenue" not in out and "revenue_top" in out:
-        out["revenue"] = out["revenue_top"]
-    if "ni_parent" not in out and "ni_top" in out:
-        out["ni_parent"] = out["ni_top"]
+MONEY = [c for c in CANON if c not in ("shares", "eps", "bvps", "roe_src", "pe_src", "pb_src")]
+
+
+def _to_bn(df: pd.DataFrame, div: float | None = None) -> pd.DataFrame:
+    """Quy tiền về tỷ đồng. div=None: tự đoán (nguồn trả theo đồng hoặc đã là tỷ)."""
+    if div is not None:
+        cols = [c for c in MONEY if c in df]
+        df[cols] = df[cols] / div
+        return df
+    ref = None
+    for c in ("total_assets", "revenue", "equity"):
+        if c in df and df[c].notna().any():
+            ref = df[c].abs().median()
+            break
+    if ref is None:
+        return df
+    div = 1e9 if ref > 1e8 else (1e6 if ref > 1e5 else 1)
+    cols = [c for c in MONEY if c in df]
+    df[cols] = df[cols] / div
+    return df
+
+
+def _signs(df: pd.DataFrame) -> pd.DataFrame:
     for c in ("cogs", "selling_exp", "admin_exp", "fin_exp", "interest_exp", "tax", "provision"):
-        if c in out:
-            out[c] = out[c].abs()
+        if c in df:
+            df[c] = df[c].abs()
     for c in ("capex", "dividends_paid"):
-        if c in out:
-            out[c] = -out[c].abs()
-    if "shares_raw" in out:
-        s = out.pop("shares_raw")
-        out["shares"] = np.where(s > 1e5, s / 1e6, s)  # về triệu cổ phiếu
+        if c in df:
+            df[c] = -df[c].abs()
+    return df
+
+
+# ------------------------------------------------------------------ Vietcap IQ
+def normalize_iq(symbol: str, stmts: dict[str, dict[str, pd.DataFrame]], metrics: pd.DataFrame,
+                 ratios: pd.DataFrame | None) -> pd.DataFrame:
+    """stmts: {'IS': {'years': df, 'quarters': df}, 'BS': ..., 'CF': ...}"""
+    parts = []
+    for sec, by in stmts.items():
+        m = metrics[metrics["section"].str.contains({"IS": "INCOME", "BS": "BALANCE", "CF": "CASH"}[sec])]
+        if m.empty:
+            m = metrics
+        fmap = match_items([{"key": r.field, "en": r.en, "vi": r.vi} for r in m.itertuples()])
+        for kind, df in by.items():
+            if df is None or df.empty:
+                continue
+            ycol = next((c for c in ("yearReport", "year", "fiscalYear") if c in df), None)
+            qcol = next((c for c in ("lengthReport", "quarter", "quarterReport") if c in df), None)
+            if ycol is None:
+                continue
+            o = pd.DataFrame({"year": pd.to_numeric(df[ycol], errors="coerce")})
+            o["quarter"] = 0 if kind == "years" or qcol is None else pd.to_numeric(df[qcol], errors="coerce")
+            for field, canon in fmap.items():
+                if field in df and canon not in o:
+                    o[canon] = pd.to_numeric(df[field], errors="coerce")
+            parts.append(o)
+    if not parts:
+        return pd.DataFrame()
+    out = parts[0]
+    for p_ in parts[1:]:
+        out = out.merge(p_, on=["year", "quarter"], how="outer", suffixes=("", "_dup"))
+        for c in [c for c in out.columns if c.endswith("_dup")]:
+            base = c[:-4]
+            out[base] = out[base].fillna(out[c]) if base in out else out[c]
+            out = out.drop(columns=c)
+    out = out.dropna(subset=["year"])
+    out.loc[out["quarter"].fillna(0) > 4, "quarter"] = 0
+    out = _signs(_to_bn(out))
+    # số cổ phiếu & chỉ số từ bảng statistics-financial
+    if ratios is not None and not ratios.empty:
+        r = ratios.copy()
+        ycol = next((c for c in ("year", "yearReport") if c in r), None)
+        qcol = next((c for c in ("quarter", "lengthReport") if c in r), None)
+        if ycol:
+            rr = pd.DataFrame({"year": pd.to_numeric(r[ycol], errors="coerce"),
+                               "quarter": pd.to_numeric(r[qcol], errors="coerce").fillna(0) if qcol else 0})
+            for src, canon in (("numberOfSharesMktCap", "shares"), ("pe", "pe_src"), ("pb", "pb_src"),
+                               ("roe", "roe_src"), ("ebitda", "ebitda"), ("ebit", "ebit"),
+                               ("netInterestMargin", "nim"), ("npl", "npl")):
+                if src in r:
+                    rr[canon] = pd.to_numeric(r[src], errors="coerce")
+            if "shares" in rr and rr["shares"].median() > 1e5:
+                rr["shares"] = rr["shares"] / 1e6
+            for c in ("ebitda", "ebit"):
+                if c in rr and rr[c].abs().median() > 1e8:
+                    rr[c] = rr[c] / 1e9
+            rr.loc[rr["quarter"] > 4, "quarter"] = 0
+            out = out.merge(rr.drop_duplicates(["year", "quarter"]), on=["year", "quarter"], how="left",
+                            suffixes=("", "_r"))
+            for c in [c for c in out.columns if c.endswith("_r")]:
+                out[c[:-2]] = out[c[:-2]].fillna(out[c])
+                out = out.drop(columns=c)
+    out["year"] = out["year"].astype("Int64")
+    out["quarter"] = out["quarter"].fillna(0).astype("Int64")
     out.insert(0, "symbol", symbol)
     out["source"] = "VCI"
-    return out.dropna(subset=["year"]).drop_duplicates(["year", "quarter"])
+    return out.drop_duplicates(["year", "quarter"])
+
+
+# ------------------------------------------------------------------ KBS
+def normalize_kbs(symbol: str, reports: list[dict], yearly: bool) -> pd.DataFrame:
+    """reports: các response finance-info (KQKD, CDKT, LCTT) của cùng 1 loại kỳ."""
+    frames = []
+    for resp in reports:
+        if not resp:
+            continue
+        head = sorted(resp.get("Head") or [], key=lambda h: h.get("ID", 0))
+        periods = []
+        for h in head:
+            y = pd.to_numeric(h.get("YearPeriod"), errors="coerce")
+            term = str(h.get("TermName") or "")
+            q = 0
+            mq = re.search(r"(\d)", term) if ("Quý" in term or "Q" in term) else None
+            if mq and not yearly:
+                q = int(mq.group(1))
+            periods.append((y, q))
+        content = resp.get("Content") or {}
+        recs = [r for v in content.values() if isinstance(v, list) for r in v]
+        items = [{"key": i, "en": r.get("NameEn"), "vi": r.get("Name")} for i, r in enumerate(recs)]
+        fmap = match_items(items)
+        rows = {}
+        for i, canon in fmap.items():
+            r = recs[i]
+            for j, (y, q) in enumerate(periods, 1):
+                v = pd.to_numeric(r.get(f"Value{j}"), errors="coerce")
+                rows.setdefault((y, q), {})[canon] = v
+        if rows:
+            df = pd.DataFrame([{"year": y, "quarter": q, **v} for (y, q), v in rows.items()])
+            frames.append(df)
+    if not frames:
+        return pd.DataFrame()
+    out = frames[0]
+    for f in frames[1:]:
+        out = out.merge(f, on=["year", "quarter"], how="outer")
+    out = out.dropna(subset=["year"])
+    out = _signs(_to_bn(out, div=1e6))   # KBS (unit=1000) trả theo nghìn đồng -> tỷ đồng
+    out["year"] = out["year"].astype("Int64")
+    out["quarter"] = out["quarter"].astype("Int64")
+    out.insert(0, "symbol", symbol)
+    out["source"] = "KBS"
+    return out
 
 
 def finalize(df: pd.DataFrame) -> pd.DataFrame:

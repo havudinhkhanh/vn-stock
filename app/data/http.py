@@ -33,6 +33,7 @@ ORIGINS = {
     "SSI": "https://iboard.ssi.com.vn",
     "VND": "https://dchart.vndirect.com.vn",
     "CAFEF": "https://cafef.vn",
+    "KBS": "https://kbbuddywts.kbsec.com.vn",
 }
 
 
@@ -59,6 +60,7 @@ _THROTTLES = {
     "SSI": Throttle(3),
     "VND": Throttle(3),
     "CAFEF": Throttle(2),
+    "KBS": Throttle(3),
     "OTHER": Throttle(2),
 }
 
