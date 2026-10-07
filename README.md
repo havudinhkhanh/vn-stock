@@ -98,6 +98,7 @@ Chưa làm bước này thì nút trên web sẽ dẫn anh sang trang GitHub Act
   - Đèn thị trường, và số % vốn được phép nắm cổ phiếu.
   - Danh sách MUA, mỗi mã có vùng giá mua, điểm cắt lỗ, mục tiêu và số cổ phiếu.
   - Việc cần làm với danh mục đang nắm.
+- **Ngành → Toàn cảnh:** mọi ngành trên một trang – P/E, P/B gia quyền và trung vị của từng ngành so với toàn thị trường và với lịch sử 6 năm của chính ngành, bản đồ P/B–ROE, P/E–tăng trưởng, bảng so sánh đầy đủ và biểu đồ P/E từng ngành theo quý. P/E của mỗi mã luôn hiện kèm P/E ngành và P/E thị trường (trang mã, Bộ lọc, Hôm nay).
 - **Ngành:** chọn một ngành (hoặc nhóm ngành con) bên trái, rồi chọn **phương án**: Tốt nhất ngành (đã kiểm chứng), GARP, Tăng trưởng, Giá trị, Chất lượng, Cổ tức, Phòng thủ, Dòng tiền thông minh, Động lượng, hoặc Tuỳ chỉnh. Mã được xếp hạng so với chính các mã cùng ngành. Bấm **＋ Tự nhóm ngành / mã** để tự gộp nhiều ngành, nhóm ngành con và mã lẻ thành một nhóm riêng (ví dụ "Đầu tư công") rồi chạy các phương án trên nhóm đó; ở Bộ lọc có nút **Lưu thành nhóm** để biến kết quả lọc thành nhóm. Trang còn có biểu đồ xoay vòng ngành (RRG), P/E ngành so với lịch sử và kết quả backtest chọn mã trong ngành đó.
 - **Bộ lọc:** nút "chiều nhìn" (Tổng quan, Định giá, Chất lượng, Tăng trưởng, Cổ tức, Kỹ thuật, Tạo lập & dòng tiền, Điểm phương pháp) đổi bộ cột; có nút tải CSV.
 - **Danh mục:** nhập số vốn và các mã đang nắm (mã, khối lượng, giá vốn). Dữ liệu đồng bộ giữa mọi thiết bị.

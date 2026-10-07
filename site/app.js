@@ -47,7 +47,7 @@ function scoreColor(v) {
 const scoreCell = (v) => `<span class="score" style="background:${scoreColor(v)}">${isNum(v) ? Math.round(v) : "—"}</span>`;
 const biasPill = (b, txt) => { if (!isNum(b)) return `<span class="pill">—</span>`; const k = b >= 0.25 ? "buy" : b <= -0.25 ? "sell" : ""; return `<span class="pill ${k}">${txt ?? (b >= 0.25 ? "Tăng" : b <= -0.25 ? "Giảm" : "Trung tính")} ${b > 0 ? "+" : ""}${nf(b, 2)}</span>`; };
 const minibar = (v, color) => `<div class="minibar" title="${isNum(v) ? Math.round(v) : "—"}"><i style="width:${Math.max(0, Math.min(100, v || 0))}%;background:${color || scoreColor(v)}"></i></div>`;
-const kpis = (items, lg = false, extra = "") => `<dl class="kpis ${lg ? "lg" : ""} ${extra}">${items.filter(Boolean).map(([k, v, c, t]) => `<div${t ? ` title="${esc(t)}"` : ""}><dt>${k}</dt><dd class="${c || ""}">${v ?? "—"}</dd></div>`).join("")}</dl>`;
+const kpis = (items, lg = false, extra = "") => `<dl class="kpis ${lg ? "lg" : ""} ${extra}">${items.filter(Boolean).map(([k, v, c, t, x]) => `<div${t ? ` title="${esc(t)}"` : ""}${x ? ` class="${x}"` : ""}><dt>${k}</dt><dd class="${c || ""}">${v ?? "—"}</dd></div>`).join("")}</dl>`;
 const panel = (title, body, meta = "", extra = "") => `<section class="panel ${extra}"><div class="ph"><h2>${title}</h2>${meta ? `<span class="meta">${meta}</span>` : ""}</div>${body}</section>`;
 
 // ================================================================ danh mục (lưu trên Cloudflare KV, dự phòng localStorage)
@@ -137,6 +137,10 @@ async function screenerRows() {
   if (SCREENER) return SCREENER;
   const s = await load("data/screener.json");
   SCREENER = s.rows.map((r) => Object.fromEntries(s.cols.map((c, i) => [c, r[i]])));
+  const S = await secsData(), M = S.market || {};
+  const i3 = Object.fromEntries((S.industry || []).map((x) => [x.name, x])), s2 = Object.fromEntries((S.sector || []).map((x) => [x.name, x]));
+  SCREENER.forEach((r) => { const b = i3[r.industry] || s2[r.sector]; r.pe_ind = b?.pe_med ?? null; r.pb_ind = b?.pb_med ?? null;
+    r.pe_vs_ind = vsPct(r.pe, r.pe_ind); r.pe_vs_mkt = vsPct(r.pe, M.pe_med); r.pb_vs_ind = vsPct(r.pb, r.pb_ind); });
   SCREENER.forEach((r) => { if (isNum(r.ret_6m)) r.ret_6m_pct = r.ret_6m * 100; if (isNum(r.ret_12_1)) r.ret_12_1_pct = r.ret_12_1 * 100; if (isNum(r.vol_1y)) r.vol_1y_pct = r.vol_1y * 100; if (isNum(r.payout)) r.payout_pct = r.payout * 100; });
   return SCREENER;
 }
@@ -165,7 +169,7 @@ async function route() {
   try {
     if (!r) { setTab("today"); await viewToday(); }
     else if (r === "market") { setTab("market"); await viewMarket(); }
-    else if (r === "sector") { setTab("sector"); await viewSector(arg[0], arg[1]); }
+    else if (r === "sector") { setTab("sector"); if (arg[0]) await viewSector(arg[0], arg[1]); else await viewSectors(); }
     else if (r === "portfolio") { setTab("portfolio"); await viewPortfolio(); }
     else if (r === "screener") { setTab("screener"); await viewScreener(arg[0]); }
     else if (r === "backtest") { setTab("backtest"); await viewBacktest(); }
@@ -391,7 +395,9 @@ function miniTable(rows, cols) {
 }
 
 async function viewToday() {
-  const [t, meta, pfr, rows, secs] = await Promise.all([load("data/today.json"), load("data/meta.json"), Store.get("portfolio"), screenerRows(), tryLoad("data/sectors.json")]);
+  const [t, meta, pfr, rows, secs] = await Promise.all([load("data/today.json"), load("data/meta.json"), Store.get("portfolio"), screenerRows(), secsData()]);
+  const MV = secs?.market || {};
+  const rowOf = Object.fromEntries(rows.map((r) => [r.symbol, r]));
   const pf = pfr.data || {};
   const reg = t.regime, plan = t.plan, ix = reg.index || {}, br = reg.breadth_now || {};
   const capital = capitalOf(pf) ?? t.capital;
@@ -414,7 +420,7 @@ async function viewToday() {
         <div><small>Mục tiêu 1 / 2</small><b class="up">${nf(p.t1)} / ${nf(p.t2)}</b></div>
         <div><small>Tỷ trọng</small><b>${nf(p.weight, 1)}%</b>${sh ? ` <small style="display:inline">≈ ${nf(sh, 0)} cp</small>` : ""}</div>
       </div>
-      <div class="tags"><span class="pill">P/E ${nf(p.pe, 1)}</span><span class="pill">ROE ${nf(p.roe, 0)}%</span><span class="pill">F ${nf(p.fscore, 0)}/9</span>
+      <div class="tags"><span class="pill brand" title="P/E mã · P/E trung vị nhóm ngành · P/E trung vị toàn thị trường">P/E <b>${nf(p.pe, 1)}</b> · ngành ${nf(rowOf[p.symbol]?.pe_ind, 1)} · TT ${nf(MV.pe_med, 1)}</span><span class="pill">ROE ${nf(p.roe, 0)}%</span><span class="pill">F ${nf(p.fscore, 0)}/9</span>
         <span class="pill">Cổ tức ${nf(p.div_yield, 1)}%</span><span class="pill">Lời/lỗ ${nf(p.rr, 1)}x</span><span class="pill ${p.ta_label?.includes("Mua") ? "buy" : ""}">KT: ${esc(p.ta_label || "—")}</span></div>
       <div class="why">${esc(p.why || "")}</div></div></a>`;
   };
@@ -445,6 +451,11 @@ async function viewToday() {
         ["MA50", nf(ix.sma50, 0)], ["MA200", nf(ix.sma200, 0)], ["Cách đỉnh 52T", pct(ix.from_hi52), "down"], ["RSI", nf(ix.rsi, 0)],
         ["Tăng / giảm", `<span class="up">${br.adv ?? "—"}</span> / <span class="down">${br.dec ?? "—"}</span>`], ["Đỉnh / đáy 52T", `${br.new_hi ?? "—"} / ${br.new_lo ?? "—"}`],
         ["% trên MA50", nf(br.above50, 0) + "%"], ["Ngày phân phối", reg.distribution_days]]), `<a href="#/market">chi tiết</a>`)}
+      ${isNum(MV.pe_med) ? `<section class="panel hero"><div class="ph"><h2>Định giá thị trường</h2><a class="meta" href="#/sector">so sánh các ngành →</a></div>
+        <div class="bigs c2"><div class="big hlb"><small>P/E gia quyền</small><b>${nf(MV.pe_w_pos ?? MV.pe_w, 1)}</b><span>TB LS ${nf(MV.pew_hist_med, 1)} · ${vsCell(MV.pew_vs_hist)}</span></div>
+          <div class="big hlb"><small>P/E trung vị</small><b>${nf(MV.pe_med, 1)}</b><span>TB LS ${nf(MV.pe_hist_med, 1)} · ${vsCell(MV.pe_vs_hist)}</span></div>
+          <div class="big"><small>P/B GQ / TV</small><b>${nf(MV.pb_w)} <small>/ ${nf(MV.pb_med)}</small></b></div>
+          <div class="big"><small>Phần bù vs TPCP</small><b class="${MV.erp >= 4 ? "up" : MV.erp < 2 ? "down" : ""}">${nf(MV.erp, 1)}%</b><span>LS lợi nhuận ${nf(MV.ey_w, 1)}%</span></div></div></section>` : ""}
       ${panel("Phân bổ vốn", kpis([...Object.entries(t.allocation || {}).filter(([, v]) => Number(v) > 0).map(([k, v]) => [esc(BASKET_SHORT[k] || k), v + "%"]),
         ["Tối đa mã", t.risk?.max_positions], ["Biên an toàn", (t.risk?.margin_of_safety ?? "—") + "%"], ["Rủi ro/lệnh", (t.risk?.risk_per_trade ?? "—") + "% vốn"], ["Cắt lỗ tối đa", (t.risk?.max_stop_loss_pct ?? "—") + "%"]]),
         `<a href="#/guide">cách chọn mã</a>`)}
@@ -464,7 +475,7 @@ async function viewToday() {
         <div class="why">${esc((p.reasons || []).join("; "))}</div></div></a>`).join("")}</div>`) : ""}
       ${plan.watch.length ? panel("Theo dõi – chờ điểm mua", miniTable(plan.watch, [["symbol", "Mã"], ["basket", "Rổ", 1, (w) => esc(BASKET_SHORT[w.basket] || w.basket)],
         ["score", "Điểm", 0, (w) => scoreCell(w.score)], ["price", "Giá", 0, (w) => nf(w.price)], ["zone", "Vùng mua", 0, (w) => `${nf(w.zone[0])}–${nf(w.zone[1])}`],
-        ["upside", "Tiềm năng", 0, (w) => `<span class="${cls(w.upside)}">${pct(w.upside, 0)}</span>`], ["pe", "P/E", 0, (w) => nf(w.pe, 1)], ["roe", "ROE", 0, (w) => nf(w.roe, 0) + "%"],
+        ["upside", "Tiềm năng", 0, (w) => `<span class="${cls(w.upside)}">${pct(w.upside, 0)}</span>`], ["pe", "P/E", 0, (w) => `<b>${nf(w.pe, 1)}</b>`], ["pe_ind", "P/E ngành", 0, (w) => nf(rowOf[w.symbol]?.pe_ind, 1)], ["roe", "ROE", 0, (w) => nf(w.roe, 0) + "%"],
         ["reason", "Đang chờ", 1, (w) => `<span style="white-space:normal">${esc(w.reason)}</span>`]]), `${plan.watch.length} mã`, "flush") : ""}
     </div>
 
@@ -515,7 +526,7 @@ async function viewMarket() {
   const idxKpis = Object.entries(m.indices).map(([k, v]) => [esc(k), `${nf(v.close)}<br><small class="${cls(v.chg)}">${pct(v.chg, 2)}</small>`]);
   app().innerHTML = `
   <div class="ph"><h1>Thị trường</h1><span class="meta">phiên ${esc(m.date)}</span></div>
-  ${kpis([...idxKpis, ["Đèn", `${LIGHT_VI[reg.light]} · ${reg.exposure}%`, reg.light === "green" ? "up" : reg.light === "red" ? "down" : "ref"], ["Điều kiện đạt", `${reg.score}/${reg.max_score}`],
+  ${kpis([...idxKpis, ...(secs?.market?.pe_med ? [["P/E TT gia quyền", `<b>${nf(secs.market.pe_w_pos ?? secs.market.pe_w, 1)}</b><br><small>TB LS ${nf(secs.market.pew_hist_med, 1)}</small>`, "", "", "hl"], ["P/E TT trung vị", `<b>${nf(secs.market.pe_med, 1)}</b><br><small>TB LS ${nf(secs.market.pe_hist_med, 1)}</small>`, "", "", "hl"], ["P/B TT", `${nf(secs.market.pb_w)}<br><small>TV ${nf(secs.market.pb_med)}</small>`, "", "", "hl"]] : []), ["Đèn", `${LIGHT_VI[reg.light]} · ${reg.exposure}%`, reg.light === "green" ? "up" : reg.light === "red" ? "down" : "ref"], ["Điều kiện đạt", `${reg.score}/${reg.max_score}`],
     ["Tăng / giảm", `<span class="up">${br.adv ?? "—"}</span> / <span class="down">${br.dec ?? "—"}</span>`], ["Đỉnh / đáy 52T", `${br.new_hi ?? "—"} / ${br.new_lo ?? "—"}`],
     ["% trên MA50", nf(br.above50, 0) + "%"], ["% trên MA200", nf(br.above200, 0) + "%"], ["Ngày phân phối", reg.distribution_days, reg.distribution_days >= 6 ? "down" : ""],
     ["RSI VN-Index", nf(ix.rsi, 0)], ["Cách đỉnh 52T", pct(ix.from_hi52), "down"], ["KT chỉ số", `${esc(m.index_ta.label)} ${m.index_ta.score}`]])}
@@ -625,9 +636,31 @@ function aggRec(M) {
   const liq = M.filter((r) => (r.avg_value_bn ?? 0) > 0.3);
   const wr = (k) => { let s = 0, w = 0; liq.forEach((r) => { if (isNum(r[k])) { s += r[k] * r.avg_value_bn; w += r.avg_value_bn; } }); return w ? s / w : null; };
   const sum = (k) => M.reduce((a, r) => a + (Number(r[k]) || 0), 0);
-  return { n: M.length, n_sec: new Set(M.map((r) => r.sector)).size, mcap_bn: sum("mcap_bn"), value_bn: sum("avg_value_bn"), r1w: wr("chg1w"), r1m: wr("chg1m"), r3m: wr("chg3m"), r1y: wr("chg1y"),
+  const V = {};
+  const F = M.filter((r) => isNum(r.mcap_bn));
+  const E = F.filter((r) => isNum(r.ni_ttm)), Ep = E.filter((r) => r.ni_ttm > 0), B = F.filter((r) => isNum(r.pb) && r.pb > 0);
+  const sm = (a, f) => a.reduce((x, r) => x + f(r), 0);
+  if (E.length >= 2 && sm(E, (r) => r.ni_ttm) > 0) V.pe_w = sm(E, (r) => r.mcap_bn) / sm(E, (r) => r.ni_ttm);
+  if (Ep.length >= 2) V.pe_w_pos = sm(Ep, (r) => r.mcap_bn) / sm(Ep, (r) => r.ni_ttm);
+  if (B.length >= 2) { const bk = sm(B, (r) => r.mcap_bn / r.pb); V.pb_w = sm(B, (r) => r.mcap_bn) / bk; const BE = B.filter((r) => isNum(r.ni_ttm)); if (BE.length >= 2) V.roe_w = 100 * sm(BE, (r) => r.ni_ttm) / sm(BE, (r) => r.mcap_bn / r.pb); }
+  if (V.pe_w) V.ey_w = 100 / V.pe_w;
+  V.loss_share = E.length ? 100 * E.filter((r) => r.ni_ttm <= 0).length / E.length : null;
+  { const pg = M.filter((r) => r.pe > 0 && r.ni_yoy > 0).map((r) => r.pe / r.ni_yoy).sort((a, b) => a - b); V.peg_med = pg.length >= 2 ? pg[Math.floor(pg.length / 2)] : null; }
+  return { ...V, n: M.length, n_sec: new Set(M.map((r) => r.sector)).size, mcap_bn: sum("mcap_bn"), value_bn: sum("avg_value_bn"), r1w: wr("chg1w"), r1m: wr("chg1m"), r3m: wr("chg3m"), r1y: wr("chg1y"),
     pe_med: med("pe", true), pb_med: med("pb", true), roe_med: med("roe"), ni_yoy_med: med("ni_yoy"), rev_yoy_med: med("rev_yoy"), div_med: med("div_yield"), fscore_med: med("fscore"), de_med: med("de"),
-    upside_med: med("upside"), composite_med: med("composite"), up_pct: M.length ? 100 * M.filter((r) => r.trend === "up").length / M.length : null };
+    upside_med: med("upside"), composite_med: med("composite"), above50: null, up_pct: M.length ? 100 * M.filter((r) => r.trend === "up").length / M.length : null };
+}
+function secValStrip(rec, M, isGroup) {
+  const pew = rec.pe_w_pos ?? rec.pe_w, mpew = M.pe_w_pos ?? M.pe_w;
+  return `<section class="panel hero"><div class="ph"><h2>Định giá ${isGroup ? "nhóm" : "ngành"} so với thị trường</h2><span class="meta">TT = toàn thị trường · LS = lịch sử của chính ${isGroup ? "nhóm" : "ngành"}</span></div>
+    <div class="bigs">
+      <div class="big hlb"><small>P/E gia quyền</small><b>${nf(pew, 1)}</b><span>TT ${nf(mpew, 1)} · ${vsCell(vsPct(pew, mpew))}${isNum(rec.pew_vs_hist) ? ` · LS ${vsCell(rec.pew_vs_hist)}` : ""}</span></div>
+      <div class="big hlb"><small>P/E trung vị</small><b>${nf(rec.pe_med, 1)}</b><span>TT ${nf(M.pe_med, 1)} · ${vsCell(vsPct(rec.pe_med, M.pe_med))}${isNum(rec.pe_vs_hist) ? ` · LS ${vsCell(rec.pe_vs_hist)}` : ""}</span></div>
+      <div class="big"><small>P/E so với lịch sử</small><b>${isNum(rec.pe_pctl_hist) ? pctlChip(rec.pe_pctl_hist) : "—"}</b><span>TB ${nf(rec.pe_hist_med, 1)} · vùng ${nf(rec.pe_hist_lo, 1)}–${nf(rec.pe_hist_hi, 1)}</span></div>
+      <div class="big"><small>P/B gia quyền / TV</small><b>${nf(rec.pb_w)} <small>/ ${nf(rec.pb_med)}</small></b><span>TT ${nf(M.pb_w)} / ${nf(M.pb_med)}${isNum(rec.pb_vs_hist) ? ` · LS ${vsCell(rec.pb_vs_hist)}` : ""}</span></div>
+      <div class="big"><small>ROE gia quyền</small><b>${pct(rec.roe_w, 1, false)}</b><span>TT ${pct(M.roe_w, 1, false)} · TV ${pct(rec.roe_med, 1, false)}</span></div>
+      <div class="big"><small>PEG · Lợi suất LN</small><b>${nf(rec.peg_med)} <small>· ${pct(rec.ey_w, 1, false)}</small></b><span>TT ${nf(M.peg_med)} · ${pct(M.ey_w, 1, false)} · DN lỗ ${pct(rec.loss_share, 0, false)}</span></div>
+    </div></section>`;
 }
 function groupEditor(g, rows) {
   const tree = {};
@@ -681,7 +714,7 @@ function bindGroupEditor(g, GROUPS, rows) {
     const h = `#/sector/${enc(id)}/g`;
     if (location.hash === h) route(); else location.hash = h;
   };
-  if ($("#gDel")) $("#gDel").onclick = async () => { await persist(GROUPS.filter((x) => x.id !== g.id)); lsSet("lastSecHash", null); location.hash = "#/sector"; };
+  if ($("#gDel")) $("#gDel").onclick = async () => { await persist(GROUPS.filter((x) => x.id !== g.id)); location.hash = "#/sector"; };
   if ($("#gClose")) $("#gClose").onclick = () => (box.hidden = true);
   if ($("#gEditBtn")) $("#gEditBtn").onclick = () => { box.hidden = !box.hidden; if (!box.hidden) box.scrollIntoView({ behavior: "smooth", block: "start" }); };
 }
@@ -692,15 +725,8 @@ async function viewSector(name, lvArg) {
   let GROUPS = gr.data && Array.isArray(gr.data.list) ? gr.data.list : [];
   const isGroup = lvArg === "g";
   const group = isGroup ? (name === "new" ? { id: "new", name: "", sectors: [], industries: [], symbols: [] } : GROUPS.find((g) => g.id === name)) : null;
-  if (isGroup && !group) { lsSet("lastSecHash", null); location.hash = "#/sector"; return; }
-  if (!name) {
-    const lh = lsGet("lastSecHash", null);
-    if (lh && lh.includes("/g") && lh !== "#/sector/new/g") { location.hash = lh; return; }
-    name = lsGet("lastSector", null);
-    if (!name || !(byName2[name] || byName3[name])) name = (L2.find((s) => s.quadrant === "Dẫn dắt") || L2[0] || {}).name;
-    if (!name) { app().innerHTML = `<div class="empty">Chưa có dữ liệu ngành – có sau lượt chạy kế tiếp.</div>`; return; }
-  }
-  if (isGroup) lsSet("lastSecHash", location.hash); else lsSet("lastSecHash", null);
+  if (isGroup && !group) { location.hash = "#/sector"; return; }
+  if (!name) return viewSectors();
   const level = isGroup ? "group" : lvArg === "l3" || (!byName2[name] && (byName3[name] || rows.some((r) => r.industry === name))) ? "industry" : "sector";
   if (!isGroup) lsSet("lastSector", name);
   const members = isGroup ? groupMembers(group, rows) : rows.filter((r) => r[level] === name);
@@ -718,9 +744,9 @@ async function viewSector(name, lvArg) {
       <span><span class="quad" style="background:${qcol(s.quadrant)}"></span>${esc(s.name)}</span><small class="${cls(s.r1m)}">${pct(s.r1m, 0)}</small><small class="faint">${s.n}</small></button>
       ${s.name === parent ? subInd.map((x) => `<button class="sub ${level === "industry" && x.name === name ? "on" : ""}" data-go="${esc(link(x.name, "industry"))}"><span>${x.rec ? `<span class="quad" style="background:${qcol(x.rec.quadrant)}"></span>` : ""}${esc(x.name)}</span><small class="${cls(x.rec?.r1m)}">${x.rec ? pct(x.rec.r1m, 0) : ""}</small><small class="faint">${x.n}</small></button>`).join("") : ""}`).join("");
   const gCount = (g) => groupMembers(g, rows).length;
-  const gside = `<div class="faint" style="font-size:.68rem;padding:6px 8px 2px;letter-spacing:.04em">NHÓM CỦA TÔI</div>` + GROUPS.map((g) => `<button data-go="#/sector/${enc(g.id)}/g" class="${isGroup && group.id === g.id ? "on" : ""}"><span>★ ${esc(g.name)}</span><small></small><small class="faint">${gCount(g)}</small></button>`).join("")
+  const gside = `<button data-go="#/sector" class="ovb"><span>◧ Toàn cảnh tất cả ngành</span><small></small><small></small></button><div class="faint" style="font-size:.68rem;padding:6px 8px 2px;letter-spacing:.04em">NHÓM CỦA TÔI</div>` + GROUPS.map((g) => `<button data-go="#/sector/${enc(g.id)}/g" class="${isGroup && group.id === g.id ? "on" : ""}"><span>★ ${esc(g.name)}</span><small></small><small class="faint">${gCount(g)}</small></button>`).join("")
     + `<button data-go="#/sector/new/g" class="${isGroup && group.id === "new" ? "on" : ""}"><span class="up">＋ Tự nhóm ngành / mã</span><small></small><small></small></button><div class="faint" style="font-size:.68rem;padding:8px 8px 2px;letter-spacing:.04em">NGÀNH CÓ SẴN</div>`;
-  const gopts = `<optgroup label="Nhóm của tôi">${GROUPS.map((g) => `<option value="#/sector/${enc(g.id)}/g" ${isGroup && group.id === g.id ? "selected" : ""}>★ ${esc(g.name)} (${gCount(g)})</option>`).join("")}<option value="#/sector/new/g" ${isGroup && group.id === "new" ? "selected" : ""}>＋ Tự nhóm ngành / mã</option></optgroup><optgroup label="Ngành có sẵn">`;
+  const gopts = `<option value="#/sector">◧ Toàn cảnh tất cả ngành</option><optgroup label="Nhóm của tôi">${GROUPS.map((g) => `<option value="#/sector/${enc(g.id)}/g" ${isGroup && group.id === g.id ? "selected" : ""}>★ ${esc(g.name)} (${gCount(g)})</option>`).join("")}<option value="#/sector/new/g" ${isGroup && group.id === "new" ? "selected" : ""}>＋ Tự nhóm ngành / mã</option></optgroup><optgroup label="Ngành có sẵn">`;
   const opts = L2.map((s) => `<option value="${esc(link(s.name, "sector"))}" ${level === "sector" && s.name === name ? "selected" : ""}>${esc(s.name)} (${s.n})</option>
       ${s.name === parent ? subInd.map((x) => `<option value="${esc(link(x.name, "industry"))}" ${level === "industry" && x.name === name ? "selected" : ""}>  └ ${esc(x.name)} (${x.n})</option>`).join("") : ""}`).join("");
   const bt = level === "sector" ? (secs.backtest || {})[name] : null;
@@ -739,14 +765,14 @@ async function viewSector(name, lvArg) {
         ${isGroup && group.id !== "new" ? `<button class="chip" id="gEditBtn">Sửa nhóm</button>` : ""}
         <span class="meta">${members.length} mã · ${members.filter((r) => r.liquid_ok).length} mã thanh khoản</span></div>
       ${isGroup ? groupEditor(group, rows) : ""}
+      ${rec && members.length ? secValStrip(rec, secs.market || {}, isGroup) : ""}
       ${isGroup ? (members.length ? kpis([["Số ngành", rec.n_sec], ["Vốn hoá", mcapFmt(rec.mcap_bn)], ["GTGD/ngày", bn(rec.value_bn)], ["1 tuần", pct(rec.r1w), cls(rec.r1w)], ["1 tháng", pct(rec.r1m), cls(rec.r1m)],
-          ["3 tháng", pct(rec.r3m), cls(rec.r3m)], ["1 năm", pct(rec.r1y), cls(rec.r1y)], ["% xu hướng tăng", nf(rec.up_pct, 0) + "%"], ["P/E trung vị", nf(rec.pe_med, 1)], ["P/B", nf(rec.pb_med)], ["ROE", pct(rec.roe_med, 1, false)],
+          ["3 tháng", pct(rec.r3m), cls(rec.r3m)], ["1 năm", pct(rec.r1y), cls(rec.r1y)], ["% xu hướng tăng", nf(rec.up_pct, 0) + "%"], ["ROE", pct(rec.roe_med, 1, false)],
           ["LN 12T", pct(rec.ni_yoy_med), cls(rec.ni_yoy_med)], ["DT 12T", pct(rec.rev_yoy_med), cls(rec.rev_yoy_med)], ["Cổ tức", pct(rec.div_med, 1, false)], ["F-Score", nf(rec.fscore_med, 1)], ["Vay/Vốn", nf(rec.de_med)],
           ["Tiềm năng TV", pct(rec.upside_med), cls(rec.upside_med)], ["Điểm TV", scoreCell(rec.composite_med)]]) : `<div class="empty">Nhóm chưa có mã nào – chọn ngành hoặc nhập mã ở khung trên.</div>`)
       : rec ? kpis([["Vốn hoá", mcapFmt(rec.mcap_bn)], ["GTGD/ngày", bn(rec.value_bn)], ["1 tuần", pct(rec.r1w), cls(rec.r1w)], ["1 tháng", pct(rec.r1m), cls(rec.r1m)], ["3 tháng", pct(rec.r3m), cls(rec.r3m)],
         ["6 tháng", pct(rec.r6m), cls(rec.r6m)], ["1 năm", pct(rec.r1y), cls(rec.r1y)], ["% trên MA50", nf(rec.above50, 0) + "%"], ["% trên MA200", nf(rec.above200, 0) + "%"],
-        ["RS-Ratio / Mom", `${nf(rec.rs_ratio, 1)} / ${nf(rec.rs_mom, 1)}`], ["P/E trung vị", nf(rec.pe_med, 1)], ["P/E so lịch sử", isNum(rec.pe_pctl_hist) ? `rẻ hơn ${nf(100 - rec.pe_pctl_hist, 0)}% thời gian` : "—", "", "Tỷ lệ các quý trong 6 năm có P/E ngành cao hơn hiện tại"],
-        ["P/B", nf(rec.pb_med)], ["ROE", nf(rec.roe_med, 1) + "%"], ["LN 12T", pct(rec.ni_yoy_med), cls(rec.ni_yoy_med)], ["DT 12T", pct(rec.rev_yoy_med), cls(rec.rev_yoy_med)],
+        ["RS-Ratio / Mom", `${nf(rec.rs_ratio, 1)} / ${nf(rec.rs_mom, 1)}`], ["ROE", nf(rec.roe_med, 1) + "%"], ["LN 12T", pct(rec.ni_yoy_med), cls(rec.ni_yoy_med)], ["DT 12T", pct(rec.rev_yoy_med), cls(rec.rev_yoy_med)],
         ["Cổ tức", nf(rec.div_med, 1) + "%"], ["F-Score", nf(rec.fscore_med, 1)], ["Vay/Vốn", nf(rec.de_med)], ["Tiềm năng TV", pct(rec.upside_med), cls(rec.upside_med)],
         ["Điểm TV", scoreCell(rec.composite_med)], ["SMC TB", isNum(rec.smc_bias) ? `<span class="${rec.smc_bias >= 0.25 ? "up" : rec.smc_bias <= -0.25 ? "down" : ""}">${nf(rec.smc_bias, 2)}</span>` : "—"]])
         : `<p class="note">Nhóm ngành nhỏ (dưới 3 mã thanh khoản) nên chưa có chỉ số ngành – vẫn xếp hạng được các mã bên dưới.</p>`}
@@ -754,9 +780,13 @@ async function viewSector(name, lvArg) {
       ${rec && !isGroup ? `<div class="g g2">
         <section class="panel"><div class="ph"><h2>Chỉ số ngành so với VN-Index</h2><span class="meta">1 năm, cùng gốc 100</span></div><div class="chart sm" id="secIdx"></div>
           <div class="leg"><span><i style="background:${css("--brand")}"></i>${esc(name)}</span><span><i style="background:${css("--ink-3")}"></i>VN-Index</span></div></section>
-        <section class="panel"><div class="ph"><h2>P/E ngành theo quý</h2><span class="meta">trung vị các mã có lãi</span></div>
-          ${rec.pe_hist ? lineSvg([{ name: "P/E trung vị", color: css("--brand"), pts: rec.pe_hist.map((p) => ({ x: p.p, y: p.v })) }], { h: 200, hlines: [{ y: rec.pe_med, label: "hiện tại " + nf(rec.pe_med, 1), color: css("--ref") }], label: "P/E ngành" })
-            + `<p class="faint" style="font-size:.74rem">P/E hiện tại cao hơn ${nf(rec.pe_pctl_hist, 0)}% số quý trong lịch sử. Thấp (&lt;30%) = ngành đang rẻ so với chính nó.</p>` : `<p class="muted">Chưa đủ lịch sử P/E.</p>`}</section></div>` : ""}
+        <section class="panel hlp"><div class="ph"><h2>P/E ngành theo quý – so với thị trường</h2><span class="meta">cuối mỗi quý</span></div>
+          ${rec.val_hist ? (() => { const mm = Object.fromEntries(((secs.market || {}).val_hist || []).map((x) => [x.p, x.pe])); return lineSvg([
+              { name: "Ngành – trung vị", color: css("--brand"), width: 2.2, pts: rec.val_hist.map((x) => ({ x: x.p, y: x.pe })) },
+              { name: "Ngành – gia quyền", color: css("--floor"), pts: rec.val_hist.map((x) => ({ x: x.p, y: x.pe_w })) },
+              { name: "Thị trường – trung vị", color: css("--ink-3"), dash: "4 3", pts: rec.val_hist.map((x) => ({ x: x.p, y: mm[x.p] })) }],
+            { h: 200, hlines: [{ y: rec.pe_hist_med, label: "TB ngành " + nf(rec.pe_hist_med, 1), color: css("--ref") }], label: "P/E ngành" }); })()
+            + `<p class="faint" style="font-size:.74rem">P/E trung vị hiện tại cao hơn ${nf(rec.pe_pctl_hist, 0)}% số quý trong lịch sử (dưới 25 = ngành đang rẻ so với chính nó, trên 75 = đắt). <a href="#/sector">So với các ngành khác →</a></p>` : `<p class="muted">Chưa đủ lịch sử P/E.</p>`}</section></div>` : ""}
 
       <section class="panel"><div class="ph"><h2>Chạy phương án lọc trong ngành</h2><span class="meta">xếp hạng phần trăm so với chính các mã cùng ngành</span></div>
         <div class="views" id="presets">${Object.entries(PRESETS).map(([k, p]) => `<button data-p="${k}" class="${k === st.preset ? "on" : ""}">${esc(p.name)}${p.tag ? ` <small>✓</small>` : ""}</button>`).join("")}</div>
@@ -770,7 +800,7 @@ async function viewSector(name, lvArg) {
         </div>
         <div id="custom" class="sec" hidden></div></section>
       <div class="podium" id="podium"></div>
-      <section class="panel flush"><div class="ph"><h2>Bảng xếp hạng</h2><span class="meta" id="rkMeta"></span></div><div class="tw tall"><table id="rk"></table></div>
+      <section class="panel flush"><div class="ph"><h2>Bảng xếp hạng</h2><span class="pill brand">P/E ngành TV ${nf(rec?.pe_med, 1)} · TT ${nf((secs.market || {}).pe_med, 1)}</span><span class="meta" id="rkMeta"></span></div><div class="tw tall"><table id="rk"></table></div>
         <p class="faint" style="font-size:.72rem;padding:6px 12px">Màu nền mỗi ô = thứ hạng trong ngành (xanh đậm = tốt nhất ngành, đỏ = kém nhất). Thiếu số liệu bị tính như hạng 30/100.</p></section>
       <div class="g g2">
         <section class="panel"><div class="ph"><h2>Bản đồ trong ngành</h2><span class="meta">
@@ -1003,7 +1033,7 @@ const COLDEF = {
   price: ["Giá", "x2"], chg1d: ["Hôm nay", "pct"], chg1w: ["1 tuần", "pct"], chg1m: ["1 tháng", "pct"], chg3m: ["3 tháng", "pct"], chg1y: ["1 năm", "pct"],
   ret_12_1_pct: ["12–1 tháng", "pct"], avg_value_bn: ["GTGD/ngày", "x1"], mcap_bn: ["Vốn hoá", "bn"],
   composite: ["Điểm", "score"], upside: ["Tiềm năng", "pct"], fair: ["Hợp lý", "x2"], buy_below: ["Mua dưới", "x2"], verdict: ["Định giá", "l"],
-  pe: ["P/E", "x1"], pb: ["P/B", "x2"], ps: ["P/S", "x2"], ev_ebitda: ["EV/EBITDA", "x1"], earnings_yield: ["LS lợi nhuận", "p1"], fcf_yield: ["LS FCF", "p1"],
+  pe: ["P/E", "pe"], pe_ind: ["P/E ngành", "x1"], pe_vs_ind: ["P/E vs ngành", "vs"], pe_vs_mkt: ["P/E vs TT", "vs"], pb: ["P/B", "x2"], pb_ind: ["P/B ngành", "x2"], pb_vs_ind: ["P/B vs ngành", "vs"], ps: ["P/S", "x2"], ev_ebitda: ["EV/EBITDA", "x1"], earnings_yield: ["LS lợi nhuận", "p1"], fcf_yield: ["LS FCF", "p1"],
   roe: ["ROE", "p1"], roe_avg5: ["ROE TB5", "p1"], roa: ["ROA", "p1"], roic: ["ROIC", "p1"], gross_margin: ["Biên gộp", "p1"], net_margin: ["Biên ròng", "p1"], cfo_ni: ["CFO/LN", "x2"], de: ["Vay/Vốn", "x2"],
   fscore: ["F-Score", "i"], rev_yoy: ["DT 12T", "pct"], ni_yoy: ["LN 12T", "pct"], rev_q_yoy: ["DT quý", "pct"], ni_q_yoy: ["LN quý", "pct"], rev_cagr3: ["DT CAGR3", "pct"], ni_cagr3: ["LN CAGR3", "pct"],
   ni_growth_streak: ["Quý LN tăng", "i"], eps: ["EPS (đ)", "i"], bvps: ["BVPS (đ)", "i"], div_yield: ["Cổ tức", "p1"], payout_pct: ["Tỷ lệ chi trả", "p0"], cash_years: ["Năm trả TM", "i"],
@@ -1015,8 +1045,8 @@ const COLDEF = {
   momentum: ["Động lượng", "score"], canslim: ["CANSLIM", "score"], low_vol: ["Ít biến động", "score"],
 };
 const VIEWS = {
-  overview: ["Tổng quan", ["symbol", "exchange", "sector", "price", "chg1d", "chg1m", "composite", "upside", "verdict", "pe", "pb", "roe", "ni_yoy", "fscore", "div_yield", "ta_label", "trend", "avg_value_bn", "ind_rank"]],
-  valuation: ["Định giá", ["symbol", "sector", "price", "fair", "buy_below", "upside", "verdict", "pe", "pb", "ps", "ev_ebitda", "earnings_yield", "fcf_yield", "mcap_bn", "value", "magic_formula"]],
+  overview: ["Tổng quan", ["symbol", "exchange", "sector", "price", "chg1d", "chg1m", "composite", "upside", "verdict", "pe", "pe_ind", "pe_vs_ind", "pb", "roe", "ni_yoy", "fscore", "div_yield", "ta_label", "trend", "avg_value_bn", "ind_rank"]],
+  valuation: ["Định giá", ["symbol", "sector", "price", "pe", "pe_ind", "pe_vs_ind", "pe_vs_mkt", "pb", "pb_ind", "pb_vs_ind", "fair", "buy_below", "upside", "verdict", "ps", "ev_ebitda", "earnings_yield", "fcf_yield", "mcap_bn", "value", "magic_formula"]],
   quality: ["Chất lượng", ["symbol", "sector", "roe", "roe_avg5", "roa", "roic", "gross_margin", "net_margin", "cfo_ni", "de", "fscore", "quality", "piotroski", "composite"]],
   growth: ["Tăng trưởng", ["symbol", "sector", "rev_yoy", "ni_yoy", "rev_q_yoy", "ni_q_yoy", "rev_cagr3", "ni_cagr3", "ni_growth_streak", "eps", "pe", "growth", "canslim", "canslim_flags"]],
   dividend: ["Cổ tức", ["symbol", "sector", "price", "div_yield", "payout_pct", "cash_years", "fcf_yield", "de", "fscore", "roe", "dividend", "upside"]],
@@ -1024,11 +1054,14 @@ const VIEWS = {
   smart: ["Tạo lập & dòng tiền", ["symbol", "sector", "price", "chg1m", "smc", "smc_bias", "smc_zone", "vsa", "vsa_bias", "wyckoff_ev", "wy_phase", "orderflow", "of_bias", "of_delta5", "ta_label", "trend"]],
   methods: ["Điểm phương pháp", ["symbol", "sector", "composite", "piotroski", "magic_formula", "value", "quality", "growth", "dividend", "momentum", "canslim", "low_vol", "smc", "vsa", "wyckoff_ev", "orderflow"]],
 };
+const HLC = new Set(["pe", "pe_ind", "pe_vs_ind", "pe_vs_mkt"]);
 const METHOD_REL = { smc: "SMC – tổng hợp", vsa: "VSA – tổng hợp", wyckoff_ev: "Wyckoff – sự kiện (SC/Spring/SOS/UTAD…)" };
 function fmtCol(r, k) {
   const f = (COLDEF[k] || ["", "l"])[1], v = k === "composite" && r._score != null ? r._score : r[k];
   if (f === "sym") return `<a href="#/s/${v}" title="${esc(r.name || "")}">${v}</a>`;
   if (f === "score") return scoreCell(v);
+  if (f === "vs") return vsCell(v);
+  if (f === "pe") return isNum(v) ? `<b>${nf(v, 1)}</b>` : "—";
   if (f === "pct") return `<span class="${cls(v)}">${pct(v)}</span>`;
   if (f === "p1") return isNum(v) ? nf(v, 1) + "%" : "—";
   if (f === "p0") return isNum(v) ? nf(v, 0) + "%" : "—";
@@ -1052,7 +1085,7 @@ async function viewScreener(arg) {
   const st = { exch: "", sec: "", ind: "", basket: arg || "", minVal: 3, maxPE: "", minROE: "", minF: "", minDiv: "", minUp: "", minScore: "", trend: "", text: "", sort: "composite", asc: false, view: lsGet("scrView", "overview") };
   const ps = meth.pattern_stats || {};
   app().innerHTML = `
-  <div class="ph"><h1>Bộ lọc & phương pháp chọn mã</h1><span class="meta"><a href="#/guide">giải thích các phương pháp</a></span></div>
+  <div class="ph"><h1>Bộ lọc & phương pháp chọn mã</h1>${mktPill(SECS?.market)}<span class="meta"><a href="#/guide">giải thích các phương pháp</a></span></div>
   <section class="panel"><div class="filters">
     <div class="field w140"><label>Rổ</label><select id="fB"><option value="">Tất cả mã</option>${Object.entries(meth.baskets).map(([k, b]) => `<option value="${k}" ${st.basket === k ? "selected" : ""}>${esc(b.name)}</option>`).join("")}</select></div>
     <div class="field w90"><label>Sàn</label><select id="fE"><option value="">Cả 3 sàn</option><option>HOSE</option><option>HNX</option><option>UPCOM</option></select></div>
@@ -1106,9 +1139,9 @@ async function viewScreener(arg) {
     filtered.sort((a, b) => { const x = a[k], y = b[k]; if (x == null && y == null) return 0; if (x == null) return 1; if (y == null) return -1; return (x > y ? 1 : x < y ? -1 : 0) * (st.asc ? 1 : -1); });
     const cols = VIEWS[st.view][1];
     $("#cnt").textContent = `${filtered.length} mã${filtered.length > 500 ? " (hiện 500)" : ""}`;
-    $("#scr").innerHTML = `<thead><tr>${cols.map((c) => { const f = COLDEF[c][1]; return `<th data-k="${c}" class="${f === "sym" ? "sym" : ["l", "trend", "wy"].includes(f) ? "l" : ""} ${st.sort === c ? "sorted" + (st.asc ? " asc" : "") : ""}">${esc(COLDEF[c][0])}</th>`; }).join("")}</tr></thead>
-      <tbody>${filtered.slice(0, 500).map((r) => `<tr>${cols.map((c) => { const f = COLDEF[c][1]; return `<td class="${f === "sym" ? "sym" : ["l", "trend", "wy"].includes(f) ? "l" : ""}">${fmtCol(r, c)}</td>`; }).join("")}</tr>`).join("")}</tbody>`;
-    $$("#scr th").forEach((th) => (th.onclick = () => { if (st.sort === th.dataset.k) st.asc = !st.asc; else { st.sort = th.dataset.k; st.asc = ["pe", "pb", "ps", "ev_ebitda", "de", "beta", "vol_1y_pct", "symbol", "ind_rank"].includes(th.dataset.k); } draw(); }));
+    $("#scr").innerHTML = `<thead><tr>${cols.map((c) => { const f = COLDEF[c][1]; return `<th data-k="${c}" class="${HLC.has(c) ? "hlc " : ""}${f === "sym" ? "sym" : ["l", "trend", "wy"].includes(f) ? "l" : ""} ${st.sort === c ? "sorted" + (st.asc ? " asc" : "") : ""}">${esc(COLDEF[c][0])}</th>`; }).join("")}</tr></thead>
+      <tbody>${filtered.slice(0, 500).map((r) => `<tr>${cols.map((c) => { const f = COLDEF[c][1]; return `<td class="${HLC.has(c) ? "hlc " : ""}${f === "sym" ? "sym" : ["l", "trend", "wy"].includes(f) ? "l" : ""}">${fmtCol(r, c)}</td>`; }).join("")}</tr>`).join("")}</tbody>`;
+    $$("#scr th").forEach((th) => (th.onclick = () => { if (st.sort === th.dataset.k) st.asc = !st.asc; else { st.sort = th.dataset.k; st.asc = ["pe", "pb", "ps", "ev_ebitda", "de", "beta", "vol_1y_pct", "symbol", "ind_rank", "pe_vs_ind", "pe_vs_mkt", "pb_vs_ind", "pe_ind", "pb_ind"].includes(th.dataset.k); } draw(); }));
     const b = meth.baskets[st.basket];
     $("#bRule").innerHTML = b ? `<b>Điều kiện rổ ${esc(b.name)}</b> (rủi ro ${esc(b.risk)}): ${esc(b.rule)}` : (st.sec ? `Muốn xếp hạng sâu trong ngành ${esc(st.sec)} theo từng phương án? <a href="#/sector/${enc(st.ind || st.sec)}${st.ind ? "/l3" : ""}">Mở trang Ngành</a>.` : "");
   };
@@ -1205,7 +1238,7 @@ const VSA_SHORT = { "No Supply": "NS", "No Demand": "ND", "Stopping Volume": "SV
 
 async function viewStock(sym, tabArg) {
   let d;
-  const [rows, secs] = await Promise.all([screenerRows(), tryLoad("data/sectors.json")]);
+  const [rows, secs] = await Promise.all([screenerRows(), secsData()]);
   try { d = await load(`data/stocks/${sym}.json`); }
   catch (e) {
     const r = rows.find((x) => x.symbol === sym);
@@ -1232,7 +1265,11 @@ async function viewStock(sym, tabArg) {
       ${secRec ? `<span class="pill" title="Vị trí ngành trên biểu đồ xoay vòng"><span class="quad" style="background:${qcol(secRec.quadrant)}"></span>Ngành ${esc(secRec.quadrant)}</span>` : ""}
       ${isNum(r.ind_rank) ? `<span class="pill">Hạng ${nf(r.ind_rank, 0)}/${r.ind_n} trong ngành</span>` : ""}</div>
   </div>
-  ${kpis([["Vốn hoá", mcapFmt(fa.mcap_bn ?? r.mcap_bn)], ["P/E", nf(fa.pe ?? r.pe, 1)], ["P/B", nf(fa.pb ?? r.pb)], ["EPS (đ)", nf(fa.eps ?? r.eps, 0)], ["ROE", pct(fa.roe ?? r.roe, 1, false)],
+  ${(() => { const C = ctxRecs(secs || {}, d.sector, d.industry), b = C.ind || C.sec || {}, M = C.mkt || {}, pe0 = fa.pe ?? r.pe, pb0 = fa.pb ?? r.pb;
+    return kpis([["P/E", `${nf(pe0, 1)}<br><small>ngành ${nf(b.pe_med, 1)} · TT ${nf(M.pe_med, 1)}</small>`, "", "So với P/E trung vị nhóm ngành và toàn thị trường", "hl"],
+      ["P/E vs ngành / TT", `${vsCell(vsPct(pe0, b.pe_med))}<br><small>${vsCell(vsPct(pe0, M.pe_med))} vs TT</small>`, "", "", "hl"],
+      ["P/B", `${nf(pb0)}<br><small>ngành ${nf(b.pb_med)} · TT ${nf(M.pb_med)}</small>`, "", "", "hl"]], false, "khead"); })()}
+  ${kpis([["Vốn hoá", mcapFmt(fa.mcap_bn ?? r.mcap_bn)], ["EPS (đ)", nf(fa.eps ?? r.eps, 0)], ["ROE", pct(fa.roe ?? r.roe, 1, false)],
     ["LN 12T", pct(fa.ni_yoy ?? r.ni_yoy), cls(fa.ni_yoy ?? r.ni_yoy)], ["DT 12T", pct(fa.rev_yoy ?? r.rev_yoy), cls(fa.rev_yoy ?? r.rev_yoy)], ["Cổ tức", pct(fa.dividend?.yield ?? r.div_yield, 1, false)],
     ["F-Score", `${r.fscore ?? "—"}/9`], ["Vay/Vốn", nf(fa.de ?? r.de)], ["Beta", nf(d.beta)], ["GTGD/ngày", bn(r.avg_value_bn)], ["RS", `${sc.rs_rating ?? r.rs_rating ?? "—"}/100`],
     ["1 tháng", pct(r.chg1m), cls(r.chg1m)], ["1 năm", pct(r.chg1y), cls(r.chg1y)], ["Cách đỉnh 52T", pct(ta.from_hi52_pct), "down"]])}
@@ -1244,6 +1281,7 @@ async function viewStock(sym, tabArg) {
       ${recentSignals(d)}
     </div>
     <div class="stack">
+      ${valCtx(d, secs || {})}
       <section class="panel"><div class="ph"><h2>Kế hoạch giao dịch</h2><span class="meta">${d.timing?.ok ? '<b class="up">đủ điều kiện kỹ thuật</b>' : '<b class="ref">chưa đến lúc</b>'}</span></div>
         ${lv ? kpis([["Vùng mua", `${nf(lv.zone[0])}–${nf(lv.zone[1])}`], ["Cắt lỗ", `${nf(lv.stop)} <small>${pct(lv.stop_pct, 0)}</small>`, "down"], ["Mục tiêu 1", `${nf(lv.t1)} <small>${pct(lv.t1_pct, 0)}</small>`, "up"], ["Mục tiêu 2", nf(lv.t2), "up"], ["Lời / lỗ", nf(lv.rr, 1) + "x"], ["Trạng thái", lv.state === "now" ? "Mua được" : "Chờ giá"]], false, "c2")
           : `<p class="muted">Chưa có kế hoạch (thiếu định giá hoặc kỹ thuật).</p>`}
@@ -1373,7 +1411,8 @@ function recentSignals(d) {
 }
 function tabOverview(d) {
   const r = d.row, fa = d.fa || {}, sc = d.scores || {};
-  return `<div class="g g2">
+  return `<section class="panel hlp" style="margin-bottom:10px"><div class="ph"><h2>P/E ${esc(d.symbol)} theo quý so với ngành và thị trường</h2><span class="meta">cuối mỗi quý · <a href="#/sector">toàn cảnh các ngành</a></span></div>${peHistChart(d, SECS || {})}</section>
+  <div class="g g2">
     <section class="panel"><div class="ph"><h2>Điểm theo từng phương pháp</h2><span class="meta">0–100, so với toàn thị trường</span></div>
       <div class="tw"><table><tbody>${Object.entries(METHOD_NAMES).map(([k, n]) => `<tr><td class="l" style="font-weight:500">${n}</td><td style="width:50%">${minibar(sc[k] ?? r[k])}</td><td>${scoreCell(sc[k] ?? r[k])}</td>
         <td class="l">${METHOD_REL[k] ? relTag(METHOD_REL[k], true) : ""}</td></tr>`).join("")}</tbody></table></div>
@@ -1581,8 +1620,9 @@ function tabPeers(d) {
     <section class="panel flush"><div class="ph"><h2>So với các mã cùng ngành</h2><a class="meta" href="#/sector/${enc(d.industry || d.sector || "")}${d.industry && d.industry !== d.sector ? "/l3" : ""}">chạy phương án lọc cả ngành →</a></div>
       <div class="tw"><table><thead><tr>${p.cols.map((c) => `<th class="${c === "symbol" ? "sym" : ""}">${name[c] || c}</th>`).join("")}</tr></thead><tbody>
       ${p.rows.map((r) => `<tr class="${r[0] === d.symbol ? "hl" : ""}">${r.map((x, i) => `<td class="${p.cols[i] === "symbol" ? "sym" : ""}">${f(p.cols[i], x)}</td>`).join("")}</tr>`).join("")}</tbody></table></div></section>
+    <div class="stack">${valCtx(d, SECS || {})}
     <section class="panel"><div class="ph"><h2>${esc(d.symbol)} đứng ở đâu trong ${p.n ?? "—"} mã</h2><span class="meta">100 = tốt nhất ngành</span></div>
-      <div class="tw"><table><tbody>${Object.entries(lbl).map(([k, n]) => `<tr><td class="l" style="font-weight:500">${n}</td><td style="width:45%">${minibar(pctl[k])}</td><td>${isNum(pctl[k]) ? Math.round(pctl[k]) : "—"}</td><td class="muted">TV ${nf(p.median?.[k], 1)}</td></tr>`).join("")}</tbody></table></div></section>
+      <div class="tw"><table><tbody>${Object.entries(lbl).map(([k, n]) => `<tr><td class="l" style="font-weight:500">${n}</td><td style="width:45%">${minibar(pctl[k])}</td><td>${isNum(pctl[k]) ? Math.round(pctl[k]) : "—"}</td><td class="muted">TV ${nf(p.median?.[k], 1)}</td></tr>`).join("")}</tbody></table></div></section></div>
   </div>`;
 }
 
@@ -1610,6 +1650,212 @@ async function viewGuide() {
   ${panel("Các rổ", Object.entries(m.baskets).map(([k, b]) => `<div class="ev"><time><a href="#/screener/${k}">${esc(b.name)}</a></time><span>${esc(b.rule)} <small class="faint">· rủi ro ${esc(b.risk)}</small></span></div>`).join(""))}
   </div>
   <section class="sec">${panel(`${Object.keys(m.methods).length} phương pháp chấm điểm`, `<div class="weights">${Object.entries(m.methods).map(([k, x]) => `<div class="w-item"><header><b>${esc(x.name)}</b><small>trọng số ${m.weights[k] ?? 0}</small></header><p>${esc(x.desc)}</p></div>`).join("")}</div>`)}</section>`;
+}
+
+// ================================================================ ĐỊNH GIÁ SO SÁNH (dùng chung)
+let SECS = null;
+const mktPill = (M) => (M && isNum(M.pe_med) ? `<a class="pill brand mktp" href="#/sector" title="Định giá toàn thị trường – bấm để so sánh các ngành">P/E thị trường <b>${nf(M.pe_w_pos ?? M.pe_w, 1)}</b> gia quyền · <b>${nf(M.pe_med, 1)}</b> trung vị · P/B ${nf(M.pb_w)}</a>` : "");
+async function secsData() { if (!SECS) SECS = (await tryLoad("data/sectors.json")) || { sector: [], industry: [], market: {} }; return SECS; }
+const vsPct = (a, b) => (isNum(a) && isNum(b) && a > 0 && b > 0 ? (a / b - 1) * 100 : null);
+// thấp hơn là rẻ hơn → xanh
+const vsCell = (v, d = 0) => (isNum(v) ? `<span class="${v <= -10 ? "up" : v >= 10 ? "down" : "muted"}">${v > 0 ? "+" : ""}${nf(v, d)}%</span>` : "—");
+const pctlChip = (p) => (isNum(p) ? `<span class="pill ${p <= 25 ? "buy" : p >= 75 ? "sell" : ""}" title="P/E hiện tại cao hơn ${nf(p, 0)}% số quý trong lịch sử">${p <= 25 ? "rẻ" : p >= 75 ? "đắt" : "TB"} · ${nf(p, 0)}</span>` : "—");
+function ctxRecs(S, sector, industry) {
+  const sec = (S.sector || []).find((x) => x.name === sector) || null;
+  const ind = industry && industry !== sector ? (S.industry || []).find((x) => x.name === industry) || null : null;
+  return { sec, ind, mkt: S.market || {} };
+}
+function spark(vals, o = {}) {
+  const W = o.w || 220, H = o.h || 56, P = 3;
+  const v = vals.map((x) => (isNum(x) ? Number(x) : null));
+  const all = v.filter((x) => x != null).concat([o.lo, o.hi, o.med, o.ref].filter(isNum)).concat((o.ref2 || []).filter(isNum));
+  if (all.length < 2) return "";
+  let mn = Math.min(...all), mx = Math.max(...all); if (mx === mn) { mx += 1; mn -= 1; }
+  const X = (i) => P + (i / Math.max(1, v.length - 1)) * (W - 2 * P), Y = (y) => P + (1 - (y - mn) / (mx - mn)) * (H - 2 * P);
+  let s = `<svg class="svgchart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="height:${H}px">`;
+  if (isNum(o.lo) && isNum(o.hi)) s += `<rect x="0" width="${W}" y="${Y(o.hi)}" height="${Math.max(1, Y(o.lo) - Y(o.hi))}" fill="var(--brand)" opacity=".08"/>`;
+  if (isNum(o.med)) s += `<line x1="0" x2="${W}" y1="${Y(o.med)}" y2="${Y(o.med)}" stroke="var(--ink-3)" stroke-dasharray="3 3"/>`;
+  if (o.ref2) s += `<polyline fill="none" stroke="var(--ink-3)" stroke-width="1" opacity=".7" points="${o.ref2.map((y, i) => (isNum(y) ? `${X(i)},${Y(y)}` : null)).filter(Boolean).join(" ")}"/>`;
+  s += `<polyline fill="none" stroke="${o.color || "var(--brand)"}" stroke-width="1.8" points="${v.map((y, i) => (y == null ? null : `${X(i)},${Y(y)}`)).filter(Boolean).join(" ")}"/>`;
+  const li = v.map((y, i) => [y, i]).filter(([y]) => y != null).pop();
+  if (li) s += `<circle cx="${X(li[1])}" cy="${Y(li[0])}" r="2.6" fill="${o.color || "var(--brand)"}"/>`;
+  if (isNum(o.cur)) s += `<circle cx="${W - P}" cy="${Y(o.cur)}" r="3.2" fill="none" stroke="var(--ink)" stroke-width="1.4"><title>hiện tại ${nf(o.cur, 1)}</title></circle>`;
+  return s + `</svg>`;
+}
+
+// Bảng so sánh định giá của 1 mã: mã / lịch sử mã / nhóm ngành / ngành / thị trường
+function valCtx(d, S, opts = {}) {
+  const r = d.row || d, fa = d.fa || {};
+  const pe = fa.pe ?? r.pe, pb = fa.pb ?? r.pb, roe = fa.roe ?? r.roe, dy = fa.dividend?.yield ?? r.div_yield, g = fa.ni_yoy ?? r.ni_yoy;
+  const { sec, ind, mkt } = ctxRecs(S, d.sector || r.sector, d.industry || r.industry);
+  const vh = (d.val_hist || []).filter((x) => isNum(x.pe));
+  const hmed = (k) => { const a = (d.val_hist || []).map((x) => x[k]).filter(isNum).sort((x, y) => x - y); return a.length >= 6 ? a[Math.floor(a.length / 2)] : null; };
+  const pe_h = hmed("pe"), pb_h = hmed("pb");
+  const rows = [
+    ["<b>" + esc(d.symbol || r.symbol) + "</b>", pe, pb, roe, dy, g, "self"],
+    pe_h ? [`${esc(d.symbol || r.symbol)} – TB ${vh.length} quý`, pe_h, pb_h, null, null, null, "hist"] : null,
+    ind ? [`Nhóm ngành: ${esc(ind.name)}`, ind.pe_med, ind.pb_med, ind.roe_med, ind.div_med, ind.ni_yoy_med, "ind"] : null,
+    sec ? [`Ngành: ${esc(sec.name)}`, sec.pe_med, sec.pb_med, sec.roe_med, sec.div_med, sec.ni_yoy_med, "sec"] : null,
+    [`Toàn thị trường (trung vị)`, mkt.pe_med, mkt.pb_med, mkt.roe_med, mkt.div_med, mkt.ni_yoy_med, "mkt"],
+    [`Toàn thị trường (gia quyền)`, mkt.pe_w_pos ?? mkt.pe_w, mkt.pb_w, mkt.roe_w, null, null, "mktw"],
+  ].filter(Boolean);
+  const base = ind || sec;
+  const say = [];
+  if (isNum(pe) && pe > 0) {
+    const a = vsPct(pe, base?.pe_med), b = vsPct(pe, mkt.pe_med), c = vsPct(pe, pe_h);
+    const w = (v, n) => (isNum(v) ? `${v < 0 ? "thấp hơn" : "cao hơn"} ${n} <b class="${v < 0 ? "up" : "down"}">${nf(Math.abs(v), 0)}%</b>` : null);
+    say.push([w(a, ind ? "nhóm ngành" : "ngành"), w(b, "thị trường"), w(c, "trung bình lịch sử của chính mã")].filter(Boolean).join(", "));
+  } else say.push(`Mã đang lỗ hoặc chưa có EPS dương nên không có P/E – so sánh bằng P/B.`);
+  return `<section class="panel ctxp ${opts.extra || ""}"><div class="ph"><h2>P/E so với ngành & thị trường</h2><span class="meta">trung vị = DN điển hình · gia quyền = như chỉ số</span></div>
+    <div class="tw"><table class="ctx"><thead><tr><th class="l"></th><th class="hlc">P/E</th><th>P/B</th><th>ROE</th><th>Cổ tức</th><th>LN 12T</th></tr></thead><tbody>
+    ${rows.map(([n, a, b, c, e, f, k]) => `<tr class="${k === "self" ? "me" : k.startsWith("mkt") ? "mk" : ""}"><td class="l">${n}</td><td class="hlc"><b>${nf(a, 1)}</b>${k !== "self" && isNum(pe) && isNum(a) ? ` <small>${vsCell(vsPct(pe, a))}</small>` : ""}</td>
+      <td>${nf(b)}</td><td>${isNum(c) ? nf(c, 1) + "%" : "—"}</td><td>${isNum(e) ? nf(e, 1) + "%" : "—"}</td><td class="${cls(f)}">${pct(f, 0)}</td></tr>`).join("")}</tbody></table></div>
+    <p style="font-size:.8rem;margin-top:6px">P/E <b>${nf(pe, 1)}</b>${say.length ? " – " + say.join("") : ""}.</p>
+    <p class="faint" style="font-size:.7rem">Số nhỏ cạnh P/E = P/E của mã cao (đỏ) / thấp (xanh) hơn dòng đó bao nhiêu %. Rẻ hơn chưa chắc tốt: xem ROE và tăng trưởng cùng hàng.</p></section>`;
+}
+function peHistChart(d, S) {
+  const vh = d.val_hist || [];
+  if (vh.filter((x) => isNum(x.pe)).length < 4) return `<p class="muted">Chưa đủ lịch sử P/E của mã.</p>`;
+  const { sec, ind, mkt } = ctxRecs(S, d.sector, d.industry);
+  const map = (rec) => Object.fromEntries((rec?.val_hist || []).map((x) => [x.p, x.pe]));
+  const mi = map(ind), ms = map(sec), mm = map(mkt);
+  const series = [{ name: `P/E ${d.symbol}`, color: css("--brand"), width: 2.2, pts: vh.map((x) => ({ x: x.p, y: x.pe })) }];
+  if (ind) series.push({ name: "Nhóm ngành (TV)", color: css("--floor"), pts: vh.map((x) => ({ x: x.p, y: mi[x.p] })) });
+  if (sec) series.push({ name: "Ngành (TV)", color: css("--ref"), pts: vh.map((x) => ({ x: x.p, y: ms[x.p] })) });
+  series.push({ name: "Thị trường (TV)", color: css("--ink-3"), dash: "4 3", pts: vh.map((x) => ({ x: x.p, y: mm[x.p] })) });
+  return lineSvg(series, { w: 1000, h: 230, ticks: 10, label: "P/E theo quý so với ngành và thị trường" });
+}
+
+// ================================================================ TOÀN CẢNH NGÀNH
+const MEAS = {
+  pe_w: { n: "P/E gia quyền", cur: (s) => s.pe_w_pos ?? s.pe_w, mk: (m) => m.pe_w_pos ?? m.pe_w, med: "pew_hist_med", lo: "pew_hist_lo", hi: "pew_hist_hi", vs: "pew_vs_hist", pc: "pew_pctl_hist", hk: "pe_w", dec: 1,
+    note: "Tổng vốn hoá ÷ tổng lợi nhuận 12 tháng của các DN có lãi trong ngành – giống cách tính P/E của chỉ số; mã vốn hoá lớn chi phối." },
+  pe_med: { n: "P/E trung vị", cur: (s) => s.pe_med, mk: (m) => m.pe_med, med: "pe_hist_med", lo: "pe_hist_lo", hi: "pe_hist_hi", vs: "pe_vs_hist", pc: "pe_pctl_hist", hk: "pe", dec: 1,
+    note: "P/E của doanh nghiệp đứng giữa ngành – đại diện cho 'DN điển hình', không bị vài mã lớn chi phối." },
+  pb_w: { n: "P/B gia quyền", cur: (s) => s.pb_w, mk: (m) => m.pb_w, med: "pbw_hist_med", lo: "pbw_hist_lo", hi: "pbw_hist_hi", vs: "pbw_vs_hist", pc: "pbw_pctl_hist", hk: "pb_w", dec: 2,
+    note: "Tổng vốn hoá ÷ tổng vốn chủ sở hữu. Dùng tốt cho ngân hàng, chứng khoán, bất động sản, DN chu kỳ." },
+  pb_med: { n: "P/B trung vị", cur: (s) => s.pb_med, mk: (m) => m.pb_med, med: "pb_hist_med", lo: "pb_hist_lo", hi: "pb_hist_hi", vs: "pb_vs_hist", pc: "pb_pctl_hist", hk: "pb", dec: 2,
+    note: "P/B của doanh nghiệp đứng giữa ngành." },
+};
+
+async function viewSectors() {
+  const [S, rows, gr] = await Promise.all([secsData(), screenerRows(), Store.get("groups")]);
+  const M = S.market || {};
+  const groups = gr.data && Array.isArray(gr.data.list) ? gr.data.list : [];
+  const st = { lv: lsGet("ovLv", "sector"), meas: lsGet("ovMeas", "pe_w"), sort: lsGet("ovSort", "val"), tsort: "mcap_bn", tasc: false };
+  const listOf = (lv) => lv === "sector" ? S.sector || [] : lv === "industry" ? S.industry || [] : groups.map((g) => ({ ...aggRec(groupMembers(g, rows)), name: g.name, _gid: g.id }));
+  const href = (s) => (s._gid ? `#/sector/${enc(s._gid)}/g` : `#/sector/${enc(s.name)}${st.lv === "industry" ? "/l3" : ""}`);
+  const mh = M.val_hist || [];
+  app().innerHTML = `
+  <div class="ph"><h1>Toàn cảnh các ngành</h1><span class="meta">${(S.sector || []).length} ngành · ${(S.industry || []).length} nhóm ngành · ${nf(M.n_fin, 0)} DN có BCTC</span></div>
+  <section class="panel hero">
+    <div class="ph"><h2>Định giá toàn thị trường</h2><span class="meta">so với ${mh.length} quý gần nhất</span></div>
+    <div class="g g-main">
+      <div>
+        <div class="bigs">
+          <div class="big hlb"><small>P/E gia quyền</small><b>${nf(M.pe_w_pos ?? M.pe_w, 1)}</b><span>TB lịch sử ${nf(M.pew_hist_med, 1)} · ${vsCell(M.pew_vs_hist)} · ${pctlChip(M.pew_pctl_hist)}</span></div>
+          <div class="big hlb"><small>P/E trung vị</small><b>${nf(M.pe_med, 1)}</b><span>TB lịch sử ${nf(M.pe_hist_med, 1)} · ${vsCell(M.pe_vs_hist)} · ${pctlChip(M.pe_pctl_hist)}</span></div>
+          <div class="big"><small>P/B gia quyền / trung vị</small><b>${nf(M.pb_w)} <small>/ ${nf(M.pb_med)}</small></b><span>TB lịch sử ${nf(M.pbw_hist_med)} / ${nf(M.pb_hist_med)}</span></div>
+          <div class="big"><small>Lợi suất LN vs TPCP 10N</small><b>${nf(M.ey_w, 1)}% <small>vs ${nf(M.rf, 1)}%</small></b><span>phần bù rủi ro <b class="${M.erp >= 4 ? "up" : M.erp < 2 ? "down" : ""}">${nf(M.erp, 1)}%</b></span></div>
+        </div>
+        ${kpis([["ROE gia quyền", pct(M.roe_w, 1, false)], ["ROE trung vị", pct(M.roe_med, 1, false)], ["LN 12T (TV)", pct(M.ni_yoy_med), cls(M.ni_yoy_med)], ["DT 12T (TV)", pct(M.rev_yoy_med), cls(M.rev_yoy_med)],
+          ["PEG (TV)", nf(M.peg_med), "", "P/E ÷ tăng trưởng LN 12T (%) – dưới 1 là rẻ so với tăng trưởng"], ["Cổ tức (TV)", pct(M.div_med, 1, false)], ["% DN lỗ", pct(M.loss_share, 0, false)], ["Vốn hoá có BCTC", mcapFmt(M.mcap_bn)]], false, "sec")}
+      </div>
+      <div>${mh.length ? lineSvg([{ name: "P/E gia quyền", color: css("--brand"), width: 2.2, pts: mh.map((x) => ({ x: x.p, y: x.pe_w })) }, { name: "P/E trung vị", color: css("--ref"), pts: mh.map((x) => ({ x: x.p, y: x.pe })) }],
+        { h: 190, hlines: [{ y: M.pew_hist_med, label: "TB " + nf(M.pew_hist_med, 1), color: css("--ink-3") }], label: "P/E thị trường theo quý" }) : `<p class="muted">Chưa có lịch sử.</p>`}
+        <p class="faint" style="font-size:.72rem">Lợi suất LN = 1 ÷ P/E. Phần bù = lợi suất LN – lãi TPCP: càng cao cổ phiếu càng hấp dẫn so với trái phiếu (trên 4% là hấp dẫn).</p></div>
+    </div></section>
+
+  <section class="panel sec"><div class="ph"><h2 id="mTitle"></h2>
+    <span class="seg" id="lvSel">${[["sector", "Ngành cấp 2"], ["industry", "Nhóm ngành cấp 3"], ["group", "Nhóm của tôi"]].map(([k, n]) => `<button data-v="${k}" class="${k === st.lv ? "on" : ""}">${n}</button>`).join("")}</span>
+    <span class="seg" id="msSel">${Object.entries(MEAS).map(([k, x]) => `<button data-v="${k}" class="${k === st.meas ? "on" : ""}">${x.n}</button>`).join("")}</span>
+    <span class="seg" id="soSel">${[["val", "Thấp → cao"], ["vs", "Rẻ nhất so với lịch sử"], ["mcap", "Vốn hoá"]].map(([k, n]) => `<button data-v="${k}" class="${k === st.sort ? "on" : ""}">${n}</button>`).join("")}</span></div>
+    <p class="faint" id="mNote" style="font-size:.74rem;margin-bottom:6px"></p>
+    <div id="bars"></div>
+    <div class="leg" style="margin-top:6px"><span><i style="background:var(--up)"></i>rẻ hơn lịch sử ≥ 15%</span><span><i style="background:var(--brand)"></i>quanh mức lịch sử</span><span><i style="background:var(--down)"></i>đắt hơn lịch sử ≥ 15%</span>
+      <span><i style="background:color-mix(in srgb,var(--brand) 18%,transparent)"></i>vùng lịch sử 10%–90%</span><span><i style="background:var(--ink);width:2px"></i>TB lịch sử ngành</span><span><i style="background:var(--down);width:2px"></i>thị trường</span></div></section>
+
+  <div class="g g2 sec">
+    <section class="panel"><div class="ph"><h2>P/B và ROE các ngành</h2><span class="meta">ROE cao mà P/B thấp = đáng chú ý</span></div><div id="scPB"></div></section>
+    <section class="panel"><div class="ph"><h2>P/E và tăng trưởng lợi nhuận</h2><span class="meta">góc dưới-phải = rẻ mà tăng nhanh</span></div><div id="scPE"></div></section>
+  </div>
+  <section class="panel flush sec"><div class="ph"><h2>Bảng so sánh tất cả ngành</h2><span class="meta">bấm tiêu đề để sắp xếp · dòng đầu = toàn thị trường</span></div><div class="tw tall"><table id="cmp" class="cmp"></table></div></section>
+  <section class="panel sec"><div class="ph"><h2>P/E từng ngành theo thời gian</h2><span class="meta">đường xanh = ngành (trung vị) · xám = thị trường · dải = 10–90% lịch sử · vòng tròn = hiện tại</span></div><div class="multi" id="multi"></div></section>`;
+
+  const curList = () => listOf(st.lv);
+  const draw = () => {
+    const X = MEAS[st.meas], L = curList().filter((s) => isNum(X.cur(s)));
+    $("#mTitle").textContent = `${X.n} các ${st.lv === "sector" ? "ngành" : st.lv === "industry" ? "nhóm ngành" : "nhóm của tôi"}`;
+    $("#mNote").textContent = X.note;
+    const mk = X.mk(M);
+    const sorted = [...L].sort((a, b) => st.sort === "vs" ? (a[X.vs] ?? 999) - (b[X.vs] ?? 999) : st.sort === "mcap" ? (b.mcap_bn || 0) - (a.mcap_bn || 0) : X.cur(a) - X.cur(b));
+    const vmax = Math.min(Math.max(mk || 0, ...sorted.map((s) => Math.max(X.cur(s), s[X.hi] || 0))) * 1.05, X.dec === 1 ? 45 : 6);
+    const P = (v) => Math.max(0, Math.min(100, (v / vmax) * 100));
+    $("#bars").innerHTML = `<div class="pebars">
+      <div class="pb-row mkt"><span class="nm"><b>Toàn thị trường</b></span><div class="trk"><i class="bar" style="width:${P(mk)}%;background:var(--ink-2)"></i>
+        ${isNum(M[X.lo]) ? `<i class="band" style="left:${P(M[X.lo])}%;width:${P(M[X.hi]) - P(M[X.lo])}%"></i>` : ""}${isNum(M[X.med]) ? `<i class="tick" style="left:${P(M[X.med])}%"></i>` : ""}</div>
+        <b class="v">${nf(mk, X.dec)}</b><span class="d">${vsCell(M[X.vs])} <small class="faint">vs LS</small></span></div>
+      ${sorted.map((s) => { const v = X.cur(s), vh = s[X.vs]; const col = !isNum(vh) ? "var(--brand)" : vh <= -15 ? "var(--up)" : vh >= 15 ? "var(--down)" : "var(--brand)";
+        return `<a class="pb-row" href="${href(s)}" title="${esc(s.name)}: ${X.n} ${nf(v, X.dec)} · TB lịch sử ${nf(s[X.med], X.dec)} · thị trường ${nf(mk, X.dec)}">
+          <span class="nm">${s.quadrant ? `<span class="quad" style="background:${qcol(s.quadrant)}"></span>` : s._gid ? "★ " : ""}${esc(s.name)} <small class="faint">${s.n}</small></span>
+          <div class="trk">${isNum(s[X.lo]) ? `<i class="band" style="left:${P(s[X.lo])}%;width:${Math.max(0.5, P(s[X.hi]) - P(s[X.lo]))}%"></i>` : ""}<i class="bar" style="width:${P(v)}%;background:${col}"></i>
+            ${isNum(s[X.med]) ? `<i class="tick" style="left:${P(s[X.med])}%"></i>` : ""}${isNum(mk) ? `<i class="mk" style="left:${P(mk)}%"></i>` : ""}${v > vmax ? `<em>›</em>` : ""}</div>
+          <b class="v">${nf(v, X.dec)}</b><span class="d">${vsCell(vsPct(v, mk))} <small class="faint">vs TT</small> · ${vsCell(vh)} <small class="faint">vs LS</small></span></a>`; }).join("")}</div>`;
+    // scatter
+    const L2 = curList();
+    const pt = (s, x, y) => ({ x: s[x], y: s[y], r: Math.max(3.5, Math.min(13, Math.sqrt((s.mcap_bn || 1) / 3000))), label: s.name.length > 18 ? s.name.slice(0, 16) + "…" : s.name, color: s.quadrant ? qcol(s.quadrant) : css("--brand"), href: href(s),
+      title: `${s.name}: P/B ${nf(s.pb_w)} · ROE ${nf(s.roe_w, 1)}% · P/E ${nf(s.pe_w_pos ?? s.pe_w, 1)} · LN 12T ${pct(s.ni_yoy_med, 0)}` });
+    $("#scPB").innerHTML = scatterSvg(L2.map((s) => pt(s, "pb_w", "roe_w")), { xl: "P/B gia quyền", yl: "ROE gia quyền %", clip: true, h: 320, xdec: 1, ydec: 0, labels: L2.length <= 30 });
+    $("#scPE").innerHTML = scatterSvg(L2.map((s) => ({ ...pt(s, "ni_yoy_med", "pe_med"), y: s.pe_med })), { xl: "Tăng trưởng LN 12T (trung vị, %)", yl: "P/E trung vị", clip: true, h: 320, xdec: 0, ydec: 0, labels: L2.length <= 30 });
+    drawTable(); drawMulti();
+  };
+  const C = [
+    ["name", "Ngành", "nm", ""], ["quadrant", "Vòng", "q", ""], ["n", "Số mã", "i", ""], ["mcap_bn", "Vốn hoá", "bn", ""],
+    ["pe_w", "P/E GQ", "pew", "v"], ["_vstt", "vs TT", "vs", "v"], ["pew_vs_hist", "vs LS", "vs", "v"], ["pew_pctl_hist", "Phân vị LS", "pc", "v"], ["pe_med", "P/E TV", "x1", "v"], ["pe_vs_hist", "TV vs LS", "vs", "v"],
+    ["pb_w", "P/B GQ", "x2", "v"], ["pb_med", "P/B TV", "x2", "v"], ["pbw_vs_hist", "P/B vs LS", "vs", "v"], ["peg_med", "PEG", "x2", "v"], ["ey_w", "LS lợi nhuận", "p1", "v"], ["div_med", "Cổ tức", "p1", "v"],
+    ["roe_w", "ROE GQ", "p1", "q"], ["roe_med", "ROE TV", "p1", "q"], ["fscore_med", "F-Score", "x1", "q"], ["de_med", "Vay/Vốn", "x2", "q"], ["loss_share", "% DN lỗ", "p0", "q"],
+    ["ni_yoy_med", "LN 12T", "pct", "g"], ["rev_yoy_med", "DT 12T", "pct", "g"],
+    ["r1m", "1 tháng", "pct", "p"], ["r3m", "3 tháng", "pct", "p"], ["r1y", "1 năm", "pct", "p"], ["above50", ">MA50", "p0", "p"], ["value_bn", "GTGD", "i", "p"], ["rs_ratio", "RS", "x1", "p"], ["upside_med", "Tiềm năng", "pct", "p"], ["composite_med", "Điểm", "s", "p"],
+  ];
+  const GH = [["", 4, ""], ["Định giá", 12, "v"], ["Sinh lời & sức khoẻ", 5, "q"], ["Tăng trưởng", 2, "g"], ["Giá & dòng tiền", 8, "p"]];
+  const fmt = (s, k, f) => {
+    const v = k === "_vstt" ? vsPct(s.pe_w_pos ?? s.pe_w, M.pe_w_pos ?? M.pe_w) : k === "pe_w" ? (s.pe_w_pos ?? s.pe_w) : s[k];
+    if (f === "nm") return s._mkt ? `<b>${esc(v)}</b>` : `<a href="${href(s)}">${esc(v)}</a>`;
+    if (f === "q") return v ? `<span class="quad" style="background:${qcol(v)}"></span>${esc(v)}` : "—";
+    if (f === "pew") return `<b>${nf(v, 1)}</b>`;
+    if (f === "vs") return vsCell(v);
+    if (f === "pc") return pctlChip(v);
+    if (f === "pct") return `<span class="${cls(v)}">${pct(v, 0)}</span>`;
+    if (f === "p1") return isNum(v) ? nf(v, 1) + "%" : "—";
+    if (f === "p0") return isNum(v) ? nf(v, 0) + "%" : "—";
+    if (f === "bn") return mcapFmt(v);
+    if (f === "i") return nf(v, 0);
+    if (f === "x1") return nf(v, 1);
+    if (f === "s") return scoreCell(v);
+    return nf(v);
+  };
+  const drawTable = () => {
+    const L = curList();
+    const key = (s) => (st.tsort === "_vstt" ? vsPct(s.pe_w_pos ?? s.pe_w, M.pe_w_pos ?? M.pe_w) : st.tsort === "pe_w" ? (s.pe_w_pos ?? s.pe_w) : s[st.tsort]);
+    const R = [...L].sort((a, b) => { const x = key(a), y = key(b); if (x == null) return 1; if (y == null) return -1; return (x > y ? 1 : x < y ? -1 : 0) * (st.tasc ? 1 : -1); });
+    const mrow = { ...M, name: "Toàn thị trường", _mkt: true, n: M.n_fin };
+    $("#cmp").innerHTML = `<thead><tr class="gh">${GH.map(([n, sp, g]) => `<th colspan="${sp}" class="${g === "v" ? "hlc" : ""} l">${n}</th>`).join("")}</tr>
+      <tr>${C.map(([k, n, f, g]) => `<th data-k="${k}" class="${k === "name" ? "sym" : f === "q" ? "l" : ""} ${g === "v" ? "hlc" : ""} ${st.tsort === k ? "sorted" + (st.tasc ? " asc" : "") : ""}">${n}</th>`).join("")}</tr></thead>
+      <tbody>${[mrow, ...R].map((s) => `<tr class="${s._mkt ? "mk" : ""}">${C.map(([k, , f, g]) => `<td class="${k === "name" ? "sym" : f === "q" ? "l" : ""} ${g === "v" ? "hlc" : ""}">${fmt(s, k, f)}</td>`).join("")}</tr>`).join("")}</tbody>`;
+    $$("#cmp th[data-k]").forEach((th) => (th.onclick = () => { const k = th.dataset.k; if (st.tsort === k) st.tasc = !st.tasc; else { st.tsort = k; st.tasc = ["name", "pe_w", "pe_med", "pb_w", "pb_med", "peg_med", "_vstt", "pew_vs_hist", "pe_vs_hist", "pbw_vs_hist", "pew_pctl_hist", "de_med", "loss_share"].includes(k); } drawTable(); }));
+  };
+  const drawMulti = () => {
+    const L = curList().filter((s) => (s.val_hist || []).length >= 8);
+    const mm = Object.fromEntries((M.val_hist || []).map((x) => [x.p, x.pe]));
+    $("#multi").innerHTML = L.length ? [...L].sort((a, b) => (a.pe_vs_hist ?? 999) - (b.pe_vs_hist ?? 999)).map((s) => `<a class="mcell" href="${href(s)}">
+      <div class="mh"><b>${esc(s.name)}</b><span>${nf(s.pe_med, 1)} ${vsCell(s.pe_vs_hist)}</span></div>
+      ${spark(s.val_hist.map((x) => x.pe), { lo: s.pe_hist_lo, hi: s.pe_hist_hi, med: s.pe_hist_med, cur: s.pe_med, ref2: s.val_hist.map((x) => mm[x.p]), color: isNum(s.pe_vs_hist) ? (s.pe_vs_hist <= -15 ? css("--up") : s.pe_vs_hist >= 15 ? css("--down") : css("--brand")) : css("--brand") })}
+      <div class="mf"><small>TB ${nf(s.pe_hist_med, 1)} · ${esc(s.val_hist[0].p)}→nay</small>${pctlChip(s.pe_pctl_hist)}</div></a>`).join("")
+      : `<p class="muted">${st.lv === "group" ? "Nhóm tự tạo chưa có lịch sử P/E." : "Chưa đủ lịch sử."}</p>`;
+  };
+  const seg = (id, key, lsKey) => $$(`#${id} button`).forEach((b) => (b.onclick = () => { st[key] = b.dataset.v; lsSet(lsKey, st[key]); $$(`#${id} button`).forEach((x) => x.classList.toggle("on", x === b)); draw(); }));
+  seg("lvSel", "lv", "ovLv"); seg("msSel", "meas", "ovMeas"); seg("soSel", "sort", "ovSort");
+  draw();
 }
 
 // ================================================================ khởi động
@@ -1651,14 +1897,14 @@ function initSearch() {
     const meta = await load("data/meta.json");
     window.__ver = meta.generated;
     if (meta.demo) $("#demo").innerHTML = `<div class="demo-banner">DỮ LIỆU GIẢ LẬP để xem thử giao diện – không dùng để đầu tư</div>`;
-    const [t, m, meth] = await Promise.all([load("data/today.json"), tryLoad("data/market.json"), tryLoad("data/methods.json")]);
+    const [t, m, meth] = await Promise.all([load("data/today.json"), tryLoad("data/market.json"), tryLoad("data/methods.json"), secsData()]);
     PSTATS = meth?.pattern_stats?.stats || {};
     const col = { green: "#2FD08F", yellow: "#F4C32F", red: "#F0444B" }[t.regime.light];
     $("#brandDot").style.background = col;
     if (m) {
       const br = m.regime.breadth_now || {};
       $("#ticker").innerHTML = Object.entries(m.indices).map(([k, v]) => `<span><b>${esc(k)}</b>${nf(v.close)} <span class="${cls(v.chg)}">${pct(v.chg, 2)}</span></span>`).join("") +
-        `<span><b>Tăng/giảm</b><span class="up">${br.adv ?? "—"}</span>/<span class="down">${br.dec ?? "—"}</span></span><span><b>Đèn</b>${LIGHT_VI[t.regime.light]} ${t.regime.exposure}%</span><span class="faint">${esc(meta.data_date)}</span>`;
+        (m && SECS?.market?.pe_med ? `<a href="#/sector" style="color:inherit"><b>P/E TT</b>${nf(SECS.market.pe_w_pos ?? SECS.market.pe_w, 1)} <small class="faint">TV ${nf(SECS.market.pe_med, 1)}</small></a>` : "") + `<span><b>Tăng/giảm</b><span class="up">${br.adv ?? "—"}</span>/<span class="down">${br.dec ?? "—"}</span></span><span><b>Đèn</b>${LIGHT_VI[t.regime.light]} ${t.regime.exposure}%</span><span class="faint">${esc(meta.data_date)}</span>`;
     }
   } catch (e) { /* chưa có dữ liệu */ }
   window.addEventListener("hashchange", route);

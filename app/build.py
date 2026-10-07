@@ -59,6 +59,21 @@ def dump(path: Path, obj) -> None:
     path.write_text(json.dumps(_clean(obj), ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
 
+def _val_hist(q, n: int = 24) -> list:
+    """P/E, P/B của chính mã theo từng quý (số liệu tại thời điểm cuối quý)."""
+    if q is None or q.empty or "pe_src" not in q:
+        return []
+    d = q.sort_values(["year", "quarter"]).tail(n)
+    out = []
+    for r in d.itertuples():
+        pe = getattr(r, "pe_src", None)
+        pb = getattr(r, "pb_src", None)
+        pe = float(pe) if pe is not None and pe == pe and 0 < pe < 200 else None
+        pb = float(pb) if pb is not None and pb == pb and 0 < pb < 30 else None
+        out.append({"p": f"Q{int(r.quarter)}/{int(r.year) % 100:02d}", "pe": round(pe, 1) if pe else None, "pb": round(pb, 2) if pb else None})
+    return out
+
+
 def _ohlc_payload(df: pd.DataFrame, n: int = 750) -> dict:
     d = df.iloc[-n:]
     return {"t": [x.strftime("%Y-%m-%d") for x in d.index],
@@ -361,7 +376,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             "roa", "roic", "gross_margin", "net_margin", "cfo_ni", "fcf_yield", "earnings_yield", "ps", "ev_ebitda",
             "rev_cagr3", "ni_cagr3", "ni_q_yoy", "rev_q_yoy", "ni_growth_streak", "roe_avg5", "payout", "eps", "bvps",
             "smc_bias", "smc_zone", "vsa_bias", "wy_phase", "of_bias", "of_delta5",
-            "smc", "vsa", "wyckoff_ev", "orderflow", "ind_rank", "ind_n"] + [f"in_{b}" for b in st.BASKETS]
+            "smc", "vsa", "wyckoff_ev", "orderflow", "ind_rank", "ind_n", "ni_ttm"] + [f"in_{b}" for b in st.BASKETS]
     for c in cols:
         if c not in u:
             u[c] = None
@@ -394,7 +409,12 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     except Exception as e:  # noqa: BLE001
         log.exception("Phân tích ngành lỗi: %s", e)
         sec_l2, sec_l3 = [], []
-    dump(out_dir / "sectors.json", {"sector": sec_l2, "industry": sec_l3,
+    try:
+        mkt_val = sec_.market_summary(u, fq, float(vcfg.get("risk_free", 3.2)))
+    except Exception as e:  # noqa: BLE001
+        log.exception("Định giá toàn thị trường lỗi: %s", e)
+        mkt_val = {}
+    dump(out_dir / "sectors.json", {"sector": sec_l2, "industry": sec_l3, "market": mkt_val,
                                     "backtest": (backtest or {}).get("sectors", {}),
                                     "backtest_range": [backtest.get("start"), backtest.get("end")] if backtest.get("ok") else None})
 
@@ -431,6 +451,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             "baskets": [b for b in st.BASKETS if r.get(f"in_{b}") is True],
             "levels": lv, "timing": {"ok": ok_t, "reason": why_t},
             "in_plan": s in pick_syms,
+            "val_hist": _val_hist(fq_s),
             "beta": r.get("beta"),
             "mos": mos,
         }
