@@ -218,7 +218,8 @@ def update_dividends(symbols: list[str], workers: int = 2, mark: bool = True) ->
     if mark:
         store.touch("dividends", sources=dict(used))
     remaining = len([s for s in symbols if s not in last and s not in set(done)])
-    log.info("Cổ tức: %s · còn %d mã chưa có lịch sử (sẽ tải dần ở các lần sau)", dict(used), remaining)
+    log.info("Cổ tức: %s · còn %d mã chưa có lịch sử (sẽ tải dần ở các lần sau) · request: %s",
+             dict(used), remaining, BREAKER.stats)
 
 
 # ------------------------------------------------------------------ main

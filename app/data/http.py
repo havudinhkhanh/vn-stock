@@ -69,7 +69,17 @@ _THROTTLES = {
 _local = threading.local()
 
 
-def session() -> requests.Session:
+NO_RETRY = {"VCI_EVENTS"}
+
+
+def session(source: str = "") -> requests.Session:
+    if source in NO_RETRY:
+        s = getattr(_local, "s0", None)
+        if s is None:
+            s = requests.Session()
+            s.mount("https://", HTTPAdapter(max_retries=0, pool_maxsize=8))
+            _local.s0 = s
+        return s
     s = getattr(_local, "s", None)
     if s is None:
         s = requests.Session()
@@ -102,6 +112,8 @@ class FetchError(RuntimeError):
 class Breaker:
     """Cầu dao: nguồn lỗi liên tiếp quá nhiều thì tạm ngắt, tránh kẹt cả lần chạy."""
 
+    LIMITS = {"VCI_EVENTS": 4}
+
     def __init__(self, limit: int = 12, cooldown: float = 240.0):
         self.limit, self.cooldown = limit, cooldown
         self.fails: dict[str, int] = {}
@@ -120,13 +132,14 @@ class Breaker:
             self.fails[source] = 0
             self.stats.setdefault(source, {"ok": 0, "fail": 0, "tripped": 0})["ok"] += 1
 
-    def fail(self, source: str):
+    def fail(self, source: str, err: str = ""):
         with self.lock:
             n = self.fails.get(source, 0) + 1
             self.fails[source] = n
             st = self.stats.setdefault(source, {"ok": 0, "fail": 0, "tripped": 0})
             st["fail"] += 1
-            if n >= self.limit:
+            st["last_error"] = err[:160]
+            if n >= self.LIMITS.get(source, self.limit):
                 self.open_until[source] = time.monotonic() + self.cooldown
                 self.fails[source] = 0
                 st["tripped"] += 1
@@ -145,7 +158,7 @@ def request(source: str, method: str, url: str, *, params=None, payload=None,
     except FetchError as e:
         # 404 / dữ liệu rỗng là "không có dữ liệu", không phải nguồn hỏng
         if "HTTP 404" not in str(e):
-            BREAKER.fail(source)
+            BREAKER.fail(source, str(e))
         raise
     BREAKER.ok(source)
     return res
@@ -157,10 +170,10 @@ def _request(source: str, method: str, url: str, *, params=None, payload=None,
     h = headers_for(source)
     try:
         if method == "GET":
-            r = session().get(url, headers=h, params=params, timeout=timeout)
+            r = session(source).get(url, headers=h, params=params, timeout=timeout)
         else:
             body = payload if isinstance(payload, str) else json.dumps(payload or {})
-            r = session().post(url, headers=h, params=params, data=body, timeout=timeout)
+            r = session(source).post(url, headers=h, params=params, data=body, timeout=timeout)
     except requests.RequestException as e:  # mạng lỗi
         raise FetchError(f"{source} {url}: {e}") from e
     if r.status_code != 200:
