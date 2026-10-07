@@ -114,9 +114,12 @@ def update_prices(symbols: list[str], workers: int = 4) -> pd.DataFrame:
 
     new = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
     if not new.empty:
-        new = new[["symbol", "date", "open", "high", "low", "close", "volume"]]
-        new = new.dropna(subset=["close"])
-        new["volume"] = pd.to_numeric(new["volume"], errors="coerce").fillna(0)
+        new = new[["symbol", "date", "open", "high", "low", "close", "volume"]].copy()
+        for c in ("open", "high", "low", "close", "volume"):
+            new[c] = pd.to_numeric(new[c], errors="coerce").astype("float64")
+        new["date"] = pd.to_datetime(new["date"], errors="coerce")
+        new = new.dropna(subset=["close", "date"])
+        new["volume"] = new["volume"].fillna(0)
     df = store.upsert("prices", new, ["symbol", "date"])
     log.info("Thống kê request: %s", BREAKER.stats)
     store.touch("prices", sources=dict(used), rows=len(df),

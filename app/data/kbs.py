@@ -40,6 +40,9 @@ def prices(symbol: str, days: int = 4000, is_index: bool = False) -> pd.DataFram
     if not {"date", "close"} <= set(df.columns):
         raise FetchError(f"KBS prices {symbol}: cột lạ {list(df.columns)[:10]}")
     df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+    for c in ("open", "high", "low", "close", "volume"):
+        if c in df:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
     df = df[["date", "open", "high", "low", "close", "volume"]].dropna(subset=["date", "close"])
     if not is_index and df["close"].median() > 300:
         df[["open", "high", "low", "close"]] /= 1000.0

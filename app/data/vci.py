@@ -98,10 +98,10 @@ def _chart(symbols: list[str], start: datetime, end: datetime) -> dict[str, pd.D
     days = max(5, (end - start).days)
     count_back = int(days * 5 / 7) + 10
     tries = [
-        ("chart/OHLCChart/gap-chart", {"timeFrame": "ONE_DAY", "symbols": symbols,
-                                        "to": int(end.timestamp()), "countBack": count_back}),
         ("chart/OHLCChart/gap", {"timeFrame": "ONE_DAY", "symbols": symbols,
                                   "from": int(start.timestamp()), "to": int(end.timestamp())}),
+        ("chart/OHLCChart/gap-chart", {"timeFrame": "ONE_DAY", "symbols": symbols,
+                                        "to": int(end.timestamp()), "countBack": count_back}),
     ]
     data, last = None, None
     for path, payload in tries:

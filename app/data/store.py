@@ -38,6 +38,14 @@ def upsert(name: str, new: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
     else:
         df = pd.concat([old, new], ignore_index=True)
     df = df.drop_duplicates(keys, keep="last").sort_values(keys).reset_index(drop=True)
+    # cột kiểu object lẫn số/chữ (do nguồn khác nhau) -> ép về số nếu được, để ghi parquet không lỗi
+    for c in df.columns:
+        if df[c].dtype == object and c not in keys:
+            conv = pd.to_numeric(df[c], errors="coerce")
+            if conv.notna().sum() >= df[c].notna().sum() * 0.9:
+                df[c] = conv
+            else:
+                df[c] = df[c].astype("string")
     write(name, df)
     return df
 
