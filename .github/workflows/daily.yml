@@ -18,6 +18,10 @@ on:
         description: "Chỉ chạy vài mã, ví dụ FPT,VCB (để trống = tất cả)"
         type: string
         default: ""
+      export_only:
+        description: "Chỉ xuất dữ liệu kiểm tra (không tải, không phân tích)"
+        type: boolean
+        default: false
 
 concurrency:
   group: daily
@@ -60,6 +64,7 @@ jobs:
         run: python scripts/cloudflare.py kv >> "$GITHUB_ENV"
 
       - name: Tải dữ liệu, phân tích, gửi Telegram
+        if: inputs.export_only != true
         run: |
           ARGS=""
           if [ "${{ inputs.fin }}" = "true" ]; then ARGS="$ARGS --fin"; fi
@@ -75,14 +80,14 @@ jobs:
           exit $code
 
       - name: Lưu dữ liệu cho lần chạy sau
-        if: always()
+        if: always() && inputs.export_only != true
         uses: actions/cache/save@v4
         with:
           path: data
           key: data-${{ github.run_id }}
 
       - name: Đăng trang web lên Cloudflare Pages
-        if: env.CF_API_TOKEN != ''
+        if: env.CF_API_TOKEN != '' && inputs.export_only != true
         env:
           OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
           GH_REPO: ${{ github.repository }}
@@ -97,9 +102,11 @@ jobs:
           fi
           npx --yes wrangler@3 pages deploy --project-name vn-stock --branch main --commit-dirty=true
 
-      - name: Đẩy log chạy lên nhánh status
+      - name: Đẩy log chạy & dữ liệu kiểm tra lên nhánh status
         if: always()
-        run: bash scripts/publish_status.sh daily data/run.log data/meta.json site/data/meta.json data/check.json
+        run: |
+          python scripts/export_debug.py || true
+          bash scripts/publish_status.sh daily data/run.log data/meta.json site/data/meta.json data/check.json data/debug
 
       - name: Lưu bản web để tải về xem (khi chưa có Cloudflare)
         if: always()

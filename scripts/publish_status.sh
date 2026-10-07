@@ -1,17 +1,24 @@
 #!/usr/bin/env bash
-# Đẩy báo cáo chạy (log, probe_report, meta) lên nhánh `status` để Claude đọc được khi cần sửa lỗi.
-# Dùng: bash scripts/publish_status.sh <tên-thư-mục-con> <file1> [file2 ...]
+# Đẩy báo cáo chạy (log, tóm tắt, dữ liệu kiểm tra) lên nhánh `status` để Claude đọc khi cần sửa lỗi.
+# Nhánh luôn chỉ có 1 commit (ghi đè) để repo không phình to. Dùng quyền git sẵn có của repo.
+# Dùng: bash scripts/publish_status.sh <thư-mục-con> <file-hoặc-thư-mục> ...
 set -uo pipefail
 sub="$1"; shift
 tmp="$(mktemp -d)"
-git config user.name "vn-stock-bot"
-git config user.email "vn-stock-bot@users.noreply.github.com"
+export GIT_INDEX_FILE="$tmp/index"
+mkdir -p "$tmp/tree"
 if git ls-remote --exit-code --heads origin status >/dev/null 2>&1; then
-  git fetch -q --depth 1 origin status && git worktree add -q "$tmp/wt" FETCH_HEAD
-else
-  git worktree add -q --detach "$tmp/wt" && (cd "$tmp/wt" && git checkout -q --orphan status && git rm -rqf . >/dev/null 2>&1 || true)
+  git fetch -q --depth 1 origin status && git --work-tree="$tmp/tree" checkout FETCH_HEAD -- . 2>/dev/null || true
 fi
-mkdir -p "$tmp/wt/$sub"
-for f in "$@"; do [ -f "$f" ] && cp "$f" "$tmp/wt/$sub/"; done
-date -u +"%Y-%m-%dT%H:%M:%SZ run ${GITHUB_RUN_ID:-local}" > "$tmp/wt/$sub/last_run.txt"
-cd "$tmp/wt" && git add -A && git commit -qm "status: $sub ${GITHUB_RUN_ID:-}" && git push -q origin HEAD:status || echo "Không đẩy được báo cáo lên nhánh status"
+rm -rf "$tmp/tree/$sub"; mkdir -p "$tmp/tree/$sub"
+for f in "$@"; do
+  if [ -d "$f" ]; then mkdir -p "$tmp/tree/$sub/$(basename "$f")" && cp -r "$f"/. "$tmp/tree/$sub/$(basename "$f")/";
+  elif [ -f "$f" ]; then cp "$f" "$tmp/tree/$sub/"; fi
+done
+date -u +"%Y-%m-%dT%H:%M:%SZ run ${GITHUB_RUN_ID:-local}" > "$tmp/tree/$sub/last_run.txt"
+rm -f "$GIT_INDEX_FILE"
+git --work-tree="$tmp/tree" add -A . && tree=$(git write-tree) && \
+  commit=$(GIT_AUTHOR_NAME=vn-stock-bot GIT_AUTHOR_EMAIL=vn-stock-bot@users.noreply.github.com \
+           GIT_COMMITTER_NAME=vn-stock-bot GIT_COMMITTER_EMAIL=vn-stock-bot@users.noreply.github.com \
+           git commit-tree "$tree" -m "status ${GITHUB_RUN_ID:-}") && \
+  git push -q -f origin "$commit:refs/heads/status" || echo "Không đẩy được báo cáo lên nhánh status"
