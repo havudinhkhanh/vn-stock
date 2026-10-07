@@ -384,6 +384,19 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             "seconds": round((datetime.now() - t0).total_seconds()),
             "demo": bool(m.get("demo")), "repo": __import__("os").environ.get("GITHUB_REPOSITORY")}
     dump(out_dir / "meta.json", meta)
+    # bản tóm tắt để kiểm tra nhanh (đẩy lên nhánh status)
+    top = u[u["has_fin"]].sort_values("avg_value_bn", ascending=False).head(40)
+    chk_cols = ["price", "pe", "pb", "roe", "ni_yoy", "rev_yoy", "fscore", "div_yield", "cash_years", "mcap_bn",
+                "fair", "buy_below", "upside", "verdict", "ta_score", "ta_label", "trend", "composite", "period"]
+    check = {"meta": meta, "regime": {k: regime[k] for k in ("light", "score", "exposure")},
+             "picks": [{k: p.get(k) for k in ("symbol", "basket", "weight", "zone", "stop", "t1", "why")} for p in plan["picks"]],
+             "watch": [{k: w.get(k) for k in ("symbol", "basket", "reason")} for w in plan["watch"][:10]],
+             "baskets": {b: int(len(v)) for b, v in members.items()},
+             "top": {sym: {c: r.get(c) for c in chk_cols} for sym, r in top.iterrows()},
+             "valuation": {s_: {k: (details[s_].get("val") or {}).get(k) for k in ("fair", "ke", "beta", "reliable", "warning")}
+                           | {"methods": [(m["name"][:40], m["value"]) for m in ((details[s_].get("val") or {}).get("methods") or [])]}
+                           for s_ in list(top.index)[:15] if s_ in details}}
+    dump(store.path("check.json"), check)
     log.info("Xuất xong %d mã, %d trang chi tiết trong %ss", len(u), len(details), meta["seconds"])
     return {"today": today, "meta": meta}
 

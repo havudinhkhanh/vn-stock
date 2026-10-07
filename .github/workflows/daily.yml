@@ -95,7 +95,7 @@ jobs:
 
       - name: Đẩy log chạy lên nhánh status
         if: always()
-        run: bash scripts/publish_status.sh daily data/run.log data/meta.json site/data/meta.json data/probe_report.json
+        run: bash scripts/publish_status.sh daily data/run.log data/meta.json site/data/meta.json data/check.json
 
       - name: Lưu bản web để tải về xem (khi chưa có Cloudflare)
         if: always()
