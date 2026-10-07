@@ -424,3 +424,19 @@ table[data-hm~="c18"] tr>:nth-child(18){display:none}
 .lleg{display:none;font-size:.72rem;color:var(--ink-2);margin-top:-2px}
 @media (max-width:700px){.ladder .ll{display:none}.ladder{height:30px}.lleg{display:block}}
 @media (max-width:440px){.row .mini{display:none}}
+/* ---------- danh mục: thẻ vị thế, hộp ghi lệnh ---------- */
+.pos{display:grid;gap:7px;padding:10px 12px;border:1px solid var(--line);border-left:4px solid var(--up);border-radius:8px;background:var(--surface)}
+.pos.sell{border-left-color:var(--down)} .pos.wait{border-left-color:var(--ref)}
+.pos .sym{font-size:1.15rem;color:var(--ink)}
+.pos-act{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.pk-facts.f6{grid-template-columns:repeat(6,minmax(0,1fr))}
+@media (max-width:900px){.pk-facts.f6{grid-template-columns:repeat(3,minmax(0,1fr))}.pk-facts.f6>div:nth-child(4){border-left:0}.pk-facts.f6>div:nth-child(n+4){border-top:1px solid var(--line-2)}}
+.ladder.sm{height:30px}
+.ladder.sm .ll{display:none}
+.ladder .lk.cost{background:var(--ink);height:20px;top:10px;width:3px}
+.row.rb{grid-template-columns:minmax(0,1fr) auto auto}
+.row.rb .r-main small{white-space:normal}
+.big.warnb{background:var(--down-bg);border-color:color-mix(in srgb,var(--down) 35%,transparent)}
+.tbox{position:fixed;inset:0;z-index:60;background:rgba(10,16,24,.45);display:grid;place-items:center;padding:16px}
+.tb-in{background:var(--surface);border-radius:12px;padding:14px 16px;width:min(560px,100%);max-height:90vh;overflow:auto;box-shadow:0 20px 50px rgba(0,0,0,.25)}
+@media (max-width:640px){.tbox{place-items:end center;padding:0}.tb-in{border-radius:12px 12px 0 0;width:100%}}
