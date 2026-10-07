@@ -308,7 +308,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
 
     # ------------------------------------------------------------ danh mục đang nắm
     closes = {s: g[s]["close"] for s in held if s in g}
-    advice = pf.advise(holdings, u, closes, cfg, regime, cash_vnd) if holdings else None
+    advice = pf.advise(holdings, u, closes, cfg, regime, cash_vnd, capital) if holdings else None
 
     # ------------------------------------------------------------ backtest (theo lịch)
     bt_path = store.path("backtest.json")

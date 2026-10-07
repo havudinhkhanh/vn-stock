@@ -6,7 +6,7 @@ import pandas as pd
 
 
 def advise(holdings: list[dict], u: pd.DataFrame, closes: dict[str, pd.Series], cfg: dict,
-           regime: dict, cash_vnd: float = 0.0) -> dict:
+           regime: dict, cash_vnd: float = 0.0, capital: float | None = None) -> dict:
     risk = cfg.get("risk") or {}
     max_sl = float(risk.get("max_stop_loss_pct", 12)) / 100
     rows = []
@@ -78,6 +78,13 @@ def advise(holdings: list[dict], u: pd.DataFrame, closes: dict[str, pd.Series], 
                     "stop": round(stop, 2), "peak": round(peak, 2),
                     "fair": round(float(info["fair"]), 2) if info is not None and pd.notna(info.get("fair")) else None,
                     "action": actions[0], "actions": actions, "reasons": reasons, "severity": sev})
+    # mẫu số tỷ trọng: tổng vốn anh nhập (nếu có), không thì cổ phiếu + tiền mặt
+    stock_mv = sum(o["mv_vnd"] for o in out)
+    denom = max(float(capital or 0), stock_mv + cash_vnd)
+    known_total = bool(capital) or cash_vnd > 0
+    for o in out:
+        o["weight"] = round(100 * o["mv_vnd"] / denom, 1) if denom else None
+    total_mv = denom
     out.sort(key=lambda x: -x["severity"])
     # mức sụt danh mục (ước tính theo giá lịch sử, khối lượng hiện tại)
     dd = None
@@ -98,10 +105,12 @@ def advise(holdings: list[dict], u: pd.DataFrame, closes: dict[str, pd.Series], 
     if dd is not None and dd < -float(risk.get("max_drawdown_target", 25)):
         warn.append(f"Danh mục đang sụt {dd}% từ đỉnh 1 năm – vượt ngưỡng chịu đựng.")
     for s, w in sectors.items():
-        if w > float(risk.get("max_weight_per_sector", 30)):
+        if known_total and w > float(risk.get("max_weight_per_sector", 30)):
             warn.append(f"Ngành {s} chiếm {w:.0f}% – vượt giới hạn {risk.get('max_weight_per_sector', 30)}%.")
     stock_w = sum(o["weight"] or 0 for o in out)
-    if stock_w > regime.get("exposure", 100) + 5:
+    if not known_total and out:
+        warn.append("Chưa nhập tổng vốn hoặc tiền mặt ở tab Danh mục nên chưa tính được tỷ trọng cổ phiếu và ngành.")
+    elif stock_w > regime.get("exposure", 100) + 5:
         warn.append(f"Tỷ trọng cổ phiếu {stock_w:.0f}% cao hơn mức khuyến nghị {regime.get('exposure')}% "
                     f"theo đèn thị trường.")
     return {"positions": out, "total_vnd": round(total_mv), "drawdown_1y": dd,
