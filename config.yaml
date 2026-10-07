@@ -35,6 +35,10 @@ methods:
   momentum: 10        # sức mạnh giá 3-12 tháng
   canslim: 5          # CANSLIM
   low_vol: 0          # biến động thấp
+  smc: 0              # Smart Money Concepts – bật khi tab Kiểm chứng cho thấy có lợi thế
+  vsa: 0              # Volume Spread Analysis
+  wyckoff_ev: 0       # Wyckoff sự kiện & pha
+  orderflow: 0        # Order Flow / footprint (cần vài tháng lưu dữ liệu)
 
 # ---------------------------------------------------------------------
 #  QUY TẮC CHỌN MÃ (đã kiểm chứng bằng backtest 2020-2026 trên ~430 mã có BCTC)
@@ -73,6 +77,12 @@ valuation:
 # ---------------------------------------------------------------------
 #  LỊCH CHẠY & THÔNG BÁO
 # ---------------------------------------------------------------------
+data:
+  orderflow_top: 250          # số mã lấy footprint dòng lệnh mỗi phiên (mã thanh khoản nhất)
+  orderflow_min_value_bn: 5   # chỉ lấy mã GTGD bình quân ≥ 5 tỷ/ngày
+  dividends_per_run: 120
+  shares_per_run: 120
+
 schedule:
   rebalance: monthly          # monthly | quarterly
   financials_refresh_weekday: 5   # 0=Thứ 2 ... 5=Thứ 7: ngày tải lại toàn bộ BCTC

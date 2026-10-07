@@ -16,6 +16,11 @@ from .analysis import backtest as bt
 from .analysis import fundamentals as fu
 from .analysis import indicators as ind
 from .analysis import market as mk
+from .analysis import orderflow as ofl
+from .analysis import sector as sec_
+from .analysis import signals as sgn
+from .analysis import smc as smc_
+from .analysis import vsa as vsa_
 from .analysis import patterns as pt
 from .analysis import portfolio as pf
 from .analysis import strategy as st
@@ -114,6 +119,10 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     deep = {s for s in symbols if avg_val.get(s, 0) >= deep_val} | (held & set(symbols))
 
     fq = fu.add_ttm(fin_q) if not fin_q.empty else pd.DataFrame()
+    of_all = store.read("orderflow")
+    of_by = {k: v for k, v in of_all.groupby("symbol")} if not of_all.empty else {}
+    fp_all = store.read("footprint")
+    fp_by = {k: v for k, v in fp_all.groupby("symbol")} if not fp_all.empty else {}
     adj_ev = store.read("adjust_events")
 
     def effective_shares(sym: str, qs, close: pd.Series) -> float | None:
@@ -145,23 +154,9 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     ps_path = store.path("pattern_stats.json")
     pstats_prev = json.loads(ps_path.read_text(encoding="utf-8")).get("stats", {}) if ps_path.exists() else {}
 
-    def pattern_boost(pat: dict) -> tuple[float, list[str]]:
-        """Chỉ mô hình đã được kiểm chứng là có lợi thế trên dữ liệu VN mới được cộng/trừ điểm."""
-        sig = []
-        el = pat.get("elliott") or {}
-        if el.get("ok") and abs(el["main"]["bias"]) >= 0.5:
-            sig.append(("Elliott", np.sign(el["main"]["bias"])))
-        wy = pat.get("wyckoff") or {}
-        if abs(wy.get("bias", 0)) >= 0.4:
-            sig.append(("Wyckoff", np.sign(wy["bias"])))
-        dw = pat.get("dow") or {}
-        if abs(dw.get("bias", 0)) >= 0.7:
-            sig.append(("Dow", np.sign(dw["bias"])))
-        for p in pat.get("patterns") or []:
-            if p.get("bias"):
-                sig.append((p["name"], p["bias"]))
-        for p in pat.get("harmonics") or []:
-            sig.append(("Harmonic", p["bias"]))
+    def pattern_boost(pat: dict, last_date) -> tuple[float, list[str]]:
+        """Chỉ tín hiệu đã được kiểm chứng là có lợi thế trên dữ liệu VN mới được cộng/trừ điểm."""
+        sig = sgn.from_results(pat, pd.Timestamp(last_date))
         boost, used = 0.0, []
         for name, b in sig:
             st_ = pstats_prev.get(name)
@@ -208,8 +203,11 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         r = {
             "symbol": s, "name": lst.loc[s, "name"], "exchange": lst.loc[s, "exchange"],
             "sector": lst.loc[s, "sector"], "industry": lst.loc[s, "industry"], "ctype": ctype,
+            "subindustry": lst.loc[s, "subindustry"] if "subindustry" in lst.columns else None,
             "price": price, "chg1d": 100 * (c.iloc[-1] / c.iloc[-2] - 1) if len(c) > 1 else None,
             "chg1m": 100 * (c.iloc[-1] / c.iloc[-22] - 1) if len(c) > 22 else None,
+            "chg1w": 100 * (c.iloc[-1] / c.iloc[-6] - 1) if len(c) > 6 else None,
+            "chg3m": 100 * (c.iloc[-1] / c.iloc[-64] - 1) if len(c) > 64 else None,
             "chg1y": 100 * (c.iloc[-1] / c.iloc[-250] - 1) if len(c) > 250 else None,
             "avg_value_bn": float(avg_val.get(s, 0)), "days": len(df),
             "ta_score": ta.get("score"), "ta_label": ta.get("label"), "trend": ta.get("trend"),
@@ -236,11 +234,24 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
                               and len(df) >= int(ucfg.get("min_history_days", 120)))
         if s in deep:
             pat = pt.analyze(df)
+            for key, fn in (("smc", smc_.analyze), ("vsa", vsa_.analyze), ("wyckoff2", vsa_.wyckoff_events)):
+                try:
+                    pat[key] = fn(df)
+                except Exception as e:  # noqa: BLE001
+                    pat[key] = {"ok": False, "error": str(e)}
+            pat["_last"] = price
+            pat["orderflow"] = ofl.analyze(of_by.get(s), fp_by.get(s), df["close"])
             r["wyckoff"] = (pat.get("wyckoff") or {}).get("code")
+            r["smc_bias"] = (pat["smc"] or {}).get("bias")
+            r["smc_zone"] = ((pat["smc"] or {}).get("range") or {}).get("pos_pct")
+            r["vsa_bias"] = (pat["vsa"] or {}).get("bias")
+            r["wy_phase"] = (pat["wyckoff2"] or {}).get("phase")
+            r["of_bias"] = pat["orderflow"].get("bias") if pat["orderflow"].get("ok") else None
+            r["of_delta5"] = pat["orderflow"].get("delta5_pct")
             lv = pat.get("levels") or {}
             r["support1"] = lv["support"][0]["price"] if lv.get("support") else None
             r["resist1"] = lv["resistance"][0]["price"] if lv.get("resistance") else None
-            boost, used_p = pattern_boost(pat)
+            boost, used_p = pattern_boost(pat, df.index[-1])
             if boost and r["ta_score"] is not None:
                 r["ta_score"] = int(np.clip(r["ta_score"] + boost, 0, 100))
                 ta["score"] = r["ta_score"]
@@ -305,6 +316,9 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         for s in ser.index:
             u.at[s, f"in_{b}"] = True
     u = u.join(sc, how="left")
+    # hạng trong ngành theo điểm tổng hợp
+    u["ind_rank"] = u.groupby("industry")["composite"].rank(ascending=False, method="min")
+    u["ind_n"] = u.groupby("industry")["composite"].transform("count")
 
     # ------------------------------------------------------------ danh mục đang nắm
     closes = {s: g[s]["close"] for s in held if s in g}
@@ -341,7 +355,13 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             "avg_value_bn", "mcap_bn", "pe", "pb", "roe", "ni_yoy", "rev_yoy", "de", "fscore", "div_yield",
             "cash_years", "fair", "buy_below", "upside", "verdict", "ta_score", "ta_label", "trend", "composite",
             "piotroski", "magic_formula", "value", "quality", "growth", "dividend", "momentum", "canslim",
-            "low_vol", "rs_rating", "canslim_flags", "liquid_ok"] + [f"in_{b}" for b in st.BASKETS]
+            "low_vol", "rs_rating", "canslim_flags", "liquid_ok",
+            # bổ sung cho các chiều nhìn & phân tích ngành
+            "subindustry", "chg1w", "chg3m", "ret_6m", "ret_12_1", "vol_1y", "beta", "rsi", "from_hi52",
+            "roa", "roic", "gross_margin", "net_margin", "cfo_ni", "fcf_yield", "earnings_yield", "ps", "ev_ebitda",
+            "rev_cagr3", "ni_cagr3", "ni_q_yoy", "rev_q_yoy", "ni_growth_streak", "roe_avg5", "payout", "eps", "bvps",
+            "smc_bias", "smc_zone", "vsa_bias", "wy_phase", "of_bias", "of_delta5",
+            "smc", "vsa", "wyckoff_ev", "orderflow", "ind_rank", "ind_n"] + [f"in_{b}" for b in st.BASKETS]
     for c in cols:
         if c not in u:
             u[c] = None
@@ -368,6 +388,15 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     dump(out_dir / "backtest.json", backtest)
     dump(out_dir / "methods.json", {"methods": st.METHOD_INFO, "baskets": st.BASKETS,
                                     "weights": cfg.get("methods"), "pattern_stats": pstats})
+    try:
+        sec_l2 = sec_.analyze(u, wide, wide_val, idx["close"], fq, "sector")
+        sec_l3 = sec_.analyze(u, wide, wide_val, idx["close"], fq, "industry")
+    except Exception as e:  # noqa: BLE001
+        log.exception("Phân tích ngành lỗi: %s", e)
+        sec_l2, sec_l3 = [], []
+    dump(out_dir / "sectors.json", {"sector": sec_l2, "industry": sec_l3,
+                                    "backtest": (backtest or {}).get("sectors", {}),
+                                    "backtest_range": [backtest.get("start"), backtest.get("end")] if backtest.get("ok") else None})
 
     for s, d in details.items():
         r = u.loc[s]

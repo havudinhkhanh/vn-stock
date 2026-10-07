@@ -29,6 +29,18 @@ METHOD_INFO = {
                 "S: thanh khoản tốt · L: dẫn dắt (sức mạnh giá top 20%) · M: thị trường thuận lợi."},
     "low_vol": {"name": "Biến động thấp", "desc":
                 "Mã dao động giá ít và beta thấp – phòng thủ khi thị trường xấu."},
+    "smc": {"name": "Smart Money Concepts (SMC)", "desc":
+            "Cấu trúc thị trường theo dấu chân tổ chức: BOS/CHoCH, Order Block, FVG, quét thanh khoản, "
+            "vùng Premium/Discount. Điểm cao = cấu trúc tăng, giá ở vùng rẻ hoặc về OB mua."},
+    "vsa": {"name": "Volume Spread Analysis (VSA)", "desc":
+            "Nỗ lực (khối lượng) so với kết quả (biên độ, giá đóng cửa): Spring, Upthrust, No Supply/No Demand, "
+            "Stopping Volume, hấp thụ. Điểm cao = cầu chủ động, cung cạn."},
+    "wyckoff_ev": {"name": "Wyckoff (sự kiện & pha)", "desc":
+                   "SC → AR → ST → Spring → SOS → LPS (tích luỹ) hoặc BC → UTAD → SOW → LPSY (phân phối), "
+                   "xếp pha A–E. Điểm cao = pha tích luỹ muộn / bắt đầu tăng giá."},
+    "orderflow": {"name": "Order Flow / Footprint", "desc":
+                  "Mua chủ động − bán chủ động (Delta) theo từng bước giá, POC, vùng giá trị, CVD nhiều phiên. "
+                  "Chỉ có từ ngày hệ thống bắt đầu lưu; chưa có lịch sử dài để kiểm chứng."},
 }
 
 BASKETS = {
@@ -91,6 +103,12 @@ def score_methods(u: pd.DataFrame, market_light: str) -> pd.DataFrame:
     })
     s["canslim"] = c.sum(axis=1) / 6 * 100
     s["low_vol"] = _mean(_pct(u["vol_1y"], ascending=False), _pct(u["beta"], ascending=False))
+    for key, col in (("smc", "smc_bias"), ("vsa", "vsa_bias"), ("orderflow", "of_bias")):
+        s[key] = (50 + 50 * pd.to_numeric(u.get(col, pd.Series(index=u.index, dtype=float)), errors="coerce")).fillna(50)
+    wy = u.get("wy_phase", pd.Series(index=u.index, dtype=object)).astype(str)
+    s["wyckoff_ev"] = np.select([wy.str.contains("pha D/E") & wy.str.contains("Tích"), wy.str.contains("pha C") & wy.str.contains("Tích"),
+                                 wy.str.contains("pha B") & wy.str.contains("Tích"), wy.str.contains("Phân phối – pha D/E"),
+                                 wy.str.contains("Phân phối")], [90, 75, 60, 10, 30], 50)
     s["rs_rating"] = rs_rating.round(0)
     s["canslim_flags"] = c.apply(lambda r: "".join(k for k, v in r.items() if v), axis=1)
     return s

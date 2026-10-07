@@ -14,7 +14,7 @@ import random
 import numpy as np
 import pandas as pd
 
-from . import patterns
+from . import patterns, signals
 
 log = logging.getLogger("backtest")
 
@@ -185,6 +185,22 @@ def pick(d: pd.DataFrame, basket: str, n: int) -> list[str]:
     return list(sc[m.fillna(False)].sort_values(ascending=False).index[:n])
 
 
+def sector_pick(g: pd.DataFrame, k: int) -> list[str]:
+    """'Tốt nhất ngành': xếp hạng tương đối TRONG ngành (ROE, tăng trưởng LN, P/E thấp, F-Score,
+    sức mạnh giá 6 tháng), chỉ lấy mã đang có xu hướng tăng như hệ thống thật."""
+    r = lambda x, asc=True: x.rank(pct=True, ascending=asc)  # noqa: E731
+    sc = (r(g["roe"]) + r(g["ni_yoy"]) + r(g["pe"].where(g["pe"] > 0), False) + r(g["fs"]) + r(g["ret_6m"])).fillna(0)
+    m = pd.Series(True, index=g.index)
+    if GUARDS["trend"] == "up":
+        m &= g["trend_up"]
+    elif GUARDS["trend"] == "above200":
+        m &= g["above200"]
+    else:
+        m &= ~g["trend_down"]
+    m &= (g["ni_parent_ttm"] > 0)
+    return list(sc[m.fillna(False)].sort_values(ascending=False).index[:k])
+
+
 def _stats(curve: pd.Series) -> dict:
     curve = curve.dropna()
     if len(curve) < 30:
@@ -276,6 +292,8 @@ def run(prices: pd.DataFrame, fq_ttm: pd.DataFrame, divs: pd.DataFrame, listing:
         return sum(abs(a.get(k, 0) - b.get(k, 0)) for k in keys)
 
     daily = {b: [] for b in baskets}
+    sec_k = int(bcfg.get("sector_top_k", 3))
+    sec_state: dict = {}
     daily_combo, daily_combo_reg = [], []
     for i in range(len(dates) - 1):
         t0, t1 = dates[i], dates[i + 1]
@@ -304,6 +322,25 @@ def run(prices: pd.DataFrame, fq_ttm: pd.DataFrame, divs: pd.DataFrame, listing:
             lst.append(seg.iloc[1:] if lst else seg)
             store_.append(float(seg.iloc[-1]))
         prev_combo, prev_combo_reg = combo_w, combo_w_reg
+        # ---- theo ngành: top-k tốt nhất trong ngành vs mua đều cả ngành
+        if not snap.empty and "sector" in snap:
+            for sec, g in snap.groupby("sector"):
+                if len(g) < 5:
+                    continue
+                picks = sector_pick(g, sec_k)
+                for key, wts in (("pick", {s: 1 / sec_k for s in picks}),
+                                 ("all", {s: 1 / len(g) for s in g.index})):
+                    st_ = sec_state.setdefault(sec, {"pick": {"curve": 1.0, "daily": [], "prev": {}, "n": []},
+                                                     "all": {"curve": 1.0, "daily": [], "prev": {}, "n": []}})[key]
+                    path = period_path(wts, t0, t1)
+                    base = st_["curve"] * (1 - turnover(wts, st_["prev"]) * cost)
+                    seg = base * path
+                    st_["daily"].append(seg.iloc[1:] if st_["daily"] else seg)
+                    st_["curve"] = float(seg.iloc[-1])
+                    st_["prev"] = wts
+                    st_["n"].append(len(wts))
+                    if key == "pick":
+                        st_["last"] = picks
         curve_dates.append(t1)
 
     res = {"ok": True, "start": str(dates[0].date()), "end": str(dates[-1].date()),
@@ -332,6 +369,24 @@ def run(prices: pd.DataFrame, fq_ttm: pd.DataFrame, divs: pd.DataFrame, listing:
             res["baskets"][b] = pack(b, daily[b], BASKETS[b]["name"])
             res["baskets"][b]["last_holdings"] = holdings_hist[b][-1]["symbols"] if holdings_hist[b] else []
             res["baskets"][b]["avg_count"] = round(float(np.mean([len(h["symbols"]) for h in holdings_hist[b]])), 1)
+    res["sectors"] = {}
+    for sec, stt in sec_state.items():
+        if len(stt["pick"]["daily"]) < 12:
+            continue
+        a = pd.concat(stt["pick"]["daily"]); a = a[~a.index.duplicated()]
+        b_ = pd.concat(stt["all"]["daily"]); b_ = b_[~b_.index.duplicated()]
+        sa, sb = _stats(a), _stats(b_)
+        if not sa or not sb:
+            continue
+        ma, mb = a.resample("ME").last(), b_.resample("ME").last()
+        res["sectors"][sec] = {
+            "top": {k: sa[k] for k in ("cagr", "max_dd", "sharpe", "yearly")},
+            "all": {k: sb[k] for k in ("cagr", "max_dd", "sharpe", "yearly")},
+            "alpha": round(sa["cagr"] - sb["cagr"], 1),
+            "avg_n": round(float(np.mean(stt["all"]["n"])), 1), "months": len(stt["pick"]["daily"]),
+            "last_picks": stt["pick"].get("last", []),
+            "curve": [{"d": str(k.date()), "top": round(float(x), 4), "all": round(float(y), 4)}
+                      for (k, x), y in zip(ma.items(), mb.reindex(ma.index).ffill().values)]}
     res["combo"] = pack("combo", daily_combo, "Danh mục theo phân bổ của anh")
     res["combo_regime"] = pack("combo_regime", daily_combo_reg, "Phân bổ của anh + đèn thị trường")
     m = bench.resample("ME").last()
@@ -340,8 +395,8 @@ def run(prices: pd.DataFrame, fq_ttm: pd.DataFrame, divs: pd.DataFrame, listing:
 
 
 # ------------------------------------------------------------------ độ tin cậy mô hình
-def pattern_stats(prices: pd.DataFrame, symbols: list[str], years: int = 3, step: int = 10,
-                  horizon: int = 20, max_symbols: int = 150, seed: int = 7) -> dict:
+def pattern_stats(prices: pd.DataFrame, symbols: list[str], years: int = 3, step: int = 12,
+                  horizon: int = 20, max_symbols: int = 220, seed: int = 7) -> dict:
     """Đo tỷ lệ đúng của Elliott, Wyckoff, Dow, mô hình giá, Harmonic trên dữ liệu VN.
 
     Tại mỗi thời điểm mẫu chỉ dùng dữ liệu đến thời điểm đó, rồi so sánh với lợi nhuận
@@ -364,22 +419,8 @@ def pattern_stats(prices: pd.DataFrame, symbols: list[str], years: int = 3, step
             if ib.empty or ie.empty:
                 continue
             ex = fwd - (ie.iloc[-1] / ib.iloc[-1] - 1)
-            sig = []
             try:
-                el = patterns.elliott(hist.iloc[-500:])
-                if el.get("ok") and abs(el["main"]["bias"]) >= 0.5:
-                    sig.append(("Elliott", np.sign(el["main"]["bias"])))
-                wy = patterns.wyckoff(hist.iloc[-300:])
-                if abs(wy.get("bias", 0)) >= 0.4:
-                    sig.append((f"Wyckoff", np.sign(wy["bias"])))
-                dw = patterns.dow(hist.iloc[-500:])
-                if abs(dw["bias"]) >= 0.7:
-                    sig.append(("Dow", np.sign(dw["bias"])))
-                for p in patterns.chart_patterns(hist.iloc[-300:]):
-                    if p["bias"] != 0:
-                        sig.append((p["name"], p["bias"]))
-                for p in patterns.harmonics(hist.iloc[-300:]):
-                    sig.append(("Harmonic", p["bias"]))
+                sig = signals.compute(hist)
             except Exception:  # noqa: BLE001
                 continue
             for name, b in sig:

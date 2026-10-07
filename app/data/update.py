@@ -294,6 +294,34 @@ def update_shares(symbols: list[str], workers: int = 2) -> None:
     log.info("Số cổ phiếu hiện tại: %s", dict(used))
 
 
+def update_orderflow(symbols: list[str], session_date, workers: int = 3) -> None:
+    """Footprint phiên (mua/bán chủ động theo bước giá) cho các mã thanh khoản nhất. Lưu thành lịch sử."""
+    from ..analysis.orderflow import session_stats
+    rows, fps, used = [], [], Counter()
+
+    def one(s):
+        try:
+            return s, vci.price_depth(s)
+        except FetchError:
+            return s, None
+
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        for s, fp in ex.map(one, symbols):
+            if fp is None or fp.empty:
+                used["fail"] += 1
+                continue
+            used["ok"] += 1
+            st = session_stats(fp)
+            if st:
+                rows.append({"symbol": s, "date": session_date, **{k: st[k] for k in
+                             ("buy", "sell", "undef", "delta", "delta_pct", "poc", "val", "vah", "vwap")}})
+                fps.append(fp.assign(symbol=s, date=session_date))
+    if rows:
+        store.upsert("orderflow", pd.DataFrame(rows), ["symbol", "date"])
+        store.write("footprint", pd.concat(fps, ignore_index=True))
+    log.info("Dòng lệnh (footprint) phiên %s: %s", session_date, dict(used))
+
+
 # ------------------------------------------------------------------ main
 def liquid_symbols(prices: pd.DataFrame, min_value_bn: float) -> list[str]:
     if prices.empty:
@@ -325,6 +353,15 @@ def run(force_fin: bool = False, only: list[str] | None = None) -> None:
         log.info("Chưa tới lịch tải BCTC (cập nhật gần nhất %.1f ngày trước)",
                  store.age_days("financials"))
     div_syms = liquid_symbols(prices, float(config.get("universe.fin_min_avg_value_bn", 0.3)))
+    # dòng lệnh phiên: chỉ khi chạy sau giờ đóng cửa của ngày có giao dịch
+    now = datetime.now(tz=__import__("zoneinfo").ZoneInfo("Asia/Ho_Chi_Minh"))
+    last_session = prices["date"].max() if not prices.empty else None
+    if last_session is not None and pd.Timestamp(last_session).date() == now.date() and now.hour * 60 + now.minute >= 14 * 60 + 50:
+        top = liquid_symbols(prices, float(config.get("data.orderflow_min_value_bn", 5)))
+        top = [s for s in top if s in set(syms)][: int(config.get("data.orderflow_top", 250))]
+        update_orderflow(top if not only else [s for s in syms if s in only], pd.Timestamp(last_session).normalize())
+    else:
+        log.info("Bỏ qua dòng lệnh: chưa hết phiên hoặc hôm nay không giao dịch")
     update_shares([s for s in div_syms if s in set(syms)] if not only else [s for s in syms if s in only])
     div_syms = [s for s in div_syms if s in set(syms)] if not only else [s for s in syms if s in only]
     update_dividends(div_syms, mark=not only)
