@@ -725,6 +725,7 @@ function tabFund(d) {
       ["Số năm trả tiền liên tiếp", dv.cash_years], ["Tỷ lệ chi trả", pct(dv.payout, 0, false)], ["Cổ tức cổ phiếu 3 năm", pct(dv.stock_dividend_3y, 0, false)], ["Lần chốt quyền gần nhất", esc(dv.last_ex_date || "—")]]
       .map(([k, v]) => `<div><dt>${k}</dt><dd>${v ?? "—"}</dd></div>`).join("")}</dl>
       <div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th class="l">Năm</th><th>Tiền mặt (đ/cp)</th><th>Cổ phiếu (%)</th></tr></thead><tbody>${dv.history.map((x) => `<tr><td class="l">${x.year}</td><td>${nf(x.cash_dps, 0)}</td><td>${nf(x.stock_pct, 0)}</td></tr>`).join("")}</tbody></table></div>
+      ${dv.note ? `<p class="note" style="margin-top:8px">${esc(dv.note)}</p>` : ""}
       <p class="muted" style="margin-top:6px">Cổ tức tiền mặt chịu thuế TNCN 5%. Cổ tức bằng cổ phiếu không phải tiền về tài khoản.</p>` : `<p class="muted">Chưa có lịch sử cổ tức.</p>`}</div>`;
 }
 

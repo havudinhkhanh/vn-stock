@@ -180,26 +180,45 @@ def update_financials(listing: pd.DataFrame, symbols: list[str], workers: int = 
     log.info("BCTC xong: %s · request: %s", dict(used), BREAKER.stats)
 
 
-def update_dividends(symbols: list[str], workers: int = 4, mark: bool = True) -> None:
-    frames, used = [], Counter()
+def update_dividends(symbols: list[str], workers: int = 2, mark: bool = True) -> None:
+    """Cổ tức từ lịch sự kiện Vietcap. Máy chủ này chậm nên mỗi lần chỉ tải một phần,
+    luân phiên: mã chưa có dữ liệu trước, rồi đến mã lâu chưa cập nhật nhất."""
+    per_run = int(config.get("data.dividends_per_run", 120))
+    meta = store.read("div_meta")
+    last = dict(zip(meta["symbol"], pd.to_datetime(meta["fetched"]))) if not meta.empty else {}
+    order = sorted(symbols, key=lambda s: (s in last, last.get(s, pd.Timestamp(0))))
+    todo = order[:per_run]
+    frames, used, done = [], Counter(), []
+    stop = {"flag": False}
 
     def one(s):
+        if stop["flag"]:
+            return s, None, "SKIP"
         try:
-            return vci.parse_dividends(s, vci.dividends(s)), "VCI"
-        except FetchError:
-            return None, "FAIL"
+            years = 2 if s in last else 12
+            return s, vci.parse_dividends(s, vci.dividends(s, years=years)), "VCI"
+        except FetchError as e:
+            if "tạm ngắt" in str(e):
+                stop["flag"] = True
+            return s, None, "FAIL"
 
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        for df, src in ex.map(one, symbols):
+        for s, df, src in ex.map(one, todo):
             used[src] += 1
-            if df is not None and not df.empty:
-                frames.append(df)
+            if src == "VCI":
+                done.append(s)
+                if df is not None and not df.empty:
+                    frames.append(df)
     if frames:
         new = pd.concat(frames, ignore_index=True).dropna(subset=["ex_date"])
         store.upsert("dividends", new, ["symbol", "ex_date", "method"])
+    if done:
+        now = pd.Timestamp.now().normalize()
+        store.upsert("div_meta", pd.DataFrame({"symbol": done, "fetched": now}), ["symbol"])
     if mark:
         store.touch("dividends", sources=dict(used))
-    log.info("Cổ tức: %s", dict(used))
+    remaining = len([s for s in symbols if s not in last and s not in set(done)])
+    log.info("Cổ tức: %s · còn %d mã chưa có lịch sử (sẽ tải dần ở các lần sau)", dict(used), remaining)
 
 
 # ------------------------------------------------------------------ main
@@ -229,7 +248,9 @@ def run(force_fin: bool = False, only: list[str] | None = None) -> None:
             fin_syms = [s for s in syms if s in only]
         log.info("Tải BCTC cho %d mã", len(fin_syms))
         update_financials(listing, fin_syms, mark=not only)
-        update_dividends(fin_syms, mark=not only)
     else:
         log.info("Chưa tới lịch tải BCTC (cập nhật gần nhất %.1f ngày trước)",
                  store.age_days("financials"))
+    div_syms = liquid_symbols(prices, float(config.get("universe.fin_min_avg_value_bn", 0.3)))
+    div_syms = [s for s in div_syms if s in set(syms)] if not only else [s for s in syms if s in only]
+    update_dividends(div_syms, mark=not only)

@@ -182,9 +182,9 @@ def dividends(symbol: str, years: int = 12) -> pd.DataFrame:
     fr = to - timedelta(days=365 * years)
     rows, page = [], 0
     while page < 6:
-        data = get("VCI", f"{IQ}/v1/events", params={
+        data = get("VCI_EVENTS", f"{IQ}/v1/events", params={
             "ticker": symbol, "fromDate": fr.strftime("%Y%m%d"), "toDate": to.strftime("%Y%m%d"),
-            "eventCode": "DIV,ISS", "page": page, "size": 50}).get("data") or {}
+            "eventCode": "DIV,ISS", "page": page, "size": 50}, timeout=20).get("data") or {}
         content = data.get("content") if isinstance(data, dict) else data
         if not content:
             break

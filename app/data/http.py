@@ -29,6 +29,7 @@ BASE_HEADERS = {
 
 ORIGINS = {
     "VCI": "https://trading.vietcap.com.vn",
+    "VCI_EVENTS": "https://trading.vietcap.com.vn",
     "TCBS": "https://tcinvest.tcbs.com.vn",
     "SSI": "https://iboard.ssi.com.vn",
     "VND": "https://dchart.vndirect.com.vn",
@@ -56,6 +57,7 @@ class Throttle:
 
 _THROTTLES = {
     "VCI": Throttle(4),
+    "VCI_EVENTS": Throttle(1.5),
     "TCBS": Throttle(3),
     "SSI": Throttle(3),
     "VND": Throttle(3),

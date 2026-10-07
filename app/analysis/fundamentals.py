@@ -73,6 +73,39 @@ def period_end(year: int, quarter: int) -> pd.Timestamp:
 
 
 # ------------------------------------------------------------------ cổ tức
+def dividend_from_cashflow(ys: pd.DataFrame | None, paid_ttm: float | None, shares: float | None,
+                           price: float, eps_ttm: float | None) -> dict:
+    """Dự phòng khi chưa có lịch sự kiện: cổ tức tiền mặt = 'cổ tức đã trả' trên lưu chuyển tiền tệ / số CP."""
+    if not shares:
+        return {"has_data": False, "cash_years": 0, "yield": None, "dps_ttm": None, "history": []}
+    hist, by_year = [], {}
+    if ys is not None and not ys.empty and "dividends_paid" in ys:
+        for _, r in ys.sort_values("year").iterrows():
+            v = _num(r.get("dividends_paid"))
+            sh = _num(r.get("shares")) or shares
+            if v is not None:
+                by_year[int(r["year"])] = abs(v) * 1e9 / (sh * 1e6)
+    now = pd.Timestamp.now()
+    ttm = abs(paid_ttm) * 1e9 / (shares * 1e6) if paid_ttm is not None else by_year.get(now.year - 1)
+    if ttm is None and not by_year:
+        return {"has_data": False, "cash_years": 0, "yield": None, "dps_ttm": None, "history": []}
+    streak = 0
+    for y in sorted(by_year, reverse=True):
+        if by_year[y] > 0:
+            streak += 1
+        else:
+            break
+    last3 = [by_year.get(y, 0) for y in range(now.year - 3, now.year)]
+    hist = [{"year": y, "cash_dps": round(v), "stock_pct": None} for y, v in sorted(by_year.items())[-10:]]
+    return {"has_data": True, "source": "cashflow", "dps_ttm": _r(ttm, 0), "dps_avg3": _r(np.mean(last3), 0),
+            "yield": _r(100 * ttm / (price * 1000), 2) if price and ttm is not None else None,
+            "yield_avg3": _r(100 * np.mean(last3) / (price * 1000), 2) if price else None,
+            "cash_years": int(streak), "paid_years_5": int(sum(1 for v in last3 + [by_year.get(now.year - 4, 0), by_year.get(now.year - 5, 0)] if v > 0)),
+            "payout": _r(100 * ttm / eps_ttm, 1) if eps_ttm and eps_ttm > 0 and ttm is not None else None,
+            "last_ex_date": None, "stock_dividend_3y": None, "history": hist,
+            "note": "Ước tính từ 'cổ tức đã trả' trên báo cáo lưu chuyển tiền tệ (chưa có lịch chốt quyền)."}
+
+
 def dividend_profile(divs: pd.DataFrame, price: float, eps_ttm: float | None) -> dict:
     """Cổ tức tiền mặt & cổ phiếu. cash_pct là % trên mệnh giá 10.000đ."""
     if divs is None or divs.empty:
@@ -253,6 +286,8 @@ def analyze_symbol(sym: str, qs: pd.DataFrame, ys: pd.DataFrame, price: float,
 
     fscore, ftests = (piotroski(L, prev) if prev is not None else (None, []))
     div = dividend_profile(divs, price, eps)
+    if not div.get("has_data"):
+        div = dividend_from_cashflow(ys, T("dividends_paid"), shares, price, eps)
     cfo = T("cfo")
     out = {
         "ok": True,
