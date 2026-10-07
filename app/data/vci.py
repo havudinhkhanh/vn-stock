@@ -94,17 +94,24 @@ def industries() -> pd.DataFrame:
 
 # ----------------------------------------------------------------- giá
 def _chart(symbols: list[str], start: datetime, end: datetime) -> dict[str, pd.DataFrame]:
-    payload = {"timeFrame": "ONE_DAY", "symbols": symbols,
-               "from": int(start.timestamp()), "to": int(end.timestamp())}
-    data = None
-    for path in ("chart/OHLCChart/gap-chart", "chart/OHLCChart/gap"):
+    """Giá ngày. gap-chart nhận 'to' + 'countBack' (số phiên); 'gap' (cũ) nhận 'from' + 'to'."""
+    days = max(5, (end - start).days)
+    count_back = int(days * 5 / 7) + 10
+    tries = [
+        ("chart/OHLCChart/gap-chart", {"timeFrame": "ONE_DAY", "symbols": symbols,
+                                        "to": int(end.timestamp()), "countBack": count_back}),
+        ("chart/OHLCChart/gap", {"timeFrame": "ONE_DAY", "symbols": symbols,
+                                  "from": int(start.timestamp()), "to": int(end.timestamp())}),
+    ]
+    data, last = None, None
+    for path, payload in tries:
         try:
             data = post("VCI", TRADING + path, payload)
             break
         except FetchError as e:
             last = e
     if data is None:
-        raise last  # noqa: F821
+        raise last
     out = {}
     for item in data or []:
         sym = item.get("symbol")
