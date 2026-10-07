@@ -120,12 +120,57 @@ def update_prices(symbols: list[str], workers: int = 4) -> pd.DataFrame:
         new["date"] = pd.to_datetime(new["date"], errors="coerce")
         new = new.dropna(subset=["close", "date"])
         new["volume"] = new["volume"].fillna(0)
+    # Phát hiện điều chỉnh giá (chia thưởng, cổ tức): nguồn đã sửa lại giá quá khứ -> tải lại toàn bộ lịch sử mã đó
+    if not new.empty and not cur.empty:
+        adj = detect_adjustments(cur, new)
+        if adj:
+            log.info("Phát hiện %d mã có điều chỉnh giá quá khứ: %s", len(adj),
+                     ", ".join(f"{k}×{v:.3f}" for k, v in list(adj.items())[:15]))
+            full = refetch_full(list(adj))
+            if not full.empty:
+                cur = cur[~cur["symbol"].isin(full["symbol"].unique())]
+                new = pd.concat([new[~new["symbol"].isin(full["symbol"].unique())], full], ignore_index=True)
+                store.write("prices", cur)
+            store.upsert("adjust_events", pd.DataFrame(
+                [{"symbol": k, "detected": pd.Timestamp.now().normalize(), "ratio": v} for k, v in adj.items()]),
+                ["symbol", "detected"])
     df = store.upsert("prices", new, ["symbol", "date"])
     log.info("Thống kê request: %s", BREAKER.stats)
     store.touch("prices", sources=dict(used), rows=len(df),
                 last_date=str(df["date"].max().date()) if not df.empty else None)
     log.info("Giá: nguồn %s, tổng %d dòng", dict(used), len(df))
     return df
+
+
+def detect_adjustments(cur: pd.DataFrame, new: pd.DataFrame, tol: float = 0.015) -> dict[str, float]:
+    """So giá mới với giá đã lưu ở các ngày trùng nhau (trừ ngày gần nhất). Lệch -> nguồn đã điều chỉnh."""
+    last_day = new["date"].max()
+    ov = new[new["date"] < last_day][["symbol", "date", "close"]].merge(
+        cur[["symbol", "date", "close"]], on=["symbol", "date"], suffixes=("_new", "_old"))
+    ov = ov[(ov["close_old"] > 0) & (ov["close_new"] > 0)]
+    if ov.empty:
+        return {}
+    ratio = (ov["close_new"] / ov["close_old"]).groupby(ov["symbol"]).agg(["median", "count"])
+    hit = ratio[(ratio["count"] >= 2) & ((ratio["median"] - 1).abs() > tol)]
+    return {s: float(r["median"]) for s, r in hit.iterrows() if s not in INDICES}
+
+
+def refetch_full(symbols: list[str]) -> pd.DataFrame:
+    frames = []
+    for i in range(0, len(symbols), 5):
+        chunk = symbols[i:i + 5]
+        try:
+            got = vci.prices(chunk, HISTORY_START, batch=len(chunk))
+        except FetchError:
+            got = {}
+        for s_, d in got.items():
+            frames.append(d.assign(symbol=s_))
+    if not frames:
+        return pd.DataFrame()
+    out = pd.concat(frames, ignore_index=True)[["symbol", "date", "open", "high", "low", "close", "volume"]]
+    for c in ("open", "high", "low", "close", "volume"):
+        out[c] = pd.to_numeric(out[c], errors="coerce").astype("float64")
+    return out.dropna(subset=["close"])
 
 
 # ------------------------------------------------------------------ BCTC
@@ -225,8 +270,12 @@ def update_dividends(symbols: list[str], workers: int = 2, mark: bool = True) ->
              dict(used), remaining, BREAKER.stats)
 
 
-def update_shares(symbols: list[str], workers: int = 4) -> None:
-    """Số cổ phiếu hiện tại cho mã thanh khoản – tránh EPS/P/E sai khi vừa phát hành thêm."""
+def update_shares(symbols: list[str], workers: int = 2) -> None:
+    """Số cổ phiếu hiện tại (trang thông tin DN của Vietcap – máy chủ chậm nên tải luân phiên theo lô)."""
+    per_run = int(config.get("data.shares_per_run", 120))
+    cur = store.read("shares_now")
+    last = dict(zip(cur["symbol"], pd.to_datetime(cur["date"]))) if not cur.empty else {}
+    symbols = sorted(symbols, key=lambda s: (s in last, last.get(s, pd.Timestamp(0))))[:per_run]
     rows, used = [], Counter()
 
     def one(s):

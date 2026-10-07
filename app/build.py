@@ -72,6 +72,8 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     fin_y = store.read("fin_y")
     divs = store.read("dividends")
     sh_now = store.read("shares_now")
+    if not sh_now.empty:
+        sh_now = sh_now[pd.to_datetime(sh_now["date"]) >= pd.Timestamp.now() - pd.Timedelta(days=45)]
     sh_now = dict(zip(sh_now["symbol"], sh_now["shares_now"])) if not sh_now.empty else {}
     if prices.empty or listing.empty:
         raise SystemExit("Chưa có dữ liệu. Chạy: python run.py update")
@@ -112,6 +114,30 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     deep = {s for s in symbols if avg_val.get(s, 0) >= deep_val} | (held & set(symbols))
 
     fq = fu.add_ttm(fin_q) if not fin_q.empty else pd.DataFrame()
+    adj_ev = store.read("adjust_events")
+
+    def effective_shares(sym: str, qs, close: pd.Series) -> float | None:
+        """Số cổ phiếu dùng cho EPS/BVPS hiện tại.
+        1) số CP hiện tại lấy trực tiếp (nếu có, ≤ 45 ngày);
+        2) suy ra từ giá: vốn hoá/số CP tại cuối quý (giá thật lúc đó) so với giá đã điều chỉnh cùng ngày;
+        3) None -> dùng số CP trong báo cáo."""
+        if sym in sh_now:
+            return sh_now[sym]
+        L = fu.latest_row(qs) if qs is not None and not qs.empty else None
+        if L is None:
+            return None
+        sh, mc = fu._num(L.get("shares")), fu._num(L.get("mcap_src"))
+        if not sh or not mc or close is None or close.empty:
+            return None
+        qend = fu.period_end(int(L["year"]), int(L["quarter"]))
+        px = close[:qend]
+        if px.empty or (qend - px.index[-1]).days > 10:
+            return None
+        raw = mc / sh            # nghìn đồng/cp (tỷ đồng ÷ triệu cp)
+        f = float(px.iloc[-1]) / raw
+        if 0.2 < f < 0.93:       # giá quá khứ đã bị điều chỉnh giảm -> có chia thưởng/phát hành sau kỳ báo cáo
+            return sh / f
+        return None
     fq_by = {s: d for s, d in fq.groupby("symbol")} if not fq.empty else {}
     fy_by = {s: d.sort_values("year") for s, d in fin_y.groupby("symbol")} if not fin_y.empty else {}
     dv_by = {s: d for s, d in divs.groupby("symbol")} if not divs.empty else {}
@@ -176,7 +202,8 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         ti = ind.compute_all(df)
         ta = tech.summarize(df, ti, idx["close"])
         ctype = lst.loc[s, "com_type"] if "com_type" in lst.columns and isinstance(lst.loc[s, "com_type"], str) else "CT"
-        fa = fu.analyze_symbol(s, fq_by.get(s), fy_by.get(s), price, dv_by.get(s), ctype, sh_now.get(s))
+        fa = fu.analyze_symbol(s, fq_by.get(s), fy_by.get(s), price, dv_by.get(s), ctype,
+                               effective_shares(s, fq_by.get(s), df["close"]))
         c = df["close"]
         r = {
             "symbol": s, "name": lst.loc[s, "name"], "exchange": lst.loc[s, "exchange"],

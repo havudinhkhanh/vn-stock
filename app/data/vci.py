@@ -180,7 +180,7 @@ def statement(symbol: str, section: str) -> dict[str, pd.DataFrame]:
 
 def shares_now(symbol: str) -> float | None:
     """Số cổ phiếu lưu hành hiện tại (triệu cp) – cập nhật ngay sau các đợt phát hành/chia thưởng."""
-    d = get("VCI", f"{IQ}/v1/company/details", params={"ticker": symbol}).get("data") or {}
+    d = get("VCI_EVENTS", f"{IQ}/v1/company/details", params={"ticker": symbol}, timeout=15).get("data") or {}
     v = d.get("numberOfSharesMktCap") or d.get("issueShare") or d.get("listedShare")
     try:
         v = float(v)

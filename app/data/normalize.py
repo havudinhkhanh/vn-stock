@@ -247,14 +247,14 @@ def normalize_iq(symbol: str, stmts: dict[str, dict[str, pd.DataFrame]], metrics
         if ycol:
             rr = pd.DataFrame({"year": pd.to_numeric(r[ycol], errors="coerce"),
                                "quarter": pd.to_numeric(r[qcol], errors="coerce").fillna(0) if qcol else 0})
-            for src, canon in (("numberOfSharesMktCap", "shares"), ("pe", "pe_src"), ("pb", "pb_src"),
+            for src, canon in (("numberOfSharesMktCap", "shares"), ("marketCap", "mcap_src"), ("pe", "pe_src"), ("pb", "pb_src"),
                                ("roe", "roe_src"), ("ebitda", "ebitda"), ("ebit", "ebit"),
                                ("netInterestMargin", "nim"), ("npl", "npl")):
                 if src in r:
                     rr[canon] = pd.to_numeric(r[src], errors="coerce")
             if "shares" in rr and rr["shares"].median() > 1e5:
                 rr["shares"] = rr["shares"] / 1e6
-            for c in ("ebitda", "ebit"):
+            for c in ("ebitda", "ebit", "mcap_src"):
                 if c in rr and rr[c].abs().median() > 1e8:
                     rr[c] = rr[c] / 1e9
             rr.loc[rr["quarter"] > 4, "quarter"] = 0

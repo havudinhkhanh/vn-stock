@@ -112,7 +112,7 @@ class FetchError(RuntimeError):
 class Breaker:
     """Cầu dao: nguồn lỗi liên tiếp quá nhiều thì tạm ngắt, tránh kẹt cả lần chạy."""
 
-    LIMITS = {"VCI_EVENTS": 4}
+    LIMITS = {"VCI_EVENTS": 6}
 
     def __init__(self, limit: int = 12, cooldown: float = 240.0):
         self.limit, self.cooldown = limit, cooldown
