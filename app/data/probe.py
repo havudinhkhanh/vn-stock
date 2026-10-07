@@ -108,7 +108,10 @@ def _run(report: dict) -> None:
                 fm = normalize.match_items([{"key": r.field, "en": r.en, "vi": r.vi} for r in mm.itertuples()])
                 yrs = stm[sec].get("years")
                 for f, canon in fm.items():
-                    row = mm[mm["field"] == f].iloc[0]
+                    hit = mm[mm["field"] == f]
+                    if hit.empty:
+                        continue
+                    row = hit.iloc[0]
                     val = None
                     if yrs is not None and not yrs.empty and f in yrs:
                         v = pd.to_numeric(yrs[f], errors="coerce").dropna()

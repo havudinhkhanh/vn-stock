@@ -157,6 +157,8 @@ def metrics(symbol: str, ctype: str = "CT") -> pd.DataFrame:
     df = pd.DataFrame(rows)
     if df.empty:
         raise FetchError(f"VCI metrics {symbol}: rỗng")
+    df = df.dropna(subset=["field"])
+    df = df[df["field"].astype(str).str.len() > 0].drop_duplicates(["section", "field"])
     _metrics_cache[ctype] = df
     return df
 
