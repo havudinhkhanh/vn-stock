@@ -1017,6 +1017,71 @@ async function viewSector(name, lvArg) {
 // ================================================================ DANH MỤC (quản lý vị thế, mua thêm / bán từng phần, cơ cấu, lãi đã chốt)
 const FEE_BUY = 0.15, FEE_SELL = 0.25; // % (bán gồm 0,1% thuế TNCN)
 const lot = (q) => Math.max(0, Math.floor(q / 100) * 100);
+// ---- kế hoạch thoát hàng theo phong cách (cùng công thức với app/analysis/exits.py)
+const STYLE_OF_BASKET = { swing: "swing", long: "long", income: "income" };
+const styleOf = (h) => (["swing", "position", "long", "income"].includes(h.style) ? h.style : STYLE_OF_BASKET[h.basket] || "position");
+const lotPart = (rem, f) => { if (rem <= 0 || f <= 0) return 0; if (f >= 0.999) return rem; const q = Math.floor((rem * f) / 100 + 1e-6) * 100; return q > 0 ? q : rem >= 100 ? Math.min(100, rem) : rem; };
+function exitPlan(h, price, peak, held, info, maxSlPct = 20) {
+  const style = styleOf(h), cost = Number(h.cost) || price, pos = (x) => (isNum(x) && x > 0 ? x : null);
+  const atr = pos(info.atr) || price * 0.025, fair = pos(info.fair), fairHi = pos(info.fair_hi), y = pos(info.div_yield);
+  const be = cost / (1 - FEE_SELL / 100), L = [];
+  const add = (key, kind, label, px, sell, trig, why, hit) => { if (px != null || trig === "time" || trig === "cond") L.push({ key, kind, label, price: px != null ? Math.round(px * 100) / 100 : null, sell, trig, why, hit }); };
+  if (style === "swing") {
+    const r0 = Math.min(Math.max(cost - 2.5 * atr, cost * 0.9), cost * 0.95), risk = cost - r0;
+    let stop = Math.max(r0, peak - 2.5 * atr); if (peak >= cost + 1.5 * risk) stop = Math.max(stop, be);
+    add("stop", "stop", stop < be ? "Dừng lỗ" : "Dừng – khoá lãi", stop, 1, "below", "2,5×ATR dưới giá vốn (5–10%), dời lên theo đỉnh; về hoà vốn khi đã lãi 1,5R");
+    add("tp1", "tp", "Mục tiêu 1 (3R)", cost + 3 * risk, 2 / 3, "above", "Lãi gấp 3 lần rủi ro – chốt 2/3");
+    add("tp2", "tp", "Mục tiêu 2 (4R)", cost + 4 * risk, 1, "above", "Chốt nốt phần còn lại");
+    add("time", "time", "Hết 20 phiên", null, 1, "time", "Lướt sóng quá 20 phiên mà chưa tới mục tiêu 1 – bán hết, giải phóng vốn", held != null && held >= 20);
+    if (pos(info.e20)) add("ema", "cond", "Đóng cửa dưới EMA20 2 phiên", info.e20, 1, "cond", "Nhịp tăng đã gãy", info.e20_below2 === true);
+  } else if (style === "long") {
+    add("review", "review", "Xem lại luận điểm (−25%)", cost * 0.75, 0, "below", "Dài hạn không tự cắt lỗ theo giá – đọc lại BCTC, nếu luận điểm còn nguyên có thể mua thêm");
+    if (fair) { add("tp1", "tp", "Vượt giá trị hợp lý 20%", fair * 1.2, 1 / 3, "above", "Đã đắt – chốt 1/3"); add("tp2", "tp", "Vượt giá trị hợp lý 40%", fair * 1.4, 1 / 2, "above", "Rất đắt – chốt thêm một nửa phần còn lại, giữ 1/3 tích sản"); }
+  } else if (style === "income") {
+    add("review", "review", "Xem lại (−20%)", cost * 0.8, 0, "below", "Kiểm tra cổ tức có bị cắt không – nếu vẫn trả đều thì không bán");
+    if (y) { const dps = (price * y) / 100; add("tp1", "tp", "Lợi suất còn 3,5%", dps / 0.035, 1 / 2, "above", `Cổ tức ${nf(dps * 1000, 0)} đ/cp – giá đã cao, bán một nửa`); add("tp2", "tp", "Lợi suất còn 3%", dps / 0.03, 1, "above", "Bán hết, chuyển sang mã lợi suất cao hơn"); }
+  } else {
+    const hard = cost * (1 - maxSlPct / 100), trail = peak - 3 * atr, stop = Math.max(hard, trail);
+    add("stop", "stop", stop < be ? "Dừng lỗ" : "Dừng – khoá lãi", stop, 1, "below", stop === hard ? `Lỗ tối đa ${nf(maxSlPct, 0)}% so với giá vốn` : "Đỉnh sau mua − 3×ATR (dời lên theo giá)");
+    if (fair) { const t1 = fair * 1.1; add("tp1", "tp", "Vượt giá trị hợp lý 10%", t1, 1 / 2, "above", "Định giá đã đắt – chốt một nửa"); add("tp2", "tp", "Vùng giá trị cao", Math.max(fairHi || fair * 1.25, t1 * 1.08), 1, "above", "Chốt nốt phần còn lại"); }
+    add("time", "review", "Xem lại sau 60 phiên", null, 0, "time", "Nắm 60 phiên mà lãi < 5% – vốn đang đứng yên", held != null && held >= 60 && price < cost * 1.05);
+  }
+  const cu = h.exit_custom || {};
+  if (pos(cu.stop)) { const i = L.findIndex((x) => x.key === "stop"); if (i >= 0) L.splice(i, 1); L.unshift({ key: "stop", kind: "stop", label: "Dừng lỗ của anh", price: Number(cu.stop), sell: 1, trig: "below", why: "Mức anh tự đặt" }); }
+  if (pos(cu.tp)) L.push({ key: "tpc", kind: "tp", label: "Chốt lời của anh", price: Number(cu.tp), sell: Math.min(100, Math.max(1, Number(cu.tp_pct) || 50)) / 100, trig: "above", why: "Mức anh tự đặt" });
+  const done = new Set(h.exits_done || []);
+  L.forEach((x) => {
+    x.dist = x.price ? (x.price / price - 1) * 100 : null;
+    if (done.has(x.key)) x.status = "done";
+    else if (x.trig === "below") x.status = price <= x.price ? "hit" : x.dist >= -3 ? "near" : "far";
+    else if (x.trig === "above") x.status = price >= x.price ? "hit" : x.dist <= 3 ? "near" : "far";
+    else x.status = x.hit ? "hit" : "far";
+  });
+  let out = L;
+  if (style === "swing" && L.some((x) => x.key === "tp1" && (x.status === "hit" || x.status === "done"))) out = L.filter((x) => x.key !== "time");
+  const qty = Number(h.qty) || 0; let rem = qty;
+  out.filter((x) => x.trig === "above" && x.status !== "done").sort((a, b) => a.price - b.price).forEach((x) => { x.qty = lotPart(rem, x.sell); rem -= x.qty; });
+  out.forEach((x) => { if (x.qty == null) x.qty = x.status === "done" ? 0 : lotPart(qty, x.sell); if (x.price && x.qty) { x.proceeds = x.qty * x.price * (1 - FEE_SELL / 100) * 1000; x.pnl = (x.price * (1 - FEE_SELL / 100) - cost) * x.qty * 1000; } });
+  const st = out.find((x) => x.key === "stop") || out.find((x) => x.kind === "review" && x.price);
+  return { style, levels: out, stop: st ? st.price : null, breakeven: be };
+}
+const fracVi = (f) => (f >= 0.999 ? "Bán hết" : f <= 0 ? "Không bán" : Math.abs(f - 1 / 2) < 0.01 ? "Bán 1/2" : Math.abs(f - 1 / 3) < 0.01 ? "Bán 1/3" : Math.abs(f - 2 / 3) < 0.01 ? "Bán 2/3" : `Bán ${nf(f * 100, 0)}%`);
+function exitBox(x, today) {
+  const { h, ep } = x, s = h.symbol;
+  const stTxt = (l) => l.status === "done" ? '<b class="faint">đã làm</b>' : l.status === "hit" ? `<b class="${l.kind === "tp" ? "up" : "down"}">ĐÃ CHẠM</b>` : l.trig === "time" ? (l.key === "time" && h.date ? `phiên ${x.held ?? "—"}/${ep.style === "swing" ? 20 : 60}` : "") : l.trig === "cond" ? "chưa xảy ra" : `${l.status === "near" ? '<b class="ref">sắp chạm</b> ' : "còn "}${pct(l.dist, 1)}`;
+  const rows = ep.levels.map((l) => `<div class="exr st-${l.status} k-${l.kind}"><div class="ex-l"><i></i><b>${esc(l.label)}</b><small>${esc(l.why)}</small></div>
+      <div class="ex-p"><b>${l.price ? nf(l.price) : "—"}</b><small>${stTxt(l)}</small></div>
+      <div class="ex-q"><b>${l.sell > 0 && l.sell < 0.999 ? fracVi(l.sell) + (l.trig === "above" ? " <small>số còn lại</small>" : "") : fracVi(l.sell)}</b><small>${l.qty ? nf(l.qty, 0) + " cp" : ""}</small></div>
+      <div class="ex-m">${isNum(l.proceeds) ? `<b>${big(l.proceeds)} đ</b><small class="${cls(l.pnl)}">${l.pnl >= 0 ? "lãi" : "lỗ"} ${big(Math.abs(l.pnl))} đ</small>` : ""}</div>
+      <div class="ex-b">${l.status === "done" ? `<button class="chip" data-exu="${s}|${l.key}" title="Bỏ đánh dấu đã làm">↺</button>` : l.sell > 0 && l.qty ? `<button class="chip ${l.status === "hit" ? "hot" : ""}" data-exb="${s}|${l.key}">Bán</button>` : ""}</div></div>`).join("");
+  const cu = h.exit_custom || {};
+  return `<div class="exit"><div class="ex-h"><b>Kế hoạch thoát</b><label class="ex-sty">theo phong cách <select data-exs="${s}">${STYLE_ORDER.map((k) => `<option value="${k}" ${k === ep.style ? "selected" : ""}>${STYLE_SHORT[k]}</option>`).join("")}</select></label>
+      <button class="chip" data-exc="${s}">${cu.stop || cu.tp ? "Mức riêng ✓" : "＋ Mức riêng"}</button><small class="faint">hoà vốn sau phí ${nf(ep.breakeven)}</small></div>
+    <div class="exl">${rows || '<p class="muted">Chưa có dữ liệu để tính mức thoát.</p>'}</div>
+    <div class="exc" id="exc-${s}" hidden><div class="filters"><div class="field w90"><label>Dừng lỗ riêng</label><input data-cus="stop" inputmode="decimal" value="${cu.stop ?? ""}" placeholder="${nf(ep.stop)}"></div>
+      <div class="field w90"><label>Chốt lời riêng</label><input data-cus="tp" inputmode="decimal" value="${cu.tp ?? ""}"></div><div class="field w60"><label>Bán %</label><input data-cus="tp_pct" inputmode="numeric" value="${cu.tp_pct ?? 50}"></div>
+      <button class="btn primary" data-exsave="${s}">Lưu</button><button class="btn" data-exclr="${s}">Xoá mức riêng</button></div></div></div>`;
+}
 function addTradingDays(d, n) { const x = new Date(d + "T00:00:00"); let k = 0; while (k < n) { x.setDate(x.getDate() + 1); if (x.getDay() !== 0 && x.getDay() !== 6) k++; } return x.toISOString().slice(0, 10); }
 function tradingDaysBetween(a, b) { if (!a || !b) return null; let x = new Date(a + "T00:00:00"), y = new Date(b + "T00:00:00"), n = 0; while (x < y) { x.setDate(x.getDate() + 1); if (x.getDay() !== 0 && x.getDay() !== 6) n++; } return n; }
 // Ghi 1 lệnh: cập nhật danh mục (giá vốn bình quân như CTCK), tiền mặt, nhật ký; lệnh bán lưu luôn lãi/lỗ đã chốt
@@ -1027,7 +1092,7 @@ async function applyTrade(tr, pf, J) {
   if (tr.side === "buy") {
     const unit = tr.price * (1 + tr.fee / 100);
     if (h) { const nq = h.qty + tr.qty; h.cost = Math.round(((h.qty * h.cost + tr.qty * unit) / nq) * 1000) / 1000; h.qty = nq; h.last_buy = tr.date; }
-    else pf.holdings.push({ symbol: tr.symbol, qty: tr.qty, cost: Math.round(unit * 1000) / 1000, date: tr.date, last_buy: tr.date, basket: tr.basket || null });
+    else pf.holdings.push({ symbol: tr.symbol, qty: tr.qty, cost: Math.round(unit * 1000) / 1000, date: tr.date, last_buy: tr.date, basket: tr.basket || null, style: tr.style || STYLE_OF_BASKET[tr.basket] || null });
     if (isNum(pf.cash) && pf.cash > 0) pf.cash = Math.max(0, pf.cash - tr.qty * unit * 1000);
   } else {
     const avg = h ? h.cost : null, q = h ? Math.min(tr.qty, h.qty) : tr.qty;
@@ -1035,7 +1100,7 @@ async function applyTrade(tr, pf, J) {
     tr.realized = isNum(avg) ? Math.round((tr.price * (1 - tr.fee / 100) - avg) * q * 1000) : null;
     tr.realized_pct = isNum(avg) && avg ? (tr.price * (1 - tr.fee / 100) / avg - 1) * 100 : null;
     tr.held_days = h ? tradingDaysBetween(h.date, tr.date) : null;
-    if (h) { h.qty -= q; if (h.qty <= 0) pf.holdings.splice(i, 1); }
+    if (h) { h.qty -= q; if (h.qty <= 0) pf.holdings.splice(i, 1); else if (tr.exit_key) h.exits_done = [...new Set([...(h.exits_done || []), tr.exit_key])]; }
     if (isNum(pf.cash)) pf.cash = (pf.cash || 0) + tr.qty * tr.price * (1 - tr.fee / 100) * 1000;
   }
   J.trades.push(tr);
@@ -1080,7 +1145,7 @@ function tradeBox(o, onDone) {
     if (!q || !p) { toast("Nhập khối lượng và giá khớp"); return; }
     if (o.side === "sell" && o.held && q > o.held) { toast(`Chỉ đang nắm ${nf(o.held, 0)} cp`); return; }
     const tr = { id: "t" + Date.now().toString(36), ts: Date.now(), date: $("#tbD").value || today, symbol: o.symbol, side: o.side, qty: q, price: p,
-      fee: Number(String($("#tbF").value).replace(",", ".")) || 0, decision: $("#tbDec").value, reason: $("#tbR").value.trim(), snap: o.snap || "", basket: o.basket || null };
+      fee: Number(String($("#tbF").value).replace(",", ".")) || 0, decision: $("#tbDec").value, reason: $("#tbR").value.trim(), snap: o.snap || "", basket: o.basket || null, style: o.style || null, exit_key: o.exit_key || null };
     el.remove();
     await onDone(tr);
   };
@@ -1112,13 +1177,19 @@ async function viewPortfolio() {
       const px = r.price ?? h.cost, mv = h.qty * px * 1000, cost = h.qty * h.cost * 1000;
       let peak = px;
       if (d?.ohlc && h.date) { const o = d.ohlc; for (let i = 0; i < o.t.length; i++) if (o.t[i] >= h.date) peak = Math.max(peak, o.c[i]); }
-      const stop = a?.stop ?? h.cost * (1 - maxSL);
-      const be = h.cost / (1 - FEE_SELL / 100);
+      const held = h.date ? tradingDaysBetween(h.date, today) : null;
+      const ep = exitPlan(h, px, peak, held, { atr: r.atr, e20: r.e20, e20_below2: r.e20_below2, fair: r.fair, fair_hi: r.fair_hi, div_yield: r.div_yield }, maxSL * 100);
+      const stop = ep.stop ?? h.cost * (1 - maxSL);
+      const th = (a?.actions || []).map((k, i) => [k, a.reasons?.[i]]).filter(([k]) => k === "BÁN – LUẬN ĐIỂM GÃY" || (k === "CÂN NHẮC GIẢM TỶ TRỌNG" && ep.style === "position"));
+      const hits = ep.levels.filter((l) => l.status === "hit"), fullH = hits.find((l) => l.sell >= 0.999), partH = hits.filter((l) => l.sell > 0 && l.sell < 0.999).sort((p, q) => q.price - p.price)[0];
+      const act = th.some(([k]) => k.startsWith("BÁN")) ? { action: "BÁN – LUẬN ĐIỂM GÃY", sev: 3 } : fullH ? { action: fullH.kind === "stop" && fullH.price < h.cost ? "CẮT LỖ / BÁN" : "BÁN HẾT", sev: fullH.kind === "stop" || fullH.kind === "cond" ? 3 : 2 }
+        : partH ? { action: `CHỐT LỜI ${fracVi(partH.sell).replace("Bán ", "")}`, sev: 2 } : hits.some((l) => l.sell === 0) ? { action: "XEM LẠI LUẬN ĐIỂM", sev: 1 } : th.length ? { action: th[0][0], sev: 1 } : { action: "GIỮ", sev: 0 };
+      act.notes = th.map(([k, r]) => `${k === "BÁN – LUẬN ĐIỂM GÃY" ? "Luận điểm gãy" : "Xu hướng giảm"}: ${r}`);
+      const be = ep.breakeven;
       const lastBuy = h.last_buy || h.date;
       const sellable = lastBuy ? addTradingDays(lastBuy, 2) : null;
-      const held = h.date ? tradingDaysBetween(h.date, today) : null;
       return { h, r, a, px, mv, cost, pnl: mv * (1 - FEE_SELL / 100) - cost, pnlPct: h.cost ? (px * (1 - FEE_SELL / 100) / h.cost - 1) * 100 : null, peak, fromPeak: peak ? (px / peak - 1) * 100 : null,
-        stop, be, sellable, held, lvl: { stop, cost: h.cost, px, fair: a?.fair ?? r.fair, t1: r.fair } };
+        stop, be, sellable, held, ep, act, lvl: { stop, cost: h.cost, px, fair: a?.fair ?? r.fair, tps: ep.levels.filter((l) => l.kind === "tp" && l.price && l.status !== "done").map((l) => l.price).sort((p, q) => p - q) } };
     });
     const mv = P.reduce((s, x) => s + x.mv, 0), costT = P.reduce((s, x) => s + x.cost, 0), cash = Number(pf.cash || 0);
     const total = mv + cash, denom = capitalOf(pf) || total;
@@ -1136,20 +1207,21 @@ async function viewPortfolio() {
 
     const card = (x) => {
       const { h, r, a } = x, w = denom ? (x.mv / denom) * 100 : null;
-      const sev = a?.severity ?? (x.px <= x.stop ? 3 : 0);
-      const L = [x.stop, h.cost, x.px, x.lvl.fair].filter(isNum), lo = Math.min(...L) * 0.97, hi = Math.max(...L) * 1.03, X = (v) => ((v - lo) / (hi - lo)) * 100;
+      const sev = x.act.sev;
+      const tps = x.lvl.tps, L = [x.stop, h.cost, x.px, ...tps].filter(isNum), lo = Math.min(...L) * 0.97, hi = Math.max(...L) * 1.03, X = (v) => ((v - lo) / (hi - lo)) * 100;
+      const hitL = x.ep.levels.filter((l) => l.status === "hit"), nearL = x.ep.levels.filter((l) => l.status === "near");
       const canSell = !x.sellable || x.sellable <= today;
       return `<div class="pos ${sev >= 2 ? "sell" : sev === 1 ? "wait" : ""}">
-        <div class="pk-head"><div><a class="sym" href="#/s/${h.symbol}">${h.symbol}</a> <span class="pill ${sev >= 2 ? "sell" : sev === 1 ? "wait" : "buy"}">${esc(a?.action || (sev >= 3 ? "CHẠM CẮT LỖ" : "GIỮ"))}</span>${h.basket ? ` <span class="pill">${esc(BASKET_SHORT[h.basket] || h.basket)}</span>` : ""}
+        <div class="pk-head"><div><a class="sym" href="#/s/${h.symbol}">${h.symbol}</a> <span class="pill ${sev >= 2 ? "sell" : sev === 1 ? "wait" : "buy"}">${esc(x.act.action)}</span> <span class="pill">${esc(STYLE_SHORT[x.ep.style])}</span>${h.basket ? ` <span class="pill">${esc(BASKET_SHORT[h.basket] || h.basket)}</span>` : ""}
           <small class="pk-name">${esc(r.name || "")} · ${esc(r.sector || "")}</small></div>
           <div class="pk-px">${mini(r.spk, { w: 90, h: 30 })}<div><b>${nf(x.px)}</b><small class="${cls(r.chg1d)}">${pct(r.chg1d, 1)} hôm nay</small></div>
             <div><b class="${cls(x.pnl)}">${pct(x.pnlPct, 1)}</b><small class="${cls(x.pnl)}">${big(x.pnl)} đ</small></div></div></div>
         <div class="ladder sm" aria-hidden="true"><div class="lt"></div>
           <i class="lz risk" style="left:${X(x.stop)}%;width:${Math.max(0, X(h.cost) - X(x.stop))}%"></i>
-          ${isNum(x.lvl.fair) && x.lvl.fair > h.cost ? `<i class="lz gain" style="left:${X(h.cost)}%;width:${X(x.lvl.fair) - X(h.cost)}%"></i>` : ""}
-          <i class="lk stop" style="left:${X(x.stop)}%"></i><i class="lk cost" style="left:${X(h.cost)}%"></i>${isNum(x.lvl.fair) ? `<i class="lk" style="left:${X(x.lvl.fair)}%"></i>` : ""}
+          ${tps.length && tps[0] > h.cost ? `<i class="lz gain" style="left:${X(h.cost)}%;width:${X(Math.max(...tps)) - X(h.cost)}%"></i>` : ""}
+          <i class="lk stop" style="left:${X(x.stop)}%"></i><i class="lk cost" style="left:${X(h.cost)}%"></i>${tps.map((v) => `<i class="lk" style="left:${X(v)}%"></i>`).join("")}
           <i class="lp" style="left:${X(x.px)}%"><em>${nf(x.px)}</em></i></div>
-        <div class="lleg" style="display:block"><span class="down">dừng lỗ ${nf(x.stop)}</span> · giá vốn ${nf(h.cost)} · hoà vốn ${nf(x.be)}${isNum(x.lvl.fair) ? ` · <span class="up">hợp lý ${nf(x.lvl.fair)}</span>` : ""}</div>
+        <div class="lleg" style="display:block"><span class="down">${x.ep.style === "long" || x.ep.style === "income" ? (h.exit_custom?.stop ? "dừng" : "xem lại") : "dừng"} ${nf(x.stop)}</span><span>giá vốn ${nf(h.cost)}</span>${tps.map((v, i) => `<span class="up">chốt ${i + 1}: ${nf(v)}</span>`).join("")}</div>
         <div class="pk-facts f6">
           <div><small>Khối lượng</small><b>${nf(h.qty, 0)}</b><small>${big(x.mv)} đ</small></div>
           <div><small>Tỷ trọng</small><b class="${w > (risk.max_weight_per_stock ?? 20) ? "down" : ""}">${pct(w, 1, false)}</b><small>tối đa ${risk.max_weight_per_stock ?? 20}%</small></div>
@@ -1157,7 +1229,8 @@ async function viewPortfolio() {
           <div><small>Đã nắm</small><b>${x.held ?? "—"} phiên</b><small>mua ${esc(h.date || "—")}</small></div>
           <div><small>Được bán từ</small><b class="${canSell ? "up" : "ref"}">${canSell ? "đã bán được" : esc(x.sellable)}</b><small>hàng về T+2</small></div>
           <div class="hlf"><small>P/E</small><b>${nf(r.pe, 1)}</b><small>ngành ${nf(r.pe_ind, 1)}</small></div></div>
-        <p class="why">${esc((a?.reasons || [x.px <= x.stop ? "Giá đã thủng điểm dừng lỗ" : "Tư vấn chi tiết có sau lượt chạy kế tiếp"]).join("; "))}${x.held >= 60 && isNum(x.pnlPct) && x.pnlPct < 5 ? " · Đã nắm hơn 60 phiên mà chưa có lãi đáng kể – xem lại luận điểm." : ""}${x.fromPeak <= -15 && x.peak > h.cost * 1.1 ? ` · Đã trả lại ${nf(-x.fromPeak, 0)}% từ đỉnh – cân nhắc khoá lãi.` : ""}</p>
+        ${exitBox(x, today)}
+        <p class="why">${hitL.length ? `<b class="${hitL.some((l) => l.kind !== "tp") ? "down" : "up"}">Đã chạm: ${hitL.map((l) => esc(l.label) + (l.sell > 0 ? " → " + fracVi(l.sell).toLowerCase() + (l.qty ? " " + nf(l.qty, 0) + " cp" : "") : " → xem lại")).join("; ")}.</b> ` : nearL.length ? `<b class="ref">Sắp chạm: ${nearL.map((l) => `${esc(l.label)} ${nf(l.price)}`).join("; ")}.</b> ` : ""}${esc(x.act.notes.join("; ") || (hitL.length || nearL.length ? "" : "Chưa chạm mức thoát nào – cứ giữ, hệ thống nhắn Telegram khi giá cách một mức ≤ 3% và khi chạm."))}${x.fromPeak <= -15 && x.peak > h.cost * 1.1 ? ` · Đã trả lại ${nf(-x.fromPeak, 0)}% từ đỉnh – cân nhắc khoá lãi.` : ""}</p>
         <div class="pos-act"><button class="btn" data-act="buy" data-s="${h.symbol}">Mua thêm</button><button class="btn" data-act="part" data-s="${h.symbol}">Bán một phần</button><button class="btn" data-act="all" data-s="${h.symbol}">Bán hết</button>
           <button class="chip" data-edit="${h.symbol}" title="Sửa khối lượng / giá vốn mà không ghi nhật ký">Sửa</button></div></div>`;
     };
@@ -1174,7 +1247,7 @@ async function viewPortfolio() {
     <div class="g g-main sec">
       <div class="stack">
         <section class="panel"><div class="ph"><h2>Mã đang nắm</h2><span class="meta">bấm "Bán một phần" để chốt từng phần – lãi/lỗ được ghi lại</span></div>
-          ${P.length ? `<div class="picks">${P.sort((a, b) => (b.a?.severity ?? 0) - (a.a?.severity ?? 0) || b.mv - a.mv).map(card).join("")}</div>` : `<div class="empty">Chưa có mã nào. Ghi lệnh mua ở khung "Mua mã mới" hoặc thêm mã đang nắm.</div>`}</section>
+          ${P.length ? `<div class="picks">${P.sort((a, b) => b.act.sev - a.act.sev || b.mv - a.mv).map(card).join("")}</div>` : `<div class="empty">Chưa có mã nào. Ghi lệnh mua ở khung "Mua mã mới" hoặc thêm mã đang nắm.</div>`}</section>
         <section class="panel hero" id="rebal"><div class="ph"><h2>Kế hoạch cơ cấu danh mục</h2>
           <label style="display:flex;gap:5px;align-items:center;font-size:.78rem"><input type="checkbox" id="rbCap" ${lsGet("rbCap", true) ? "checked" : ""}> Giảm tỷ trọng theo đèn (${LIGHT_VI[t.regime.light]}: tối đa ${t.regime.exposure}%)</label>
           <span class="meta">theo tư vấn từng mã, trần tỷ trọng mã/ngành và danh sách MUA</span></div>
@@ -1207,6 +1280,7 @@ async function viewPortfolio() {
             <div class="field w90"><label for="hc">Giá vốn</label><input id="hc" inputmode="decimal"></div>
             <div class="field w140"><label for="hd">Ngày mua</label><input id="hd" type="date"></div>
             <div class="field w140"><label for="hb">Rổ</label><select id="hb"><option value="">Không rõ</option>${Object.entries(BASKET_SHORT).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div>
+            <div class="field w140"><label for="hst">Phong cách (luật thoát)</label><select id="hst"><option value="">Tự theo rổ</option>${STYLE_ORDER.map((k) => `<option value="${k}">${STYLE_SHORT[k]}</option>`).join("")}</select></div>
             <button class="btn" id="add">Lưu mã</button><button class="btn" id="del">Xoá mã</button></div>
           <p class="faint" style="font-size:.72rem;margin-top:6px">Dùng khi nhập danh mục có sẵn từ trước, hoặc sửa cho khớp với tài khoản CTCK. Mua/bán thật thì nên dùng nút trên thẻ mã để lãi/lỗ được ghi lại.</p></details>
       </div>
@@ -1215,27 +1289,36 @@ async function viewPortfolio() {
     const posOf = (s) => P.find((x) => x.h.symbol === s);
     $$("[data-act]").forEach((b) => (b.onclick = () => {
       const x = posOf(b.dataset.s), act = b.dataset.act;
-      const sev = x.a?.severity ?? 0;
+      const sev = x.act.sev;
       const o = { symbol: x.h.symbol, side: act === "buy" ? "buy" : "sell", price: x.px, held: x.h.qty, cost: x.h.cost, snap: snapOf(x.h.symbol), basket: x.h.basket,
         qty: act === "all" ? x.h.qty : act === "part" ? lot(x.h.qty / 2) || x.h.qty : null,
         decision: act === "buy" ? (picks.some((p) => p.symbol === x.h.symbol) ? "sys" : "self") : sev >= 2 ? "sys" : sev === 0 ? "against" : "self",
         note: act !== "buy" && x.sellable > today ? `Cổ phiếu mua ngày ${x.h.last_buy || x.h.date} chỉ bán được từ ${x.sellable} (T+2).` : act === "buy" && x.pnlPct < -7 ? "Đang lỗ – mua thêm để bình quân giá chỉ nên làm khi luận điểm cơ bản vẫn đúng và hệ thống vẫn đánh giá tốt." : "" };
       tradeBox(o, done);
     }));
+    $$("[data-exs]").forEach((sel) => (sel.onchange = async () => { const h = pf.holdings.find((y) => y.symbol === sel.dataset.exs); h.style = sel.value; h.exits_done = []; await save(); }));
+    $$("[data-exc]").forEach((b) => (b.onclick = () => { const el = $(`#exc-${b.dataset.exc}`); el.hidden = !el.hidden; }));
+    $$("[data-exsave]").forEach((b) => (b.onclick = async () => { const s = b.dataset.exsave, h = pf.holdings.find((y) => y.symbol === s), box = $(`#exc-${s}`), v = (k) => { const n = Number(String($(`[data-cus="${k}"]`, box).value).replace(",", ".")); return n > 0 ? n : null; };
+      h.exit_custom = { stop: v("stop"), tp: v("tp"), tp_pct: v("tp_pct") || 50 }; if (!h.exit_custom.stop && !h.exit_custom.tp) delete h.exit_custom; await save(); }));
+    $$("[data-exclr]").forEach((b) => (b.onclick = async () => { const h = pf.holdings.find((y) => y.symbol === b.dataset.exclr); delete h.exit_custom; await save(); }));
+    $$("[data-exu]").forEach((b) => (b.onclick = async () => { const [s, k] = b.dataset.exu.split("|"), h = pf.holdings.find((y) => y.symbol === s); h.exits_done = (h.exits_done || []).filter((z) => z !== k); await save(); }));
+    $$("[data-exb]").forEach((b) => (b.onclick = () => { const [s, k] = b.dataset.exb.split("|"), x = posOf(s), l = x.ep.levels.find((z) => z.key === k);
+      tradeBox({ symbol: s, side: "sell", qty: l.qty, price: l.status === "hit" || !l.price ? x.px : l.price, held: x.h.qty, cost: x.h.cost, snap: snapOf(s), basket: x.h.basket, style: x.ep.style, decision: "sys", exit_key: k,
+        reason: `${l.label}${l.price ? " " + nf(l.price) : ""} – ${l.why}`, note: l.status === "hit" ? "" : `Chưa chạm mức này (giá hiện ${nf(x.px)}). Có thể đặt lệnh bán chờ ở ${nf(l.price)} trên app CTCK, khớp xong thì ghi lại ở đây.` + (x.sellable > today ? ` Hàng mua ${x.h.last_buy || x.h.date} bán được từ ${x.sellable} (T+2).` : "") }, done); }));
     $$("[data-rb]").forEach((b) => (b.onclick = () => { const l = plan.lines[Number(b.dataset.rb)], x = posOf(l.symbol);
       tradeBox({ symbol: l.symbol, side: l.side, qty: l.qty, price: l.price, held: x?.h.qty || 0, cost: x?.h.cost, snap: snapOf(l.symbol), basket: l.basket || x?.h.basket, decision: "sys", reason: l.why }, done); }));
     const newBuy = (s) => { s = String(s || "").trim().toUpperCase(); if (!/^[A-Z0-9]{3}$/.test(s)) { toast("Nhập mã 3 ký tự"); return; } const x = posOf(s), pk = picks.find((p) => p.symbol === s);
-      tradeBox({ symbol: s, side: "buy", price: R[s]?.price, qty: pk && capitalOf(pf) ? sharesFor(capitalOf(pf), pk.weight, pk.zone[1]) : null, held: x?.h.qty || 0, cost: x?.h.cost, snap: snapOf(s), basket: pk?.basket, decision: pk ? "sys" : "self",
+      tradeBox({ symbol: s, side: "buy", price: R[s]?.price, qty: pk && capitalOf(pf) ? sharesFor(capitalOf(pf), pk.weight, pk.zone[1]) : null, held: x?.h.qty || 0, cost: x?.h.cost, snap: snapOf(s), basket: pk?.basket, style: pk ? t.style || "position" : null, decision: pk ? "sys" : "self",
         note: pk ? `Trong danh sách MUA: vùng mua ${nf(pk.zone[0])}–${nf(pk.zone[1])}, cắt lỗ ${nf(pk.stop)}, tỷ trọng ${nf(pk.weight, 1)}%` : "Mã không có trong danh sách MUA hôm nay." }, done); };
     $("#nbGo").onclick = () => newBuy($("#nbS").value);
     $("#rbCap").onchange = (e) => { lsSet("rbCap", e.target.checked); render(); };
     $$("[data-nb]").forEach((a) => (a.onclick = (e) => { e.preventDefault(); newBuy(a.dataset.nb); }));
-    $$("[data-edit]").forEach((b) => (b.onclick = () => { const h = pf.holdings.find((x) => x.symbol === b.dataset.edit); $("details.panel").open = true; $("#hs").value = h.symbol; $("#hq").value = h.qty; $("#hc").value = h.cost; $("#hd").value = h.date || ""; $("#hb").value = h.basket || ""; $("#hs").scrollIntoView({ behavior: "smooth", block: "center" }); }));
+    $$("[data-edit]").forEach((b) => (b.onclick = () => { const h = pf.holdings.find((x) => x.symbol === b.dataset.edit); $("details.panel").open = true; $("#hs").value = h.symbol; $("#hq").value = h.qty; $("#hc").value = h.cost; $("#hd").value = h.date || ""; $("#hb").value = h.basket || ""; $("#hst").value = h.style || ""; $("#hs").scrollIntoView({ behavior: "smooth", block: "center" }); }));
     $("#saveCap").onclick = async () => { pf.capital = Number(String($("#cap").value).replace(/\D/g, "")) || null; pf.cash = Number(String($("#cash").value).replace(/\D/g, "")) || 0; await save(); };
     $("#add").onclick = async () => {
       const s = $("#hs").value.trim().toUpperCase(), q = Number(String($("#hq").value).replace(/\D/g, "")), c = Number(String($("#hc").value).replace(",", "."));
       if (!/^[A-Z0-9]{3}$/.test(s) || !q || !c) { toast("Nhập đủ mã, khối lượng và giá vốn"); return; }
-      const h = { symbol: s, qty: q, cost: c, date: $("#hd").value || today, basket: $("#hb").value || null };
+      const h = { symbol: s, qty: q, cost: c, date: $("#hd").value || today, basket: $("#hb").value || null, style: $("#hst").value || null };
       const i = pf.holdings.findIndex((x) => x.symbol === s);
       if (i >= 0) pf.holdings[i] = { ...pf.holdings[i], ...h }; else pf.holdings.push(h);
       await save();
@@ -1248,9 +1331,11 @@ async function viewPortfolio() {
     const why = {};
     P.forEach((x) => {
       const s = x.h.symbol, sev = x.a?.severity ?? (x.px <= x.stop ? 3 : 0), act = x.a?.action || "";
-      if (sev >= 3 || act.startsWith("BÁN") || act.startsWith("CẮT")) { tgt[s] = 0; why[s] = `${act || "Chạm điểm dừng lỗ"} – ${(x.a?.reasons || []).join("; ")}`; }
-      else if (act.startsWith("CHỐT LỜI")) { tgt[s] = x.mv / 2; why[s] = `Chốt lời một nửa – ${(x.a?.reasons || []).join("; ")}`; }
-      else if (sev === 1) { tgt[s] = (x.mv * 2) / 3; why[s] = `Giảm 1/3 – ${(x.a?.reasons || []).join("; ")}`; }
+      const hit = x.ep.levels.filter((l) => l.status === "hit" && l.sell > 0), full = hit.find((l) => l.sell >= 0.999), part = hit.filter((l) => l.sell < 0.999).sort((p, q) => q.price - p.price)[0];
+      if (x.act.action.startsWith("BÁN – LUẬN")) { tgt[s] = 0; why[s] = `${act} – ${(x.a?.reasons || []).join("; ")}`; }
+      else if (full) { tgt[s] = 0; why[s] = `${full.label}${full.price ? " " + nf(full.price) : ""} – ${full.why}`; }
+      else if (part) { tgt[s] = x.mv - part.qty * x.px * 1000; why[s] = `${part.label} ${nf(part.price)} – ${fracVi(part.sell).toLowerCase()} (${part.why})`; }
+      else if (x.ep.style === "position" && x.act.action.startsWith("CÂN NHẮC")) { tgt[s] = (x.mv * 2) / 3; why[s] = `Giảm 1/3 – ${(x.a?.reasons || []).join("; ")}`; }
       if (tgt[s] > maxW) { tgt[s] = maxW; why[s] = (why[s] ? why[s] + "; " : "") + `vượt trần ${risk.max_weight_per_stock ?? 20}% vốn/mã`; }
     });
     const secOf = (s) => R[s]?.sector || "Khác";
@@ -2649,9 +2734,10 @@ async function quickTrade(sym, side) {
   const pf = pfr.data || { holdings: [], cash: 0, capital: null }; pf.holdings = pf.holdings || [];
   const J = { trades: (jr.data && jr.data.trades) || [] };
   const h = pf.holdings.find((x) => x.symbol === sym), r = (SCREENER || []).find((x) => x.symbol === sym) || {};
-  const pk = Object.values(t.styles || { position: t.plan }).flatMap((p) => p.picks || []).find((p) => p.symbol === sym);
+  const pkE = Object.entries(t.styles || { position: t.plan }).flatMap(([k, p]) => (p.picks || []).map((x) => [k, x])).sort((a, b) => (a[0] === (t.style || "position") ? -1 : b[0] === (t.style || "position") ? 1 : 0)).find(([, p]) => p.symbol === sym);
+  const pk = pkE?.[1];
   if (side === "sell" && !h) { toast(`Chưa có ${sym} trong danh mục`); return; }
-  tradeBox({ symbol: sym, side, price: r.price, held: h?.qty || 0, cost: h?.cost, basket: pk?.basket || h?.basket,
+  tradeBox({ symbol: sym, side, price: r.price, held: h?.qty || 0, cost: h?.cost, basket: pk?.basket || h?.basket, style: h?.style || pkE?.[0] || null,
     qty: side === "sell" ? h.qty : pk && capitalOf(pf) ? sharesFor(capitalOf(pf), pk.weight, pk.zone[1]) : null,
     decision: side === "buy" ? (pk ? "sys" : "self") : "self",
     note: side === "buy" ? (pk ? `Trong kế hoạch ${BASKET_SHORT[pk.basket] || ""}: vùng mua ${nf(pk.zone[0])}–${nf(pk.zone[1])}, dừng ${nf(pk.stop)}, tỷ trọng ${nf(pk.weight, 1)}%` : "Mã không có trong danh sách MUA hôm nay.") : "",

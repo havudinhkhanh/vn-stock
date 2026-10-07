@@ -235,6 +235,8 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             "avg_value_bn": float(avg_val.get(s, 0)), "days": len(df),
             "ta_score": ta.get("score"), "ta_label": ta.get("label"), "trend": ta.get("trend"),
             "atr": ta.get("atr"), "from_hi52": ta.get("from_hi52_pct"),
+            "e20": float(ind.ema(c, 20).iloc[-1]) if len(c) >= 20 else None,
+            "e20_below2": bool(len(c) >= 22 and (c.iloc[-2:] < ind.ema(c, 20).iloc[-2:]).all()),
             "st_dir": float(ti["st_dir"].iloc[-1]),
             "rsi": float(ti["rsi"].iloc[-1]) if ti["rsi"].notna().iloc[-1] else None,
             "ret_12_1": float(c.iloc[-22] / c.iloc[-252] - 1) if len(c) > 252 else None,
@@ -412,7 +414,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             "roa", "roic", "gross_margin", "net_margin", "cfo_ni", "fcf_yield", "earnings_yield", "ps", "ev_ebitda",
             "rev_cagr3", "ni_cagr3", "ni_q_yoy", "rev_q_yoy", "ni_growth_streak", "roe_avg5", "payout", "eps", "bvps",
             "smc_bias", "smc_zone", "vsa_bias", "wy_phase", "of_bias", "of_delta5",
-            "smc", "vsa", "wyckoff_ev", "orderflow", "ind_rank", "ind_n", "ni_ttm", "spk"] + [f"in_{b}" for b in st.BASKETS]
+            "smc", "vsa", "wyckoff_ev", "orderflow", "ind_rank", "ind_n", "ni_ttm", "spk", "atr", "e20", "e20_below2", "fair_hi"] + [f"in_{b}" for b in st.BASKETS]
     for c in cols:
         if c not in u:
             u[c] = None

@@ -57,6 +57,19 @@ def compose(today: dict) -> tuple[str | None, dict]:
         for p in acts_new:
             lines.append(f"• <b>{p['symbol']}</b>: <b>{p['action']}</b> – giá {_fmt(p['price'])}, "
                          f"lãi/lỗ {_fmt(p['pnl_pct'], 1)}%\n  <i>{html.escape('; '.join(p['reasons']))}</i>")
+    near_prev = set(prev.get("near_sent", []))
+    near_now = {}
+    for p in pfo.get("positions", []):
+        if p["severity"] >= 2:
+            continue
+        for x in p.get("near") or []:
+            near_now[f"{p['symbol']}:{x['key']}:{x.get('price')}"] = (p, x)
+    near_new = [v for k, v in near_now.items() if k not in near_prev]
+    if near_new:
+        lines.append("<b>⏳ SẮP CHẠM MỨC THOÁT</b>")
+        for p, x in near_new:
+            act = "bán hết" if x["sell"] >= 0.999 else ("xem lại" if x["sell"] == 0 else f"bán {round(x['sell'] * 100)}% (≈ {_fmt(x.get('qty'), 0)} cp)")
+            lines.append(f"• <b>{p['symbol']}</b>: {html.escape(x['label'])} {_fmt(x.get('price'))} – còn {_fmt(x.get('dist'), 1)}% · {act}")
     for w in pfo.get("warnings", []):
         if w not in prev.get("warnings", []):
             lines.append("⚠️ " + html.escape(w))
@@ -68,7 +81,7 @@ def compose(today: dict) -> tuple[str | None, dict]:
             lines.append(f"• <b>{a['symbol']}</b>: {html.escape(a['text'])}" + (f"\n  <i>{html.escape(a['note'])}</i>" if a.get("note") else ""))
     sent_ids = list(sent | {a["id"] for a in today.get("alerts") or []})[-500:]
     state = {"light": reg["light"], "picks": cur_syms,
-             "acts": {p["symbol"]: p["action"] for p in acts}, "warnings": pfo.get("warnings", []), "alerts_sent": sent_ids}
+             "acts": {p["symbol"]: p["action"] for p in acts}, "warnings": pfo.get("warnings", []), "alerts_sent": sent_ids, "near_sent": list(near_now)}
     if not lines and config.get("notify.only_when_action", True):
         return None, state
     head = (f"<b>VN-Stock {today['date']}</b> · Đèn {LIGHT[reg['light']]} · VN-Index "

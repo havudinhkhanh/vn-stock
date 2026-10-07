@@ -4,6 +4,12 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from . import exits as ex
+
+
+def _v(x, nd=2):
+    return f"{x:,.{nd}f}".replace(",", "_").replace(".", ",").replace("_", ".")
+
 
 def advise(holdings: list[dict], u: pd.DataFrame, closes: dict[str, pd.Series], cfg: dict,
            regime: dict, cash_vnd: float = 0.0, capital: float | None = None) -> dict:
@@ -23,30 +29,38 @@ def advise(holdings: list[dict], u: pd.DataFrame, closes: dict[str, pd.Series], 
         rows.append({"symbol": sym, "qty": qty, "cost": cost, "price": price, "date": h.get("date"),
                      "basket": h.get("basket")})
     out = []
+    hmap = {str(h.get("symbol", "")).upper().strip(): h for h in holdings}
     for r in rows:
         sym, price, cost = r["symbol"], r["price"], r["cost"]
         info = u.loc[sym] if sym in u.index else None
         c = closes.get(sym)
         since = c[c.index >= pd.Timestamp(r["date"])] if c is not None and r.get("date") else c
         peak = float(since.max()) if since is not None and len(since) else price
-        atr = float(info["atr"]) if info is not None and pd.notna(info.get("atr")) else price * 0.025
-        trail = peak - 3 * atr
-        hard = cost * (1 - max_sl)
-        stop = max(hard, trail) if cost else trail
+        held = int(len(since) - 1) if since is not None and r.get("date") and len(since) else None
+        inf = {k: (info.get(k) if info is not None else None) for k in ("atr", "e20", "e20_below2", "fair", "fair_hi", "div_yield")}
+        ep = ex.plan(hmap.get(sym, {}), price, peak, held, inf, max_sl * 100)
         pnl = (price / cost - 1) * 100 if cost else None
         actions, reasons = [], []
         sev = 0
-        if price <= stop:
-            actions.append("CẮT LỖ / BÁN")
-            reasons.append(f"Giá {price:.2f} đã chạm điểm dừng {stop:.2f} "
-                           f"({'trailing từ đỉnh ' + format(peak, '.2f') if stop == trail else 'lỗ tối đa ' + str(int(max_sl * 100)) + '%'})")
-            sev = 3
+        hits = [x for x in ep["levels"] if x["status"] == "hit"]
+        full = [x for x in hits if x["sell"] >= 0.999 and x["kind"] in ("stop", "cond", "time", "tp")]
+        part = [x for x in hits if 0 < x["sell"] < 0.999]
+        rev = [x for x in hits if x["sell"] == 0]
+        if full:
+            x = full[0]
+            actions.append("CẮT LỖ / BÁN" if x["kind"] == "stop" and x["price"] and x["price"] < cost else "BÁN HẾT")
+            reasons.append(f"{x['label']}" + (f" {_v(x['price'])}" if x.get("price") else "") + f" – bán hết {_v(x['qty'], 0)} cp. {x['why']}")
+            sev = 3 if x["kind"] in ("stop", "cond") else 2
+        elif part:
+            x = max(part, key=lambda z: z["price"] or 0)
+            actions.append(f"CHỐT LỜI {round(x['sell'] * 100):.0f}%")
+            reasons.append(f"{x['label']} {_v(x['price'])} – bán {_v(x['qty'], 0)} cp. {x['why']}")
+            sev = 2
+        for x in rev:
+            actions.append("XEM LẠI LUẬN ĐIỂM")
+            reasons.append(f"{x['label']} – {x['why']}")
+            sev = max(sev, 1)
         if info is not None:
-            fair = info.get("fair")
-            if pd.notna(fair) and fair and price >= fair * 1.10:
-                actions.append("CHỐT LỜI MỘT PHẦN")
-                reasons.append(f"Giá vượt giá trị hợp lý {fair:.2f} hơn 10% – định giá đã đắt")
-                sev = max(sev, 2)
             thesis = []
             if pd.notna(info.get("fscore")) and info["fscore"] <= 3:
                 thesis.append(f"F-Score chỉ còn {int(info['fscore'])}/9")
@@ -55,27 +69,30 @@ def advise(holdings: list[dict], u: pd.DataFrame, closes: dict[str, pd.Series], 
                 thesis.append("lợi nhuận quý và 12 tháng đều giảm mạnh")
             if pd.notna(info.get("ni_ttm")) and info["ni_ttm"] < 0:
                 thesis.append("đang lỗ 12 tháng gần nhất")
-            if r.get("basket") == "dividend" and pd.notna(info.get("div_yield")) and info["div_yield"] < 2:
+            if (ep["style"] == "income" or r.get("basket") == "dividend") and pd.notna(info.get("div_yield")) and info["div_yield"] < 2:
                 thesis.append("cổ tức tiền mặt đã giảm mạnh")
             if thesis:
-                actions.append("BÁN – LUẬN ĐIỂM GÃY")
-                reasons.append("; ".join(thesis))
-                sev = max(sev, 3)
-            if info.get("trend") == "down" and pnl is not None and pnl < -5 and sev < 2:
+                actions.insert(0, "BÁN – LUẬN ĐIỂM GÃY")
+                reasons.insert(0, "; ".join(thesis))
+                sev = 3
+            if ep["style"] == "position" and info.get("trend") == "down" and pnl is not None and pnl < -5 and sev < 2:
                 actions.append("CÂN NHẮC GIẢM TỶ TRỌNG")
-                reasons.append("Giá trong xu hướng giảm và đang lỗ – giảm bớt để bảo toàn vốn")
+                reasons.append("Giá trong xu hướng giảm và đang lỗ – giảm bớt 1/3 để bảo toàn vốn")
                 sev = max(sev, 1)
         if not actions:
             actions.append("GIỮ")
-            if trail > hard and trail > cost * 0.98:
-                reasons.append(f"Dời điểm cắt lỗ lên {trail:.2f} (cách đỉnh {peak:.2f} 3×ATR)")
+            nxt = sorted([x for x in ep["levels"] if x["status"] in ("near", "far") and x.get("dist") is not None], key=lambda z: abs(z["dist"]))
+            if nxt:
+                x = nxt[0]
+                reasons.append(f"Mức gần nhất: {x['label']} {_v(x['price'])} ({'+' if x['dist'] > 0 else ''}{_v(x['dist'], 1)}%)")
             else:
                 reasons.append("Các tiêu chí cơ bản và định giá vẫn ổn")
         mv = r["qty"] * price * 1000
         out.append({**r, "pnl_pct": round(pnl, 1) if pnl is not None else None,
                     "pnl_vnd": round(r["qty"] * (price - cost) * 1000) if cost else None,
                     "mv_vnd": round(mv), "weight": round(100 * mv / total_mv, 1) if total_mv else None,
-                    "stop": round(stop, 2), "peak": round(peak, 2),
+                    "stop": ep["stop"], "peak": round(peak, 2), "held": held, "style": ep["style"], "exit": ep,
+                    "near": [x for x in ep["levels"] if x["status"] == "near"],
                     "fair": round(float(info["fair"]), 2) if info is not None and pd.notna(info.get("fair")) else None,
                     "action": actions[0], "actions": actions, "reasons": reasons, "severity": sev})
     # mẫu số tỷ trọng: tổng vốn anh nhập (nếu có), không thì cổ phiếu + tiền mặt
