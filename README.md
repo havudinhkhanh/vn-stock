@@ -107,12 +107,13 @@ Chưa làm bước này thì nút trên web sẽ dẫn anh sang trang GitHub Act
 
 Mở file **config.yaml** trên GitHub, bấm biểu tượng bút chì, sửa số, rồi bấm **Commit changes**. Các mục quan trọng:
 
-- `allocation`: tỷ lệ vốn cho từng rổ. Mặc định là GARP 40, Cổ tức 30, Giá trị 30.
+- `allocation`: tỷ lệ vốn cho từng rổ. Đang dùng: GARP 40, Tăng trưởng 30, Phòng thủ 30 (chọn theo backtest 2020–2026).
+- `strategy`: quy tắc chọn mã đã kiểm chứng: chỉ mua khi giá đang trong xu hướng tăng (giá > MA50 > MA200), vốn hoá từ 1.000 tỷ, chặn "bẫy giá trị".
 - `methods`: trọng số 9 phương pháp chấm điểm.
 - `risk`:
   - số mã tối đa
   - tỷ trọng tối đa mỗi mã, mỗi ngành
-  - mức cắt lỗ tối đa
+  - mức cắt lỗ tối đa (mặc định 20%; backtest cho thấy 12% làm giảm lợi nhuận)
   - biên an toàn khi mua
 - `valuation`: lãi suất phi rủi ro, phần bù rủi ro, tăng trưởng dài hạn.
 
