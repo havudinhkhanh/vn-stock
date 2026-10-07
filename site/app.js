@@ -220,8 +220,8 @@ function scatterSvg(pts, opt = {}) {
   if (!P.length) return `<p class="muted">Không đủ số liệu cho biểu đồ.</p>`;
   const qx = (a, q) => { const s = [...a].sort((x, y) => x - y); return s[Math.round(q * (s.length - 1))]; };
   const xs = P.map((p) => p.x), ys = P.map((p) => p.y);
-  let x0 = opt.xmin ?? (opt.clip ? qx(xs, 0.03) : Math.min(...xs)), x1 = opt.xmax ?? (opt.clip ? qx(xs, 0.97) : Math.max(...xs));
-  let y0 = opt.ymin ?? (opt.clip ? qx(ys, 0.03) : Math.min(...ys)), y1 = opt.ymax ?? (opt.clip ? qx(ys, 0.97) : Math.max(...ys));
+  let x0 = opt.xmin ?? (opt.clip ? qx(xs, 0.05) : Math.min(...xs)), x1 = opt.xmax ?? (opt.clip ? qx(xs, 0.95) : Math.max(...xs));
+  let y0 = opt.ymin ?? (opt.clip ? qx(ys, 0.05) : Math.min(...ys)), y1 = opt.ymax ?? (opt.clip ? qx(ys, 0.95) : Math.max(...ys));
   if (opt.cx != null) { const dx = Math.max(Math.abs(x1 - opt.cx), Math.abs(opt.cx - x0)) || 1; x0 = opt.cx - dx; x1 = opt.cx + dx; }
   if (opt.cy != null) { const dy = Math.max(Math.abs(y1 - opt.cy), Math.abs(opt.cy - y0)) || 1; y0 = opt.cy - dy; y1 = opt.cy + dy; }
   if (x1 === x0) { x1 += 1; x0 -= 1; } if (y1 === y0) { y1 += 1; y0 -= 1; }
@@ -616,20 +616,96 @@ function levelsKv(w) {
 }
 
 // ================================================================ NGÀNH
+function groupMembers(g, rows) {
+  const S = new Set(g.sectors || []), I = new Set(g.industries || []), Y = new Set(g.symbols || []), X = new Set(g.exclude || []);
+  return rows.filter((r) => !X.has(r.symbol) && (S.has(r.sector) || I.has(r.industry) || Y.has(r.symbol)));
+}
+function aggRec(M) {
+  const med = (k, pos) => { const a = M.map((r) => r[k]).filter((v) => isNum(v) && (!pos || v > 0)).map(Number).sort((x, y) => x - y); if (!a.length) return null; const h = a.length / 2; return a.length % 2 ? a[Math.floor(h)] : (a[h - 1] + a[h]) / 2; };
+  const liq = M.filter((r) => (r.avg_value_bn ?? 0) > 0.3);
+  const wr = (k) => { let s = 0, w = 0; liq.forEach((r) => { if (isNum(r[k])) { s += r[k] * r.avg_value_bn; w += r.avg_value_bn; } }); return w ? s / w : null; };
+  const sum = (k) => M.reduce((a, r) => a + (Number(r[k]) || 0), 0);
+  return { n: M.length, n_sec: new Set(M.map((r) => r.sector)).size, mcap_bn: sum("mcap_bn"), value_bn: sum("avg_value_bn"), r1w: wr("chg1w"), r1m: wr("chg1m"), r3m: wr("chg3m"), r1y: wr("chg1y"),
+    pe_med: med("pe", true), pb_med: med("pb", true), roe_med: med("roe"), ni_yoy_med: med("ni_yoy"), rev_yoy_med: med("rev_yoy"), div_med: med("div_yield"), fscore_med: med("fscore"), de_med: med("de"),
+    upside_med: med("upside"), composite_med: med("composite"), up_pct: M.length ? 100 * M.filter((r) => r.trend === "up").length / M.length : null };
+}
+function groupEditor(g, rows) {
+  const tree = {};
+  rows.forEach((r) => { if (!r.sector) return; const t = (tree[r.sector] = tree[r.sector] || { n: 0, ind: {} }); t.n++; if (r.industry) t.ind[r.industry] = (t.ind[r.industry] || 0) + 1; });
+  const S = new Set(g.sectors), I = new Set(g.industries);
+  return `<section class="panel" id="gEdit" ${g.id === "new" ? "" : "hidden"}><div class="ph"><h2>${g.id === "new" ? "Tự nhóm ngành / mã" : "Sửa nhóm"}</h2><span class="meta">tick ngành cấp 2 (lấy cả ngành) hoặc từng nhóm ngành cấp 3, thêm mã lẻ nếu muốn</span></div>
+    <div class="filters"><div class="field w200"><label for="gName">Tên nhóm</label><input id="gName" value="${esc(g.name)}" placeholder="ví dụ: Hưởng lợi đầu tư công" style="width:240px"></div>
+      <div class="field" style="flex:1;min-width:220px"><label for="gSyms">Thêm mã lẻ (cách nhau dấu phẩy/khoảng trắng)</label><input id="gSyms" value="${esc((g.symbols || []).join(", "))}" placeholder="HPG, VCG, PLC" autocapitalize="characters"></div>
+      <div class="field" style="flex:1;min-width:180px"><label for="gEx">Loại trừ mã</label><input id="gEx" value="${esc((g.exclude || []).join(", "))}" placeholder="ví dụ ROS" autocapitalize="characters"></div></div>
+    <div class="views" style="margin:8px 0 4px"><small class="muted" style="align-self:center">Mẫu nhanh:</small>${GROUP_TEMPLATES.map((x, i) => `<button data-tpl="${i}">${esc(x.name)}</button>`).join("")}</div>
+    <div class="gtree">${Object.entries(tree).sort((a, b) => b[1].n - a[1].n).map(([sn, t]) => `<div class="gnode"><label class="gsec"><input type="checkbox" data-gs="${esc(sn)}" ${S.has(sn) ? "checked" : ""}> <b>${esc(sn)}</b> <small class="faint">${t.n}</small></label>
+      ${Object.keys(t.ind).length > 1 || Object.keys(t.ind)[0] !== sn ? Object.entries(t.ind).sort((a, b) => b[1] - a[1]).map(([iname, n]) => `<label class="gind"><input type="checkbox" data-gi="${esc(iname)}" data-parent="${esc(sn)}" ${I.has(iname) || S.has(sn) ? "checked" : ""} ${S.has(sn) ? "disabled" : ""}> ${esc(iname)} <small class="faint">${n}</small></label>`).join("") : ""}</div>`).join("")}</div>
+    <p style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"><button class="btn primary" id="gSave">Lưu nhóm & chạy phương án</button>${g.id !== "new" ? `<button class="btn" id="gDel">Xoá nhóm</button><button class="btn" id="gClose">Đóng</button>` : ""}<small class="muted" id="gCnt"></small></p></section>`;
+}
+const GROUP_TEMPLATES = [
+  { name: "Đầu tư công", sectors: ["Xây dựng và Vật liệu"], industries: ["Kim loại"], symbols: [] },
+  { name: "Tài chính (NH + CK + BH)", sectors: ["Ngân hàng", "Dịch vụ tài chính", "Bảo hiểm"], industries: [], symbols: [] },
+  { name: "Tiêu dùng", sectors: ["Thực phẩm và đồ uống", "Bán lẻ", "Hàng cá nhân & Gia dụng"], industries: [], symbols: [] },
+  { name: "Năng lượng & tiện ích", sectors: ["Dầu khí", "Điện, nước & xăng dầu khí đốt"], industries: [], symbols: [] },
+  { name: "Xuất khẩu & KCN", sectors: [], industries: ["Vận tải", "Hóa chất"], symbols: [] },
+  { name: "Phòng thủ", sectors: ["Y tế", "Điện, nước & xăng dầu khí đốt", "Viễn thông"], industries: [], symbols: [] },
+];
+function bindGroupEditor(g, GROUPS, rows) {
+  const box = $("#gEdit"); if (!box) return;
+  const parseSyms = (v) => [...new Set(String(v).toUpperCase().split(/[^A-Z0-9]+/).filter((x) => /^[A-Z0-9]{3}$/.test(x)))];
+  const collect = () => {
+    const sectors = $$("[data-gs]", box).filter((x) => x.checked).map((x) => x.dataset.gs);
+    const ss = new Set(sectors);
+    const industries = $$("[data-gi]", box).filter((x) => x.checked && !ss.has(x.dataset.parent)).map((x) => x.dataset.gi);
+    return { name: $("#gName").value.trim(), sectors, industries, symbols: parseSyms($("#gSyms").value), exclude: parseSyms($("#gEx").value) };
+  };
+  const upd = () => { const c = collect(); $("#gCnt").textContent = `→ ${groupMembers(c, rows).length} mã`; };
+  $$("[data-gs]", box).forEach((cb) => (cb.onchange = () => { $$(`[data-gi][data-parent="${CSS.escape(cb.dataset.gs)}"]`, box).forEach((x) => { x.disabled = cb.checked; x.checked = cb.checked; }); upd(); }));
+  $$("[data-gi], #gSyms, #gEx", box).forEach((x) => (x.oninput = upd));
+  $$("[data-tpl]", box).forEach((b) => (b.onclick = () => {
+    const tp = GROUP_TEMPLATES[Number(b.dataset.tpl)];
+    if (!$("#gName").value.trim()) $("#gName").value = tp.name;
+    $$("[data-gs]", box).forEach((cb) => { cb.checked = tp.sectors.includes(cb.dataset.gs); });
+    $$("[data-gi]", box).forEach((x) => { const ps = tp.sectors.includes(x.dataset.parent); x.disabled = ps; x.checked = ps || tp.industries.includes(x.dataset.gi); });
+    upd();
+  }));
+  upd();
+  const persist = async (list) => { const ok = await Store.put("groups", { list }); toast(ok ? "Đã lưu nhóm và đồng bộ" : "Đã lưu nhóm trên trình duyệt này"); };
+  $("#gSave").onclick = async () => {
+    const c = collect();
+    if (!c.name) { toast("Đặt tên cho nhóm"); $("#gName").focus(); return; }
+    if (!groupMembers(c, rows).length) { toast("Nhóm chưa có mã nào"); return; }
+    const id = g.id === "new" ? "g" + Date.now().toString(36) : g.id;
+    const list = GROUPS.filter((x) => x.id !== id).concat([{ id, ...c, updated: new Date().toISOString() }]);
+    await persist(list);
+    const h = `#/sector/${enc(id)}/g`;
+    if (location.hash === h) route(); else location.hash = h;
+  };
+  if ($("#gDel")) $("#gDel").onclick = async () => { await persist(GROUPS.filter((x) => x.id !== g.id)); lsSet("lastSecHash", null); location.hash = "#/sector"; };
+  if ($("#gClose")) $("#gClose").onclick = () => (box.hidden = true);
+  if ($("#gEditBtn")) $("#gEditBtn").onclick = () => { box.hidden = !box.hidden; if (!box.hidden) box.scrollIntoView({ behavior: "smooth", block: "start" }); };
+}
 async function viewSector(name, lvArg) {
-  const [secs, rows, m, t] = await Promise.all([load("data/sectors.json"), screenerRows(), load("data/market.json"), load("data/today.json")]);
+  const [secs, rows, m, t, gr] = await Promise.all([load("data/sectors.json"), screenerRows(), load("data/market.json"), load("data/today.json"), Store.get("groups")]);
   const L2 = secs.sector || [], L3 = secs.industry || [];
   const byName2 = Object.fromEntries(L2.map((s) => [s.name, s])), byName3 = Object.fromEntries(L3.map((s) => [s.name, s]));
+  let GROUPS = gr.data && Array.isArray(gr.data.list) ? gr.data.list : [];
+  const isGroup = lvArg === "g";
+  const group = isGroup ? (name === "new" ? { id: "new", name: "", sectors: [], industries: [], symbols: [] } : GROUPS.find((g) => g.id === name)) : null;
+  if (isGroup && !group) { lsSet("lastSecHash", null); location.hash = "#/sector"; return; }
   if (!name) {
+    const lh = lsGet("lastSecHash", null);
+    if (lh && lh.includes("/g") && lh !== "#/sector/new/g") { location.hash = lh; return; }
     name = lsGet("lastSector", null);
     if (!name || !(byName2[name] || byName3[name])) name = (L2.find((s) => s.quadrant === "Dẫn dắt") || L2[0] || {}).name;
     if (!name) { app().innerHTML = `<div class="empty">Chưa có dữ liệu ngành – có sau lượt chạy kế tiếp.</div>`; return; }
   }
-  const level = lvArg === "l3" || (!byName2[name] && (byName3[name] || rows.some((r) => r.industry === name))) ? "industry" : "sector";
-  lsSet("lastSector", name);
-  const rec = level === "sector" ? byName2[name] : byName3[name];
-  const parent = level === "sector" ? name : (rows.find((r) => r.industry === name) || {}).sector;
-  const members = rows.filter((r) => r[level] === name);
+  if (isGroup) lsSet("lastSecHash", location.hash); else lsSet("lastSecHash", null);
+  const level = isGroup ? "group" : lvArg === "l3" || (!byName2[name] && (byName3[name] || rows.some((r) => r.industry === name))) ? "industry" : "sector";
+  if (!isGroup) lsSet("lastSector", name);
+  const members = isGroup ? groupMembers(group, rows) : rows.filter((r) => r[level] === name);
+  const rec = isGroup ? aggRec(members) : level === "sector" ? byName2[name] : byName3[name];
+  const parent = isGroup ? null : level === "sector" ? name : (rows.find((r) => r.industry === name) || {}).sector;
   const subInd = [...new Set(rows.filter((r) => r.sector === parent).map((r) => r.industry).filter(Boolean))]
     .map((n) => ({ name: n, n: rows.filter((r) => r.industry === n).length, rec: byName3[n] })).sort((a, b) => b.n - a.n);
   const picks = new Set((t.plan?.picks || []).map((p) => p.symbol));
@@ -641,6 +717,10 @@ async function viewSector(name, lvArg) {
   const side = L2.map((s) => `<button data-go="${esc(link(s.name, "sector"))}" class="${level === "sector" && s.name === name ? "on" : ""}">
       <span><span class="quad" style="background:${qcol(s.quadrant)}"></span>${esc(s.name)}</span><small class="${cls(s.r1m)}">${pct(s.r1m, 0)}</small><small class="faint">${s.n}</small></button>
       ${s.name === parent ? subInd.map((x) => `<button class="sub ${level === "industry" && x.name === name ? "on" : ""}" data-go="${esc(link(x.name, "industry"))}"><span>${x.rec ? `<span class="quad" style="background:${qcol(x.rec.quadrant)}"></span>` : ""}${esc(x.name)}</span><small class="${cls(x.rec?.r1m)}">${x.rec ? pct(x.rec.r1m, 0) : ""}</small><small class="faint">${x.n}</small></button>`).join("") : ""}`).join("");
+  const gCount = (g) => groupMembers(g, rows).length;
+  const gside = `<div class="faint" style="font-size:.68rem;padding:6px 8px 2px;letter-spacing:.04em">NHÓM CỦA TÔI</div>` + GROUPS.map((g) => `<button data-go="#/sector/${enc(g.id)}/g" class="${isGroup && group.id === g.id ? "on" : ""}"><span>★ ${esc(g.name)}</span><small></small><small class="faint">${gCount(g)}</small></button>`).join("")
+    + `<button data-go="#/sector/new/g" class="${isGroup && group.id === "new" ? "on" : ""}"><span class="up">＋ Tự nhóm ngành / mã</span><small></small><small></small></button><div class="faint" style="font-size:.68rem;padding:8px 8px 2px;letter-spacing:.04em">NGÀNH CÓ SẴN</div>`;
+  const gopts = `<optgroup label="Nhóm của tôi">${GROUPS.map((g) => `<option value="#/sector/${enc(g.id)}/g" ${isGroup && group.id === g.id ? "selected" : ""}>★ ${esc(g.name)} (${gCount(g)})</option>`).join("")}<option value="#/sector/new/g" ${isGroup && group.id === "new" ? "selected" : ""}>＋ Tự nhóm ngành / mã</option></optgroup><optgroup label="Ngành có sẵn">`;
   const opts = L2.map((s) => `<option value="${esc(link(s.name, "sector"))}" ${level === "sector" && s.name === name ? "selected" : ""}>${esc(s.name)} (${s.n})</option>
       ${s.name === parent ? subInd.map((x) => `<option value="${esc(link(x.name, "industry"))}" ${level === "industry" && x.name === name ? "selected" : ""}>  └ ${esc(x.name)} (${x.n})</option>`).join("") : ""}`).join("");
   const bt = level === "sector" ? (secs.backtest || {})[name] : null;
@@ -649,22 +729,29 @@ async function viewSector(name, lvArg) {
   app().innerHTML = `
   <div class="g g-side">
     <aside class="panel flush"><div class="ph"><h2>Ngành</h2><span class="meta">1 tháng · số mã</span></div>
-      <div class="only-m" style="padding:0 10px 10px"><select id="secSel" style="width:100%;padding:6px;border:1px solid var(--line);border-radius:6px;background:var(--surface)">${opts}</select></div>
-      <div class="sec-list only-d" style="padding:0 6px 8px">${side}</div>
-      <div class="only-d" style="padding:4px 10px 10px">${L2.length ? rrgSvg(L2, level === "sector" ? name : parent, { short: true, labels: false, h: 260, w: 300 }) : ""}</div></aside>
+      <div class="only-m" style="padding:0 10px 10px"><select id="secSel" style="width:100%;padding:6px;border:1px solid var(--line);border-radius:6px;background:var(--surface)">${gopts}${opts}</optgroup></select></div>
+      <div class="sec-list only-d" style="padding:0 6px 8px">${gside}${side}</div>
+      <div class="only-d" style="padding:4px 10px 10px">${L2.length ? rrgSvg(L2, level === "sector" ? name : parent || "", { short: true, labels: false, h: 260, w: 300 }) : ""}</div></aside>
     <div class="stack">
-      <div class="ph" style="margin:0"><h1>${esc(name)}</h1>
-        ${rec ? `<span class="pill" style="color:${qcol(rec.quadrant)}"><span class="quad" style="background:${qcol(rec.quadrant)}"></span>${esc(rec.quadrant)}</span>` : ""}
-        <span class="pill">${level === "sector" ? "Ngành cấp 2" : "Nhóm ngành cấp 3"}${level === "industry" && parent ? " · thuộc " + esc(parent) : ""}</span>
+      <div class="ph" style="margin:0"><h1>${esc(isGroup ? group.name || "Nhóm mới" : name)}</h1>
+        ${rec?.quadrant ? `<span class="pill" style="color:${qcol(rec.quadrant)}"><span class="quad" style="background:${qcol(rec.quadrant)}"></span>${esc(rec.quadrant)}</span>` : ""}
+        <span class="pill">${isGroup ? `Nhóm tự tạo · ${group.sectors.length} ngành, ${group.industries.length} nhóm ngành, ${group.symbols.length} mã lẻ` : level === "sector" ? "Ngành cấp 2" : "Nhóm ngành cấp 3"}${level === "industry" && parent ? " · thuộc " + esc(parent) : ""}</span>
+        ${isGroup && group.id !== "new" ? `<button class="chip" id="gEditBtn">Sửa nhóm</button>` : ""}
         <span class="meta">${members.length} mã · ${members.filter((r) => r.liquid_ok).length} mã thanh khoản</span></div>
-      ${rec ? kpis([["Vốn hoá", mcapFmt(rec.mcap_bn)], ["GTGD/ngày", bn(rec.value_bn)], ["1 tuần", pct(rec.r1w), cls(rec.r1w)], ["1 tháng", pct(rec.r1m), cls(rec.r1m)], ["3 tháng", pct(rec.r3m), cls(rec.r3m)],
+      ${isGroup ? groupEditor(group, rows) : ""}
+      ${isGroup ? (members.length ? kpis([["Số ngành", rec.n_sec], ["Vốn hoá", mcapFmt(rec.mcap_bn)], ["GTGD/ngày", bn(rec.value_bn)], ["1 tuần", pct(rec.r1w), cls(rec.r1w)], ["1 tháng", pct(rec.r1m), cls(rec.r1m)],
+          ["3 tháng", pct(rec.r3m), cls(rec.r3m)], ["1 năm", pct(rec.r1y), cls(rec.r1y)], ["% xu hướng tăng", nf(rec.up_pct, 0) + "%"], ["P/E trung vị", nf(rec.pe_med, 1)], ["P/B", nf(rec.pb_med)], ["ROE", pct(rec.roe_med, 1, false)],
+          ["LN 12T", pct(rec.ni_yoy_med), cls(rec.ni_yoy_med)], ["DT 12T", pct(rec.rev_yoy_med), cls(rec.rev_yoy_med)], ["Cổ tức", pct(rec.div_med, 1, false)], ["F-Score", nf(rec.fscore_med, 1)], ["Vay/Vốn", nf(rec.de_med)],
+          ["Tiềm năng TV", pct(rec.upside_med), cls(rec.upside_med)], ["Điểm TV", scoreCell(rec.composite_med)]]) : `<div class="empty">Nhóm chưa có mã nào – chọn ngành hoặc nhập mã ở khung trên.</div>`)
+      : rec ? kpis([["Vốn hoá", mcapFmt(rec.mcap_bn)], ["GTGD/ngày", bn(rec.value_bn)], ["1 tuần", pct(rec.r1w), cls(rec.r1w)], ["1 tháng", pct(rec.r1m), cls(rec.r1m)], ["3 tháng", pct(rec.r3m), cls(rec.r3m)],
         ["6 tháng", pct(rec.r6m), cls(rec.r6m)], ["1 năm", pct(rec.r1y), cls(rec.r1y)], ["% trên MA50", nf(rec.above50, 0) + "%"], ["% trên MA200", nf(rec.above200, 0) + "%"],
         ["RS-Ratio / Mom", `${nf(rec.rs_ratio, 1)} / ${nf(rec.rs_mom, 1)}`], ["P/E trung vị", nf(rec.pe_med, 1)], ["P/E so lịch sử", isNum(rec.pe_pctl_hist) ? `rẻ hơn ${nf(100 - rec.pe_pctl_hist, 0)}% thời gian` : "—", "", "Tỷ lệ các quý trong 6 năm có P/E ngành cao hơn hiện tại"],
         ["P/B", nf(rec.pb_med)], ["ROE", nf(rec.roe_med, 1) + "%"], ["LN 12T", pct(rec.ni_yoy_med), cls(rec.ni_yoy_med)], ["DT 12T", pct(rec.rev_yoy_med), cls(rec.rev_yoy_med)],
         ["Cổ tức", nf(rec.div_med, 1) + "%"], ["F-Score", nf(rec.fscore_med, 1)], ["Vay/Vốn", nf(rec.de_med)], ["Tiềm năng TV", pct(rec.upside_med), cls(rec.upside_med)],
         ["Điểm TV", scoreCell(rec.composite_med)], ["SMC TB", isNum(rec.smc_bias) ? `<span class="${rec.smc_bias >= 0.25 ? "up" : rec.smc_bias <= -0.25 ? "down" : ""}">${nf(rec.smc_bias, 2)}</span>` : "—"]])
         : `<p class="note">Nhóm ngành nhỏ (dưới 3 mã thanh khoản) nên chưa có chỉ số ngành – vẫn xếp hạng được các mã bên dưới.</p>`}
-      ${rec ? `<div class="g g2">
+      ${isGroup && members.length ? `<section class="panel flush"><div class="ph"><h2>Thành phần nhóm</h2><span class="meta">theo ngành gốc · alpha = kết quả backtest chọn mã trong ngành đó</span></div><div class="tw"><table id="gComp"></table></div></section>` : ""}
+      ${rec && !isGroup ? `<div class="g g2">
         <section class="panel"><div class="ph"><h2>Chỉ số ngành so với VN-Index</h2><span class="meta">1 năm, cùng gốc 100</span></div><div class="chart sm" id="secIdx"></div>
           <div class="leg"><span><i style="background:${css("--brand")}"></i>${esc(name)}</span><span><i style="background:${css("--ink-3")}"></i>VN-Index</span></div></section>
         <section class="panel"><div class="ph"><h2>P/E ngành theo quý</h2><span class="meta">trung vị các mã có lãi</span></div>
@@ -679,6 +766,7 @@ async function viewSector(name, lvArg) {
           <div class="field w90"><label>Sàn</label><select id="sE"><option value="">Cả 3 sàn</option>${["HOSE", "HNX", "UPCOM"].map((e) => `<option ${st.exch === e ? "selected" : ""}>${e}</option>`).join("")}</select></div>
           <label style="display:flex;gap:5px;align-items:center;font-size:.8rem"><input type="checkbox" id="sP"> Chỉ mã có lãi</label>
           <label style="display:flex;gap:5px;align-items:center;font-size:.8rem"><input type="checkbox" id="sU" ${st.uptrend ? "checked" : ""}> Chỉ xu hướng tăng (như hệ thống mua)</label>
+          ${isGroup ? `<label style="display:flex;gap:5px;align-items:center;font-size:.8rem" title="Bật: ngân hàng so với ngân hàng, thép so với thép rồi mới gộp lại. Tắt: so tất cả mã trong nhóm với nhau."><input type="checkbox" id="sR" ${st.relative !== false ? "checked" : ""}> So với ngành gốc của từng mã</label>` : ""}
         </div>
         <div id="custom" class="sec" hidden></div></section>
       <div class="podium" id="podium"></div>
@@ -698,6 +786,7 @@ async function viewSector(name, lvArg) {
             <p class="${bt.alpha > 0 ? "" : "note"}" style="font-size:.78rem;margin-top:6px">${bt.alpha > 0 ? `Ở ngành này, chọn 3 mã theo phương án "Tốt nhất ngành" mỗi tháng đã thắng mua đều cả ngành ${pct(bt.alpha)}/năm.`
               : `Ở ngành này, chọn mã theo công thức <b>chưa thắng</b> mua đều cả ngành (${pct(bt.alpha)}/năm) – đừng kỳ vọng nhiều vào việc chọn mã; ưu tiên thời điểm vào ngành và cắt lỗ.`}
               Lần chọn gần nhất: ${(bt.last_picks || []).map((s) => `<a href="#/s/${s}">${s}</a>`).join(", ") || "không có mã đạt (xu hướng giảm)"}.</p>`
+            : isGroup ? `<p class="muted">Nhóm tự tạo chưa có backtest riêng. Xem cột <b>Alpha chọn mã</b> ở bảng Thành phần nhóm: ngành nào alpha dương thì xếp hạng trong ngành đó đáng tin hơn.</p>`
             : `<p class="muted">Backtest chỉ chạy cho ngành cấp 2 có đủ mã thanh khoản và BCTC.${level === "industry" && parent && (secs.backtest || {})[parent] ? ` Xem ngành <a href="${link(parent, "sector")}">${esc(parent)}</a>.` : ""}</p>`}</section>
       </div>
     </div>
@@ -705,7 +794,7 @@ async function viewSector(name, lvArg) {
 
   $$("[data-go]").forEach((b) => (b.onclick = () => (location.hash = b.dataset.go)));
   $("#secSel").onchange = (e) => (location.hash = e.target.value);
-  const save = () => lsSet("secState", { preset: st.preset, minVal: st.minVal, uptrend: st.uptrend, exch: st.exch, x: st.x, y: st.y });
+  const save = () => lsSet("secState", { preset: st.preset, minVal: st.minVal, uptrend: st.uptrend, exch: st.exch, x: st.x, y: st.y, relative: st.relative });
   const weights = () => (st.preset === "custom" ? customW : PRESETS[st.preset].w);
 
   const drawCustom = () => {
@@ -732,7 +821,15 @@ async function viewSector(name, lvArg) {
     const base = members.filter((r) => (r.avg_value_bn ?? 0) >= minV && (!st.exch || r.exchange === st.exch) && (!profit || (isNum(r.pe) && r.pe > 0) || (isNum(r.eps) && r.eps > 0)));
     const W = weights();
     // xếp hạng phần trăm trên toàn bộ mã đạt điều kiện thanh khoản (để so cùng mặt bằng), sau đó mới lọc xu hướng
-    ranked = rankGroup(base, W).filter((x) => !st.uptrend || x.r.trend === "up");
+    if (isGroup && st.relative !== false) {
+      // xếp hạng trong ngành gốc (nhóm ngành cấp 3 nếu đủ ≥ 4 mã, không thì ngành cấp 2, không thì cả nhóm) rồi gộp
+      const cnt = (k, v) => base.filter((r) => r[k] === v).length;
+      const buckets = {};
+      base.forEach((r) => { const key = r.industry && cnt("industry", r.industry) >= 4 ? "i:" + r.industry : r.sector && cnt("sector", r.sector) >= 4 ? "s:" + r.sector : "_all"; (buckets[key] = buckets[key] || []).push(r); });
+      const full = Object.fromEntries(rankGroup(base, W).map((x) => [x.r.symbol, x]));
+      ranked = Object.entries(buckets).flatMap(([k, g]) => (k === "_all" ? g.map((r) => full[r.symbol]) : rankGroup(g, W))).sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+    } else ranked = rankGroup(base, W);
+    ranked = ranked.filter((x) => !st.uptrend || x.r.trend === "up");
     const keys = Object.keys(W).filter((k) => W[k] > 0 && FACT[k]);
     $("#rkMeta").textContent = `${ranked.length}/${members.length} mã · ${keys.length} yếu tố`;
     // bục
@@ -771,6 +868,16 @@ async function viewSector(name, lvArg) {
         }).join("")}</tr>`; }).join("")}</tbody>`;
     $$("#rk th").forEach((th) => (th.onclick = () => { const k = th.dataset.k; if (k === "_i" || k === "_tag") { st.sort = "score"; st.asc = false; } else if (st.sort === k) st.asc = !st.asc; else { st.sort = k; st.asc = FACT[k]?.[1] === -1 || k === "symbol"; } draw(); }));
     drawScatter();
+    if (isGroup && $("#gComp")) {
+      const bySec = {};
+      members.forEach((r) => { (bySec[r.sector || "Khác"] = bySec[r.sector || "Khác"] || []).push(r); });
+      const totM = members.reduce((a, r) => a + (r.mcap_bn || 0), 0) || 1;
+      $("#gComp").innerHTML = `<thead><tr><th class="l">Ngành gốc</th><th>Số mã</th><th>Tỷ trọng vốn hoá</th><th>1 tháng (ngành)</th><th class="l">Vòng</th><th>Alpha chọn mã</th><th class="l">Mạnh nhất trong nhóm</th></tr></thead><tbody>
+        ${Object.entries(bySec).sort((a, b) => b[1].length - a[1].length).map(([sn, M]) => { const sr = byName2[sn], b = (secs.backtest || {})[sn]; const best = ranked.filter((x) => x.r.sector === sn).slice(0, 3);
+          return `<tr><td class="l"><a href="#/sector/${enc(sn)}">${esc(sn)}</a></td><td>${M.length}</td><td>${pct(M.reduce((a, r) => a + (r.mcap_bn || 0), 0) / totM * 100, 0, false)}</td>
+          <td class="${cls(sr?.r1m)}">${pct(sr?.r1m)}</td><td class="l">${sr ? `<span class="quad" style="background:${qcol(sr.quadrant)}"></span>${esc(sr.quadrant)}` : "—"}</td>
+          <td class="${cls(b?.alpha)}">${b ? pct(b.alpha) : "—"}</td><td class="l">${best.map((x) => `<a href="#/s/${x.r.symbol}">${x.r.symbol}</a> <small class="faint">${nf(x.score, 0)}</small>`).join(" · ") || "—"}</td></tr>`; }).join("")}</tbody>`;
+    }
   };
   const drawScatter = () => {
     const top = new Set(ranked.slice(0, 3).map((x) => x.r.symbol));
@@ -791,6 +898,8 @@ async function viewSector(name, lvArg) {
   $("#sE").onchange = (e) => { st.exch = e.target.value; save(); draw(); };
   $("#sP").onchange = draw;
   $("#sU").onchange = (e) => { st.uptrend = e.target.checked; save(); draw(); };
+  if ($("#sR")) $("#sR").onchange = (e) => { st.relative = e.target.checked; save(); draw(); };
+  if (isGroup) bindGroupEditor(group, GROUPS, rows);
   $("#sx").onchange = (e) => { st.x = e.target.value; save(); drawScatter(); };
   $("#sy").onchange = (e) => { st.y = e.target.value; save(); drawScatter(); };
   drawCustom(); draw();
@@ -961,7 +1070,7 @@ async function viewScreener(arg) {
     <button class="btn" id="fClear">Xoá lọc</button>
   </div><p class="muted" id="bRule" style="margin-top:6px;font-size:.78rem"></p></section>
   <div class="views" id="views">${Object.entries(VIEWS).map(([k, [n]]) => `<button data-v="${k}" class="${k === st.view ? "on" : ""}">${esc(n)}</button>`).join("")}
-    <span style="margin-left:auto;display:flex;gap:6px;align-items:center"><small id="cnt" class="muted"></small><button class="btn" id="csv">Tải CSV</button></span></div>
+    <span style="margin-left:auto;display:flex;gap:6px;align-items:center"><small id="cnt" class="muted"></small><button class="btn" id="toGroup" title="Lưu các mã đang lọc thành một nhóm để chạy phương án ở tab Ngành">Lưu thành nhóm</button><button class="btn" id="csv">Tải CSV</button></span></div>
   <section class="panel flush"><div class="tw tall"><table id="scr"></table></div></section>
   <details class="panel sec"><summary>Trọng số các phương pháp (đổi cách tính cột Điểm)</summary>
     <div class="weights" style="margin-top:8px">${Object.entries(meth.methods).map(([k, m]) => `
@@ -1010,6 +1119,18 @@ async function viewScreener(arg) {
   bind("#fPE", "maxPE"); bind("#fR", "minROE"); bind("#fF", "minF"); bind("#fD", "minDiv"); bind("#fU", "minUp"); bind("#fSc", "minScore");
   $("#fClear").onclick = () => viewScreener("");
   $$("#views [data-v]").forEach((b) => (b.onclick = () => { st.view = b.dataset.v; lsSet("scrView", st.view); $$("#views [data-v]").forEach((x) => x.classList.toggle("on", x === b)); draw(); }));
+  $("#toGroup").onclick = async () => {
+    if (!filtered.length) { toast("Không có mã nào để lưu"); return; }
+    if (filtered.length > 300) { toast("Lọc bớt còn tối đa 300 mã rồi lưu"); return; }
+    const { data } = await Store.get("groups");
+    const list = data && Array.isArray(data.list) ? data.list : [];
+    const id = "g" + Date.now().toString(36);
+    const nm = [st.basket && meth.baskets[st.basket]?.name, st.ind || st.sec, st.text].filter(Boolean).join(" · ") || "Từ bộ lọc";
+    list.push({ id, name: `${nm} (${new Date().toLocaleDateString("vi-VN")})`, sectors: [], industries: [], symbols: filtered.map((r) => r.symbol), exclude: [], updated: new Date().toISOString() });
+    const ok = await Store.put("groups", { list });
+    toast(ok ? "Đã lưu nhóm" : "Đã lưu nhóm trên trình duyệt này");
+    location.hash = `#/sector/${id}/g`;
+  };
   $("#csv").onclick = () => {
     const cols = VIEWS[st.view][1];
     const q = (x) => `"${String(x ?? "").replace(/"/g, '""')}"`;

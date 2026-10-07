@@ -98,7 +98,7 @@ Chưa làm bước này thì nút trên web sẽ dẫn anh sang trang GitHub Act
   - Đèn thị trường, và số % vốn được phép nắm cổ phiếu.
   - Danh sách MUA, mỗi mã có vùng giá mua, điểm cắt lỗ, mục tiêu và số cổ phiếu.
   - Việc cần làm với danh mục đang nắm.
-- **Ngành:** chọn một ngành (hoặc nhóm ngành con) bên trái, rồi chọn **phương án**: Tốt nhất ngành (đã kiểm chứng), GARP, Tăng trưởng, Giá trị, Chất lượng, Cổ tức, Phòng thủ, Dòng tiền thông minh, Động lượng, hoặc Tuỳ chỉnh. Mã được xếp hạng so với chính các mã cùng ngành. Trang còn có biểu đồ xoay vòng ngành (RRG), P/E ngành so với lịch sử và kết quả backtest chọn mã trong ngành đó.
+- **Ngành:** chọn một ngành (hoặc nhóm ngành con) bên trái, rồi chọn **phương án**: Tốt nhất ngành (đã kiểm chứng), GARP, Tăng trưởng, Giá trị, Chất lượng, Cổ tức, Phòng thủ, Dòng tiền thông minh, Động lượng, hoặc Tuỳ chỉnh. Mã được xếp hạng so với chính các mã cùng ngành. Bấm **＋ Tự nhóm ngành / mã** để tự gộp nhiều ngành, nhóm ngành con và mã lẻ thành một nhóm riêng (ví dụ "Đầu tư công") rồi chạy các phương án trên nhóm đó; ở Bộ lọc có nút **Lưu thành nhóm** để biến kết quả lọc thành nhóm. Trang còn có biểu đồ xoay vòng ngành (RRG), P/E ngành so với lịch sử và kết quả backtest chọn mã trong ngành đó.
 - **Bộ lọc:** nút "chiều nhìn" (Tổng quan, Định giá, Chất lượng, Tăng trưởng, Cổ tức, Kỹ thuật, Tạo lập & dòng tiền, Điểm phương pháp) đổi bộ cột; có nút tải CSV.
 - **Danh mục:** nhập số vốn và các mã đang nắm (mã, khối lượng, giá vốn). Dữ liệu đồng bộ giữa mọi thiết bị.
 - **Telegram:** chỉ nhắn khi có việc. Ngày nào không có tin nghĩa là không cần làm gì.

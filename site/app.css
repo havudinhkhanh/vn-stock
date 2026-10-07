@@ -262,3 +262,8 @@ td.wrap{white-space:normal;min-width:180px}
 .ticker>span{display:inline-flex;gap:3px;align-items:baseline}
 .kpis.c2{grid-template-columns:repeat(2,minmax(0,1fr))}
 .kpis.c2 dd{white-space:normal}
+.gtree{display:grid;gap:6px;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));max-height:420px;overflow:auto;padding:2px}
+.gnode{border:1px solid var(--line-2);border-radius:6px;padding:5px 8px;display:grid;gap:1px;align-content:start}
+.gnode label{display:flex;gap:5px;align-items:center;font-size:.78rem;cursor:pointer}
+.gnode .gind{padding-left:16px;color:var(--ink-2);font-size:.74rem}
+
