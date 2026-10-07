@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 import traceback
 from datetime import datetime, timedelta
@@ -101,14 +102,24 @@ def _run(report: dict) -> None:
                     info[f"{sec}_cols"] = list(q.columns)[:40]
                     info[f"{sec}_row0"] = {k: q.iloc[0][k] for k in list(q.columns)[:25]}
             m2 = mp.copy()
-            names = {r.field: f"[{r.section}] {r.en} | {r.vi}" for r in m2.itertuples()}
-            fmap = {}
+            detail = {}
             for sec in ("IS", "BS", "CF"):
                 mm = m2[m2["section"].str.contains({"IS": "INCOME", "BS": "BALANCE", "CF": "CASH"}[sec])]
-                fmap.update(normalize.match_items([{"key": r.field, "en": r.en, "vi": r.vi} for r in mm.itertuples()]))
-            info["mapping"] = {canon: names.get(f) for f, canon in fmap.items()}
-            if sym in ("FPT", "VCB"):
-                info["all_titles"] = [names[f] for f in list(names)[:400]]
+                fm = normalize.match_items([{"key": r.field, "en": r.en, "vi": r.vi} for r in mm.itertuples()])
+                yrs = stm[sec].get("years")
+                for f, canon in fm.items():
+                    row = mm[mm["field"] == f].iloc[0]
+                    val = None
+                    if yrs is not None and not yrs.empty and f in yrs:
+                        v = pd.to_numeric(yrs[f], errors="coerce").dropna()
+                        val = float(v.iloc[0]) if len(v) else None
+                    detail.setdefault(canon, []).append(f"{sec}:{f} {row.en} | {row.vi} = {val}")
+            info["mapping"] = detail
+            titles = [f"[{r.section[:2]}:{r.field}] {r.en} | {r.vi}" for r in m2.itertuples() if r.section != "NOTE"]
+            info["titles_revenue_equity"] = [t for t in titles if re.search(
+                r"revenue|sales|premium|equity|before tax|after tax|operating activ|doanh thu|vốn chủ|trước thuế|sau thuế", t, re.I)][:80]
+            if sym in ("SSI", "BVH"):
+                info["all_titles"] = titles[:500]
             if rt is not None and not rt.empty:
                 info["ratio_cols"] = list(rt.columns)[:60]
                 info["ratio_row0"] = {k: rt.iloc[0][k] for k in list(rt.columns)[:30]}

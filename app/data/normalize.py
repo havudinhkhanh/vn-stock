@@ -91,8 +91,9 @@ def normalize_tcbs(symbol: str, is_df, bs_df, cf_df, ratio_df, yearly: bool) -> 
 # ------------------------------------------------------------------ nhận diện chỉ tiêu theo tên
 # (chỉ tiêu chuẩn, mẫu tên tiếng Anh, mẫu tên tiếng Việt, mẫu loại trừ)  – so khớp trên tên đã làm sạch
 RULES = [
-    ("revenue", r"^net (sales|revenue)s?$|^revenue$|^net revenue from sales",
-     r"^doanh thu thuần( về bán hàng và cung cấp dịch vụ)?$|^doanh thu thuần$", r"growth|tăng trưởng"),
+    ("revenue", r"^net (sales|revenue)s?$|^revenue$|^net revenue from sales|^net (operating )?revenue$|^net revenue from (insurance|operating)",
+     r"^doanh thu thuần( về bán hàng và cung cấp dịch vụ| về hoạt động kinh doanh| hoạt động kinh doanh bảo hiểm)?$",
+     r"growth|tăng trưởng"),
     ("cogs", r"^cost of (goods sold|sales)$", r"^giá vốn hàng bán$", r""),
     ("gross_profit", r"^gross profit$", r"^lợi nhuận gộp( về bán hàng và cung cấp dịch vụ)?$", r""),
     ("selling_exp", r"^selling expenses?$", r"^chi phí bán hàng$", r""),
@@ -102,18 +103,18 @@ RULES = [
     ("interest_exp", r"^(of which,? )?interest expenses?$", r"^(trong đó:? )?chi phí lãi vay$", r""),
     ("operating_profit", r"^(net )?operating profit$|^net profit from operating activities$",
      r"^lợi nhuận thuần từ hoạt động kinh doanh$", r""),
-    ("pbt", r"^(total )?(accounting )?profit before tax$|^profit before tax$",
-     r"^(tổng )?lợi nhuận (kế toán )?trước thuế$", r""),
+    ("pbt", r"^(total )?(net )?(accounting )?profit before tax$",
+     r"^(tổng )?(lợi nhuận|lãi) (thuần |kế toán )?trước thuế$", r""),
     ("tax", r"^(current )?corporate income tax expenses?$|^business income tax.*current$",
      r"^chi phí thuế (thu nhập doanh nghiệp|tndn) hiện hành$", r""),
-    ("net_income", r"^net profit after tax$|^profit after tax$|^net profit for the (year|period)$",
-     r"^lợi nhuận sau thuế( thu nhập doanh nghiệp)?$", r"parent|minority|mẹ|không kiểm soát"),
-    ("ni_parent", r"attributable to (the )?(shareholders of the )?parent|parent company",
-     r"(công ty|cổ đông( của)? công ty) mẹ", r"minority|không kiểm soát"),
+    ("net_income", r"^(net )?profit after tax$|^net profit for the (year|period)$",
+     r"^(lợi nhuận|lãi) (thuần )?sau thuế( thu nhập doanh nghiệp)?$", r"parent|minority|mẹ|không kiểm soát"),
+    ("ni_parent", r"attributable to (the )?(shareholders of the )?parent|parent company|attributable to (the )?owners",
+     r"(công ty|cổ đông( của)? công ty) mẹ|phân bổ cho chủ sở hữu", r"minority|không kiểm soát|thiểu số"),
     ("nii", r"^net interest income$", r"^thu nhập lãi thuần$", r""),
     ("toi", r"^total operating income$", r"^tổng thu nhập hoạt động$", r""),
     ("provision", r"^(credit )?provision (for credit losses|expenses?)$|^provision for credit losses$",
-     r"^chi phí dự phòng rủi ro tín dụng$", r""),
+     r"^(chi phí dự phòng rủi ro tín dụng|trích lập dự phòng tổn thất tín dụng)$", r""),
     ("total_assets", r"^total assets$", r"^tổng (cộng )?tài sản$", r""),
     ("current_assets", r"^(current|short-term) assets$", r"^tài sản ngắn hạn$", r""),
     ("cash", r"^cash and cash equivalents$", r"^tiền và (các khoản )?tương đương tiền$", r""),
@@ -128,20 +129,20 @@ RULES = [
      r"^vay (và nợ thuê tài chính )?ngắn hạn$", r""),
     ("lt_debt", r"^long-term (borrowings|loans)( and finance lease liabilities)?$",
      r"^vay (và nợ thuê tài chính )?dài hạn$", r""),
-    ("equity", r"^(total )?(owners?'? )?equity$|^owner'?s'? equity$|^capital and reserves$",
-     r"^(tổng )?vốn chủ sở hữu$", r""),
+    ("equity", r"^(total )?(owners?'? |owner's |shareholders'? )?equity$|^capital and reserves$",
+     r"^(tổng )?(cộng )?vốn chủ sở hữu$", r""),
     ("minority", r"^(minority interests?|non-controlling interests?)$",
-     r"^lợi ích (của )?cổ đông không kiểm soát$", r""),
+     r"^lợi ích (của )?cổ đông (không kiểm soát|thiểu số)$", r""),
     ("loans", r"^loans (and advances )?to customers$", r"^cho vay khách hàng$", r""),
     ("deposits", r"^deposits from customers$", r"^tiền gửi của khách hàng$", r""),
-    ("cfo", r"^net cash (flows? )?(from|used in) operating activities$",
-     r"^lưu chuyển tiền thuần (từ|sử dụng vào) hoạt động kinh doanh$", r""),
+    ("cfo", r"^net cash.*(from|used in) operating activities$",
+     r"^lưu chuyển tiền (tệ )?(thuần|ròng) (từ|sử dụng vào|trong) (các )?hoạt động (sản xuất )?kinh doanh$", r"before"),
     ("capex", r"^(purchases?|acquisitions?) of fixed assets", r"^(tiền chi để )?mua sắm.*tài sản cố định", r""),
     ("dividends_paid", r"^dividends?.*paid", r"^cổ tức.*(đã trả|cho chủ sở hữu)", r""),
-    ("cfi", r"^net cash (flows? )?(from|used in) investing activities$",
-     r"^lưu chuyển tiền thuần (từ|sử dụng vào) hoạt động đầu tư$", r""),
-    ("cff", r"^net cash (flows? )?(from|used in) financing activities$",
-     r"^lưu chuyển tiền thuần (từ|sử dụng vào) hoạt động tài chính$", r""),
+    ("cfi", r"^net cash.*(from|used in) investing activities$",
+     r"^lưu chuyển tiền (tệ )?(thuần|ròng) (từ|sử dụng vào|trong) (các )?hoạt động đầu tư$", r""),
+    ("cff", r"^net cash.*(from|used in) financing activities$",
+     r"^lưu chuyển tiền (tệ )?(thuần|ròng) (từ|sử dụng vào|trong) (các )?hoạt động tài chính$", r""),
 ]
 
 _PREFIX = re.compile(r"^\s*(([a-z]|[ivx]+|\d+(\.\d+)*)\s*[.\-)/:]\s*)+", re.I)
@@ -149,9 +150,10 @@ _PREFIX = re.compile(r"^\s*(([a-z]|[ivx]+|\d+(\.\d+)*)\s*[.\-)/:]\s*)+", re.I)
 
 def _clean(name) -> str:
     name = str(name or "").lower().strip()
-    name = re.sub(r"\(.*?\)", "", name)
+    name = re.sub(r"\(.*?\)", "", name)          # bỏ "(loss)", "(outflows)", "(Before 2015)"...
+    name = name.replace("/", " ").replace("’", "'")
     name = _PREFIX.sub("", name)
-    return re.sub(r"\s+", " ", name).strip(" .:-*")
+    return re.sub(r"\s+", " ", name).strip(" .:-*,")
 
 
 def match_items(items: list[dict]) -> dict[str, str]:
