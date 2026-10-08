@@ -720,7 +720,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         dump(out_dir / "stocks" / f"{s}.json", detail)
 
     m = store.meta()
-    meta = {"generated": datetime.now().isoformat(timespec="seconds"), "data_date": str(last_date.date()),
+    meta = {"generated": datetime.now(__import__("zoneinfo").ZoneInfo("Asia/Ho_Chi_Minh")).isoformat(timespec="seconds"), "data_date": str(last_date.date()),
             "symbols": len(u), "deep": len(details), "liquid": len(liquid),
             "sources": {k: m.get(k) for k in ("prices", "financials", "dividends", "listing", "backtest")},
             "seconds": round((datetime.now() - t0).total_seconds()),

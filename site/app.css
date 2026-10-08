@@ -848,3 +848,28 @@ table.lvt td.wrap{white-space:normal;min-width:150px}table#swT td.wrap{white-spa
 .live-note{margin-bottom:6px;font-size:.8rem}
 table.evt td{white-space:nowrap}table.evt td.l{white-space:normal;min-width:200px}
 .sgc:not(.neg):not(.pos){border-left-color:var(--ref)}
+
+/* ---------- thời điểm cập nhật + xuất PDF ---------- */
+.upd{display:inline-flex;align-items:center;gap:6px;font-size:.72rem;color:var(--ink-2);white-space:nowrap;line-height:1.1;cursor:help}
+.upd i{width:7px;height:7px;border-radius:50%;background:var(--up);flex:none}
+.upd i.live{background:var(--down);animation:pulse 1.6s infinite}
+.upd i.old{background:var(--ref)}
+.upd .u1{font-weight:600;color:var(--ink)}
+.upd .u2{color:var(--ink-3)}
+@media (max-width:700px){.upd{flex-direction:column;align-items:flex-start;gap:0;font-size:.62rem}.upd i{display:none}}
+.pdfbtn{width:auto;padding:0 8px;gap:4px;display:inline-flex;align-items:center;font-size:.72rem;color:var(--ink-2)}
+@media (max-width:700px){.pdfbtn span{display:none}}
+#pdfov,.pdfdlg{position:fixed;inset:0;z-index:200;background:rgba(5,8,11,.55);display:grid;place-items:center;padding:16px}
+.pdfbox{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:16px 18px;display:grid;gap:8px;min-width:260px;max-width:92vw}
+.pdfbox.wide{width:440px}
+.pdfbox .ph{margin:0}
+.pdfbar{height:6px;background:var(--sunk);border-radius:3px;overflow:hidden}
+.pdfbar i{display:block;height:100%;width:0;background:var(--brand);transition:width .3s}
+.pdflist{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px;font-size:.82rem;max-height:46vh;overflow:auto}
+@media (max-width:480px){.pdflist{grid-template-columns:1fr}}
+/* khi chụp PDF: mở rộng bảng cuộn ngang, bỏ cột dính, tắt hiệu ứng */
+body.pdfing .tw{overflow:hidden!important;max-height:none!important}
+body.pdfing .tw>table>*>tr>:first-child{position:static!important}
+body.pdfing *{animation:none!important;transition:none!important}
+body.pdfing .views,body.pdfing .qa,body.pdfing #lvF,body.pdfing #swQ{display:none!important}
+@media (max-width:480px){.top-in .search{display:none}.top-in .upd{margin-right:auto}}

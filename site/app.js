@@ -3795,8 +3795,255 @@ async function drawBoard(t, m, meta) {
     paint(rest);
   } catch (e) { /* giữ phần chỉ số */ }
 }
+// ================================================================ THỜI ĐIỂM CẬP NHẬT + XUẤT PDF
+const vnTime = (iso) => {
+  if (!iso) return null;
+  const s = /[zZ]|[+-]\d\d:?\d\d$/.test(iso) ? iso : iso.length <= 16 ? iso + ":00+07:00" : iso + "+07:00";
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+const fmtVN = (d, withDate = true) => d ? d.toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", hour: "2-digit", minute: "2-digit", ...(withDate ? { day: "2-digit", month: "2-digit", year: "numeric" } : {}) }) : "—";
+const agoVN = (d) => { if (!d) return ""; const m = Math.round((Date.now() - d.getTime()) / 60000); return m < 1 ? "vừa xong" : m < 60 ? `${m} phút trước` : m < 48 * 60 ? `${Math.round(m / 60)} giờ trước` : `${Math.round(m / 1440)} ngày trước`; };
+async function updInfo() {
+  const [meta, L] = await Promise.all([tryLoad("data/meta.json"), liveData()]);
+  const gen = vnTime(meta?.generated), dd = meta?.data_date, lv = liveFresh(L) ? vnTime(L.at) : null;
+  return { gen, dd, lv, meta, L,
+    text: `Dữ liệu phiên ${dd ? dd.split("-").reverse().join("/") : "—"} · phân tích lúc ${fmtVN(gen)}${lv ? ` · giá trong phiên ${fmtVN(lv, false)}` : ""}` };
+}
+async function paintUpd() {
+  const el = $("#upd"); if (!el) return;
+  try {
+    const u = await updInfo();
+    const last = u.lv && (!u.gen || u.lv > u.gen) ? u.lv : u.gen;
+    const stale = last && Date.now() - last.getTime() > 30 * 3600e3;
+    const isLive = !!(u.lv && last === u.lv);
+    el.innerHTML = `<i class="${isLive ? "live" : stale ? "old" : ""}"></i><span class="u1">${isLive ? "Giá trong phiên" : "Cập nhật"} ${fmtVN(last, false)}</span><span class="u2">${last ? last.toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", day: "2-digit", month: "2-digit" }) : ""} · ${agoVN(last)}</span>`;
+    el.title = `${u.text}\nLịch chạy: 11:35 và 14:35 (trong phiên) · 15:35 (đầy đủ sau đóng cửa) · 8:00 thứ 7`;
+    el.dataset.g = "upd";
+  } catch (e) { el.textContent = ""; }
+}
+
+const PDFX = {
+  async libs() {
+    const add = (src) => new Promise((ok, bad) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = () => bad(new Error("Không tải được " + src)); document.head.appendChild(s); });
+    if (!window.htmlToImage) await add("vendor/html-to-image.js");
+    if (!window.jspdf) await add("vendor/jspdf.umd.min.js");
+  },
+  overlay(txt) {
+    let o = $("#pdfov");
+    if (!o) { o = document.createElement("div"); o.id = "pdfov"; o.innerHTML = `<div class="pdfbox"><b>Đang tạo PDF…</b><span id="pdfmsg"></span><div class="pdfbar"><i id="pdfbar"></i></div><button class="btn" id="pdfstop">Dừng</button></div>`; document.body.appendChild(o); $("#pdfstop").onclick = () => (PDFX.stop = true); }
+    $("#pdfmsg").textContent = txt || "";
+    return o;
+  },
+  progress(f) { const b = $("#pdfbar"); if (b) b.style.width = Math.round(f * 100) + "%"; },
+  // các điểm cắt trang đẹp: mép dưới của khối, dòng bảng, thẻ
+  breaks(el) {
+    const top = el.getBoundingClientRect().top;
+    const ys = new Set();
+    el.querySelectorAll(".panel, section, .g > *, .stack > *, tr, .sgc, .pickw, .pick, .row, .stl > li, .pl, .sb-i, .ev, .kpis, .ph, h1, h2, .tw, .chart, details").forEach((n) => {
+      const r = n.getBoundingClientRect();
+      if (r.height > 0) { ys.add(Math.round(r.bottom - top)); ys.add(Math.round(r.top - top)); }
+    });
+    return [...ys].filter((y) => y > 0).sort((a, b) => a - b);
+  },
+  async capture(el) {
+    const det = [...el.querySelectorAll("details")].map((d) => [d, d.open]);
+    det.forEach(([d]) => (d.open = true));
+    document.body.classList.add("pdfing");
+    await new Promise((r) => setTimeout(r, 250));
+    // bảng rộng hơn khung: thu nhỏ cho vừa (giữ nguyên bố cục như trên web)
+    const zs = [];
+    el.querySelectorAll(".tw > table").forEach((tb) => {
+      const box = tb.parentElement.clientWidth, need = tb.scrollWidth;
+      if (box > 0 && need > box + 2) { zs.push([tb, tb.style.zoom]); tb.style.zoom = String(Math.max(0.45, box / need)); }
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    try { await document.fonts?.ready; } catch (e) { /* bỏ qua */ }
+    const w = el.scrollWidth, h = el.scrollHeight;
+    const brk = PDFX.breaks(el);
+    const ratio = Math.max(1, Math.min(w < 600 ? 2.2 : 1.5, Math.sqrt(15e6 / Math.max(1, w * h))));
+    const bg = getComputedStyle(document.body).backgroundColor;
+    const opt = { pixelRatio: ratio, backgroundColor: bg, cacheBust: false, width: w, height: h, style: { margin: "0" },
+      filter: (n) => !(n.id === "gtip" || n.classList?.contains("toast") || n.dataset?.nopdf !== undefined) };
+    let cv;
+    try {
+      cv = await htmlToImage.toCanvas(el, opt);
+      // Safari đôi khi vẽ thiếu ảnh/phông ở lần đầu – vẽ lại lần 2
+      if (/^((?!chrome|android).)*safari/i.test(navigator.userAgent)) cv = await htmlToImage.toCanvas(el, opt);
+    } finally {
+      det.forEach(([d, o]) => (d.open = o));
+      zs.forEach(([tb, z]) => (tb.style.zoom = z || ""));
+      document.body.classList.remove("pdfing");
+    }
+    return { cv, w, h, ratio, brk };
+  },
+  band(text, right, wPx, hPx, dark) {
+    const c = document.createElement("canvas"); c.width = wPx; c.height = hPx;
+    const g = c.getContext("2d");
+    g.fillStyle = dark ? "#0B0F13" : "#ffffff"; g.fillRect(0, 0, wPx, hPx);
+    const pad = Math.round(wPx * 0.038), F = (w, px) => `${w} ${px}px "Be Vietnam Pro", system-ui, sans-serif`;
+    g.textBaseline = "middle";
+    let fs = Math.round(hPx * 0.36);
+    g.font = F(600, fs);
+    const lw = g.measureText(text).width;
+    g.font = F(400, Math.round(fs * 0.78));
+    const rw = g.measureText(right).width;
+    if (lw + rw + pad * 3 <= wPx) {
+      g.fillStyle = dark ? "#E9EEF0" : "#14202b"; g.font = F(600, fs); g.fillText(text, pad, hPx / 2);
+      g.fillStyle = dark ? "#A6B1B7" : "#5b6770"; g.font = F(400, Math.round(fs * 0.78)); g.fillText(right, wPx - rw - pad, hPx / 2);
+    } else {
+      fs = Math.round(hPx * 0.3);
+      g.fillStyle = dark ? "#E9EEF0" : "#14202b"; g.font = F(700, fs); g.fillText(text, pad, hPx * 0.34);
+      g.fillStyle = dark ? "#A6B1B7" : "#5b6770"; g.font = F(400, Math.round(fs * 0.8)); g.fillText(right, pad, hPx * 0.72);
+    }
+    g.fillStyle = dark ? "#26323a" : "#e3e8ec"; g.fillRect(pad, hPx - 2, wPx - 2 * pad, 2);
+    return c.toDataURL("image/png");
+  },
+  // thêm một trang web (đã chụp) vào PDF, cắt ở các điểm đẹp
+  addShot(doc, shot, title, info) {
+    const PW = 210, PH = 297, M = 8, HB = 9, FB = 7;
+    const cw = PW - 2 * M, ch = PH - 2 * M - HB - FB;
+    const mmPerPx = Math.min(cw / shot.w, 0.3), pageH = ch / mmPerPx, iw = shot.w * mmPerPx, ix = M + (cw - iw) / 2;
+    const dark = document.documentElement.dataset.theme === "dark" || (!document.documentElement.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
+    const HH = M + HB - 2;
+    const head = PDFX.band(`VN-Stock · ${title}`, info, 2000, Math.round(2000 * HH / PW), dark);
+    let y0 = 0, first = true;
+    const pages0 = doc.getNumberOfPages();
+    while (y0 < shot.h - 2) {
+      let y1 = Math.min(shot.h, y0 + pageH);
+      if (y1 < shot.h) {
+        const c = shot.brk.filter((y) => y > y0 + pageH * 0.45 && y <= y0 + pageH);
+        if (c.length) y1 = c[c.length - 1];
+      }
+      const sh = Math.max(1, Math.round((y1 - y0) * shot.ratio));
+      const part = document.createElement("canvas"); part.width = shot.cv.width; part.height = sh;
+      part.getContext("2d").drawImage(shot.cv, 0, Math.round(y0 * shot.ratio), shot.cv.width, sh, 0, 0, shot.cv.width, sh);
+      if (!(first && pages0 === 1 && doc.__blank)) doc.addPage(); else doc.__blank = false;
+      if (dark) { doc.setFillColor(11, 15, 19); doc.rect(0, 0, PW, PH, "F"); }
+      doc.addImage(head, "PNG", 0, 0, PW, HH);
+      doc.addImage(part.toDataURL("image/jpeg", 0.8), "JPEG", ix, M + HB, iw, (y1 - y0) * mmPerPx, undefined, "FAST");
+      first = false;
+      y0 = y1;
+    }
+    return pages0 + (doc.__counted ? 0 : 0);
+  },
+  footers(doc, dark, note) {
+    const n = doc.getNumberOfPages();
+    for (let i = 1; i <= n; i++) {
+      doc.setPage(i);
+      doc.addImage(PDFX.band(note, `Trang ${i}/${n}`, 2000, Math.round(2000 * 7 / 210), dark), "PNG", 0, 297 - 7, 210, 7);
+    }
+  },
+  newDoc() { const doc = new jspdf.jsPDF({ unit: "mm", format: "a4", compress: true }); doc.__blank = true; return doc; },
+  async save(doc, name) { doc.setProperties({ title: name, creator: "VN-Stock" }); doc.save(name + ".pdf"); },
+  pageTitle() {
+    const h = location.hash.replace(/^#\/?/, "");
+    const [r, a, b] = h.split("/");
+    const T = { "": "Hôm nay", market: "Thị trường", sector: a ? `Ngành ${decodeURIComponent(a)}` : "Toàn cảnh các ngành", screener: "Bộ lọc", watch: "Theo dõi", portfolio: a === "journal" ? "Nhật ký giao dịch" : a === "profile" ? "Khẩu vị đầu tư" : "Danh mục",
+      backtest: "Kiểm chứng", compare: "So sánh", guide: "Hướng dẫn", swing: { live: "Trong phiên", today: "Biến động – phiên gần nhất", table: "Bảng hành vi giá", test: "Biến động – kiểm chứng" }[a] || "Biến động", s: `Mã ${(a || "").toUpperCase()}` };
+    return T[r] ?? "VN-Stock";
+  },
+  async thisPage() {
+    if (PDFX.busy) return; PDFX.busy = true; PDFX.stop = false;
+    try {
+      PDFX.overlay("Đang chuẩn bị…"); PDFX.progress(0.1);
+      await PDFX.libs();
+      const u = await updInfo();
+      const title = PDFX.pageTitle();
+      PDFX.overlay(`Đang chụp trang ${title}…`); PDFX.progress(0.4);
+      const shot = await PDFX.capture($("#app"));
+      const doc = PDFX.newDoc();
+      PDFX.addShot(doc, shot, title, u.text);
+      const dark = document.documentElement.dataset.theme === "dark" || (!document.documentElement.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
+      PDFX.footers(doc, dark, `Tạo lúc ${fmtVN(new Date())} · Thông tin tham khảo, không phải khuyến nghị đầu tư`);
+      PDFX.progress(1);
+      await PDFX.save(doc, `VN-Stock ${title} ${(u.dd || "").replace(/-/g, "")}`);
+    } catch (e) { console.error(e); toast("Không tạo được PDF: " + e.message); }
+    finally { PDFX.busy = false; $("#pdfov")?.remove(); }
+  },
+  async report(sections) {
+    if (PDFX.busy) return; PDFX.busy = true; PDFX.stop = false;
+    const back = location.hash;
+    try {
+      PDFX.overlay("Đang chuẩn bị…"); await PDFX.libs();
+      const u = await updInfo();
+      const doc = PDFX.newDoc(), toc = [];
+      for (let i = 0; i < sections.length; i++) {
+        if (PDFX.stop) break;
+        const [hash, title] = sections[i];
+        PDFX.overlay(`${i + 1}/${sections.length}: ${title}`); PDFX.progress(i / sections.length);
+        history.replaceState(null, "", hash);
+        await route();
+        await new Promise((r) => setTimeout(r, 900));
+        const shot = await PDFX.capture($("#app"));
+        toc.push([title, doc.__blank ? 2 : doc.getNumberOfPages() + 2]);
+        PDFX.addShot(doc, shot, title, u.text);
+      }
+      // trang bìa + mục lục (chèn lên đầu)
+      const dark = document.documentElement.dataset.theme === "dark" || (!document.documentElement.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
+      doc.insertPage(1);
+      doc.setPage(1);
+      doc.addImage(PDFX.cover(u, toc, dark), "PNG", 0, 0, 210, 297);
+      PDFX.footers(doc, dark, `Tạo lúc ${fmtVN(new Date())} · Thông tin tham khảo, không phải khuyến nghị đầu tư`);
+      PDFX.progress(1);
+      await PDFX.save(doc, `VN-Stock Bao cao ${(u.dd || "").replace(/-/g, "")}`);
+    } catch (e) { console.error(e); toast("Không tạo được PDF: " + e.message); }
+    finally {
+      PDFX.busy = false; $("#pdfov")?.remove();
+      history.replaceState(null, "", back || "#/"); route();
+    }
+  },
+  cover(u, toc, dark) {
+    const W = 1240, H = 1754, c = document.createElement("canvas"); c.width = W; c.height = H;
+    const g = c.getContext("2d"), F = (w, px) => `${w} ${px}px "Be Vietnam Pro", system-ui, sans-serif`;
+    g.fillStyle = dark ? "#0B0F13" : "#ffffff"; g.fillRect(0, 0, W, H);
+    g.fillStyle = "#0B0F13"; g.fillRect(0, 0, W, 420);
+    [["#F0444B", 120], ["#F4C32F", 190], ["#2FD08F", 260]].forEach(([col, x]) => { g.beginPath(); g.fillStyle = col; g.arc(x, 150, 26, 0, 7); g.fill(); });
+    g.fillStyle = "#EEF2F3"; g.font = F(700, 78); g.fillText("VN-Stock", 100, 280);
+    g.font = F(500, 34); g.fillStyle = "#A6B1B7"; g.fillText("Báo cáo tổng hợp", 100, 340);
+    g.fillStyle = dark ? "#E9EEF0" : "#14202b"; g.font = F(600, 30);
+    const L = [`Dữ liệu phiên: ${u.dd ? u.dd.split("-").reverse().join("/") : "—"}`, `Phân tích lúc: ${fmtVN(u.gen)}`, u.lv ? `Giá trong phiên: ${fmtVN(u.lv)}` : "", `Tạo PDF lúc: ${fmtVN(new Date())}`].filter(Boolean);
+    L.forEach((t, i) => g.fillText(t, 100, 520 + i * 52));
+    g.font = F(700, 38); g.fillText("Mục lục", 100, 790);
+    g.font = F(400, 30);
+    toc.forEach(([t, p], i) => {
+      const y = 860 + i * 50; if (y > H - 160) return;
+      g.fillStyle = dark ? "#E9EEF0" : "#14202b"; g.fillText(t, 100, y);
+      const pw = g.measureText(String(p)).width; g.fillText(String(p), W - 100 - pw, y);
+      g.strokeStyle = dark ? "#33414a" : "#d5dbe0"; g.setLineDash([3, 6]); g.beginPath(); g.moveTo(110 + g.measureText(t).width, y - 8); g.lineTo(W - 115 - pw, y - 8); g.stroke(); g.setLineDash([]);
+    });
+    g.fillStyle = dark ? "#6D7A81" : "#7a868e"; g.font = F(400, 24);
+    g.fillText("Thông tin tham khảo từ hệ thống phân tích tự động – không phải khuyến nghị đầu tư.", 100, H - 90);
+    return c.toDataURL("image/png");
+  },
+  async dialog() {
+    const [pf, t] = await Promise.all([Store.get("portfolio"), tryLoad("data/today.json")]);
+    const held = [...new Set((pf.data?.holdings || []).map((h) => h.symbol))].slice(0, 12);
+    const picks = ((t?.styles || {})[t?.style || "position"]?.picks || []).map((p) => p.symbol).filter((s) => !held.includes(s)).slice(0, 8);
+    const L = await liveData();
+    const S = [["#/", "Hôm nay", 1], ["#/portfolio", "Danh mục", 1], ...(liveFresh(L) ? [["#/swing/live", "Trong phiên", 1]] : []), ["#/swing/today", "Biến động – phiên gần nhất", 1],
+      ["#/market", "Thị trường", 1], ["#/sector", "Toàn cảnh các ngành", 1], ["#/swing/table", "Bảng hành vi giá", 0], ["#/backtest", "Kiểm chứng", 0],
+      ...held.map((s) => [`#/s/${s}`, `Mã ${s} (đang nắm)`, 1]), ...picks.map((s) => [`#/s/${s}`, `Mã ${s} (danh sách mua)`, 1])];
+    let o = $("#pdfdlg"); o?.remove();
+    o = document.createElement("div"); o.id = "pdfdlg"; o.className = "pdfdlg";
+    o.innerHTML = `<div class="pdfbox wide"><div class="ph"><h2>Xuất PDF</h2><button class="chip" id="pdfx">✕</button></div>
+      <button class="btn primary" id="pdf1">Trang đang xem → PDF</button>
+      <p class="muted" style="margin:10px 0 4px">hoặc <b>báo cáo tổng hợp</b> nhiều trang (có bìa, mục lục, số trang):</p>
+      <div class="pdflist">${S.map(([h, n, on], i) => `<label><input type="checkbox" data-i="${i}" ${on ? "checked" : ""}> ${esc(n)}</label>`).join("")}</div>
+      <button class="btn" id="pdfall">Tạo báo cáo tổng hợp</button>
+      <p class="faint" style="font-size:.72rem;margin-top:6px">PDF giữ nguyên giao diện đang dùng (sáng/tối), mở hết các phần thu gọn, cắt trang ở mép khung. Mỗi trang đầu có thời điểm dữ liệu.</p></div>`;
+    document.body.appendChild(o);
+    const close = () => o.remove();
+    $("#pdfx").onclick = close; o.onclick = (e) => { if (e.target === o) close(); };
+    $("#pdf1").onclick = () => { close(); PDFX.thisPage(); };
+    $("#pdfall").onclick = () => { const sel = $$("#pdfdlg input:checked").map((x) => S[+x.dataset.i]); close(); if (sel.length) PDFX.report(sel); };
+  },
+};
+
 (async function main() {
   initTheme(); initSearch(); initGlobal(); GL.init();
+  $("#pdfBtn")?.addEventListener("click", () => PDFX.dialog());
+  paintUpd(); setInterval(paintUpd, 60000);
   WL.load().catch(() => {});
   try {
     const meta = await load("data/meta.json");
