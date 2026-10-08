@@ -66,7 +66,7 @@ b,strong{font-weight:600}
 
 /* ---------- khung ---------- */
 .top{position:sticky;top:env(safe-area-inset-top,0px);z-index:30;background:var(--surface);border-bottom:1px solid var(--line)}
-.top-in{max-width:1480px;margin:0 auto;padding:6px 14px;display:flex;gap:10px;align-items:center}
+.top-in{max-width:1760px;margin:0 auto;padding:6px 14px;display:flex;gap:10px;align-items:center}
 .brand{font-weight:700;font-size:.95rem;display:flex;gap:7px;align-items:center;color:var(--ink);white-space:nowrap}
 .brand-dot{width:9px;height:9px;border-radius:50%;background:var(--lamp-off)}
 .ticker{display:flex;gap:14px;overflow:hidden;flex:1;min-width:0;font-size:.82rem;white-space:nowrap;mask-image:linear-gradient(90deg,#000 92%,transparent)}
@@ -80,7 +80,7 @@ b,strong{font-weight:600}
 .iconbtn{border:1px solid var(--line);background:var(--surface);border-radius:6px;width:30px;height:30px;
   display:grid;place-items:center;cursor:pointer;flex:none}
 @media (max-width:700px){.ticker{display:none}.search{flex:1;width:auto}}
-main{max-width:1480px;margin:0 auto;padding:12px 14px 40px}
+main{max-width:1760px;margin:0 auto;padding:12px 14px 40px}
 .tabs{position:fixed;bottom:0;left:0;right:0;z-index:30;background:var(--surface);border-top:1px solid var(--line);
   display:grid;grid-template-columns:repeat(6,1fr);padding-bottom:env(safe-area-inset-bottom,0px)}
 .tabs a{display:flex;flex-direction:column;align-items:center;gap:1px;padding:6px 2px 7px;color:var(--ink-2);font-size:.68rem;font-weight:500}
@@ -791,3 +791,20 @@ tr.fboff td{opacity:.5}
 .psteps summary{font-size:.8rem}
 .psteps ol{margin:6px 0 0;padding-left:20px;display:grid;gap:4px;color:var(--ink-2)}
 .psteps b{color:var(--ink)}
+
+/* ---------- trang mã: dải số liệu nhóm + hàng quyết định 3 cột ---------- */
+.snap{display:grid;gap:10px;grid-template-columns:minmax(0,1fr);margin-top:2px}
+.snap .sg{padding:8px 10px}
+.snap .ph{margin-bottom:6px}
+.snap .ph h3{font-size:.78rem;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-2)}
+.kpis.c3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.kpis.c3>div:nth-child(3n){border-right:0}
+.kpis.c3>div:nth-last-child(-n+3){border-bottom:0}
+.kpis.c3 dd{font-size:1rem}
+.kpis.c3 dd small{display:block;font-size:.68rem;font-weight:400;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (min-width:860px){.snap{grid-template-columns:minmax(0,1.25fr) minmax(0,1fr) minmax(0,1fr)}}
+@media (min-width:860px) and (max-width:1179px){.snap{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.snap>:first-child{grid-column:1/-1}
+  .g-dec{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.g-dec>:nth-child(3){grid-column:1/-1}}
+@media (min-width:1180px){.g-dec{grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr)}}
+@media (min-width:1180px) and (max-width:1500px){.g-dec .fbt b{font-size:1.7rem}}
+.snap .sg{display:flex;flex-direction:column}.snap .sg>.kpis{flex:1;align-content:stretch}

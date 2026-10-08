@@ -1742,23 +1742,20 @@ async function viewStock(sym, tabArg) {
     <div style="flex-basis:100%">${actBar(sym, { label: true, held })}</div>
   </div>
   ${(() => { const C = ctxRecs(secs || {}, d.sector, d.industry), b = C.ind || C.sec || {}, M = C.mkt || {}, pe0 = fa.pe ?? r.pe, pb0 = fa.pb ?? r.pb;
-    return kpis([["P/E", `${nf(pe0, 1)}<br><small>ngành ${nf(b.pe_med, 1)} · TT ${nf(M.pe_med, 1)}</small>`, "", "So với P/E trung vị nhóm ngành và toàn thị trường", "hl"],
-      ["P/E vs ngành / TT", `${vsCell(vsPct(pe0, b.pe_med))}<br><small>${vsCell(vsPct(pe0, M.pe_med))} vs TT</small>`, "", "", "hl"],
-      ["P/B", `${nf(pb0)}<br><small>ngành ${nf(b.pb_med)} · TT ${nf(M.pb_med)}</small>`, "", "", "hl"]], false, "khead"); })()}
-  ${kpis([["Vốn hoá", mcapFmt(fa.mcap_bn ?? r.mcap_bn)], ["EPS (đ)", nf(fa.eps ?? r.eps, 0)], ["ROE", pct(fa.roe ?? r.roe, 1, false)],
-    ["LN 12T", pct(fa.ni_yoy ?? r.ni_yoy), cls(fa.ni_yoy ?? r.ni_yoy)], ["DT 12T", pct(fa.rev_yoy ?? r.rev_yoy), cls(fa.rev_yoy ?? r.rev_yoy)], ["Cổ tức", pct(fa.dividend?.yield ?? r.div_yield, 1, false)],
-    ["F-Score", `${r.fscore ?? "—"}/9`], ["Vay/Vốn", nf(fa.de ?? r.de)], ["Beta", nf(d.beta)], ["GTGD/ngày", bn(r.avg_value_bn)], ["RS", `${sc.rs_rating ?? r.rs_rating ?? "—"}/100`],
-    ["1 tháng", pct(r.chg1m), cls(r.chg1m)], ["1 năm", pct(r.chg1y), cls(r.chg1y)], ["Cách đỉnh 52T", pct(ta.from_hi52_pct), "down"]])}
-  <div class="g g-main sec fbrow"><div>${fbPanel(d, FJ).replace('panel sec fbp', 'panel fbp')}</div><div>${stepsBlock.replace('panel sec steps', 'panel steps')}</div></div>
-  <div class="g g-main sec">
-    <div>
-      <div class="toolbar" id="tools"></div>
-      <div class="chart" id="pChart"></div>
-      <div class="chart xs" id="oChart" style="margin-top:4px"></div>
-      ${recentSignals(d)}
-    </div>
+    const g = (t, meta, items) => `<section class="panel sg"><div class="ph"><h3>${t}</h3><span class="meta">${meta}</span></div>${kpis(items, false, "c3")}</section>`;
+    return `<div class="snap">${g("Định giá", "so với ngành · thị trường", [
+      ["P/E", `${nf(pe0, 1)} <small>ngành ${nf(b.pe_med, 1)} · TT ${nf(M.pe_med, 1)}</small>`, "", "So với P/E trung vị nhóm ngành và toàn thị trường", "hl"],
+      ["P/E vs ngành / TT", `${vsCell(vsPct(pe0, b.pe_med))} <small>${vsCell(vsPct(pe0, M.pe_med))} vs TT</small>`, "", "", "hl"],
+      ["P/B", `${nf(pb0)} <small>ngành ${nf(b.pb_med)} · TT ${nf(M.pb_med)}</small>`, "", "", "hl"],
+      ["EPS (đ)", nf(fa.eps ?? r.eps, 0)], ["Cổ tức", pct(fa.dividend?.yield ?? r.div_yield, 1, false)],
+      ["Tiềm năng", v.ok ? `${pct(v.upside)} <small>hợp lý ${nf(v.fair)}</small>` : "—", cls(v.upside)]])}
+    ${g("Kinh doanh & sức khoẻ", "12 tháng gần nhất", [["ROE", pct(fa.roe ?? r.roe, 1, false)], ["LN 12T", pct(fa.ni_yoy ?? r.ni_yoy), cls(fa.ni_yoy ?? r.ni_yoy)],
+      ["DT 12T", pct(fa.rev_yoy ?? r.rev_yoy), cls(fa.rev_yoy ?? r.rev_yoy)], ["F-Score", `${r.fscore ?? "—"}/9`], ["Vay/Vốn", nf(fa.de ?? r.de)], ["Vốn hoá", mcapFmt(fa.mcap_bn ?? r.mcap_bn)]])}
+    ${g("Giá & thanh khoản", "đà giá, sức mạnh, rủi ro", [["1 tháng", pct(r.chg1m), cls(r.chg1m)], ["1 năm", pct(r.chg1y), cls(r.chg1y)], ["Cách đỉnh 52T", pct(ta.from_hi52_pct), "down"],
+      ["RS", `${sc.rs_rating ?? r.rs_rating ?? "—"}/100`], ["GTGD/ngày", bn(r.avg_value_bn)], ["Beta", nf(d.beta)]])}</div>`; })()}
+  <div class="g g-dec sec fbrow">
+    <div class="stack">${fbPanel(d, FJ).replace('panel sec fbp', 'panel fbp')}${stepsBlock.replace('panel sec steps', 'panel steps')}</div>
     <div class="stack">
-      ${valCtx(d, secs || {})}
       ${styleLevels(d)}
       <section class="panel" id="planPos" hidden><div class="ph"><h2>Kế hoạch giao dịch</h2><span class="meta">${d.timing?.ok ? '<b class="up">đủ điều kiện kỹ thuật</b>' : '<b class="ref">chưa đến lúc</b>'}</span></div>
         ${lv ? kpis([["Vùng mua", `${nf(lv.zone[0])}–${nf(lv.zone[1])}`], ["Cắt lỗ", `${nf(lv.stop)} <small>${pct(lv.stop_pct, 0)}</small>`, "down"], ["Mục tiêu 1", `${nf(lv.t1)} <small>${pct(lv.t1_pct, 0)}</small>`, "up"], ["Mục tiêu 2", nf(lv.t2), "up"], ["Lời / lỗ", nf(lv.rr, 1) + "x"], ["Trạng thái", lv.state === "now" ? "Mua được" : "Chờ giá"]], false, "c2")
@@ -1767,11 +1764,26 @@ async function viewStock(sym, tabArg) {
       <section class="panel"><div class="ph"><h2>Định giá: ${esc(v.verdict || "chưa định giá được")}</h2><span class="meta">điểm ${scoreCell(r.composite)}</span></div>
         ${v.ok ? kpis([["Hợp lý", nf(v.fair)], ["Khoảng", `${nf(v.fair_lo)}–${nf(v.fair_hi)}`], ["Mua dưới", nf(v.buy_below)], ["Tiềm năng", pct(v.upside), cls(v.upside)]], false, "c2") : `<p class="muted">${esc(v.reason || "")}</p>`}
         ${v.warning ? `<p class="note" style="margin-top:6px">${esc(v.warning)}</p>` : ""}</section>
+      ${valCtx(d, secs || {})}
+    </div>
+    <div class="stack">${(() => { const C = ctxRecs(secs || {}, d.sector, d.industry), x = C.ind?.outlook ? C.ind : C.sec; return x ? outlookBox(x, `Triển vọng ngành ${esc(x.name)}`) : ""; })()}
+      ${seasonPanel(d.season, d.season_support, { oos: secs?.season?.oos?.stock })}</div>
+  </div>
+  <div class="g g-main sec">
+    <div>
+      <div class="toolbar" id="tools"></div>
+      <div class="chart" id="pChart"></div>
+      <div class="chart xs" id="oChart" style="margin-top:4px"></div>
+    </div>
+    <div class="stack">
       <section class="panel"><div class="ph"><h2>Kỹ thuật: ${esc(ta.label)}</h2><span class="meta">${ta.score}/100</span></div><div class="gauge"><i style="left:${ta.score}%"></i></div>
         ${kpis(Object.entries(ta.groups || {}).map(([g, s]) => [esc(g), `${esc(s.signal)} <small>${s.score}</small>`, s.signal === "Mua" ? "up" : s.signal === "Bán" ? "down" : ""]))}
         <p class="muted" style="font-size:.78rem;margin-top:4px">${esc(ta.trend_vi)}</p></section>
       ${mtfPanel(d.mtf, "Đa khung thời gian", returnsTable(TFO_M(d)))}
-      ${seasonPanel(d.season, d.season_support, { oos: secs?.season?.oos?.stock })}
+    </div>
+  </div>
+  <div class="g g-main sec sigrow">${recentSignals(d).replace('panel sec', 'panel')}
+    <div class="stack">
       <section class="panel"><div class="ph"><h2>Dấu chân tổ chức</h2><a class="meta" href="#/s/${sym}/sm">chi tiết</a></div>
         <dl class="kv"><dt>SMC</dt><dd>${sm.ok ? `${esc(sm.trend_vi)} ${biasPill(sm.bias, " ")}` : "—"}</dd>
           <dt>Premium/Discount</dt><dd>${sm.range ? esc(sm.range.zone.split(" (")[0]) + ` <small>${nf(sm.range.pos_pct, 0)}%</small>` : "—"}</dd>
@@ -2572,9 +2584,9 @@ function bindOutlook(S, rerender) {
   $$("#oHz button").forEach((b) => (b.onclick = () => { lsSet("oHz", b.dataset.v); rerender(); }));
   $$("#oLv button").forEach((b) => (b.onclick = () => { lsSet("oLv", b.dataset.v); rerender(); }));
 }
-function outlookBox(rec) {
+function outlookBox(rec, title = "Triển vọng") {
   const o = rec?.outlook; if (!o) return "";
-  return `<section class="panel"><div class="ph"><h2>Triển vọng</h2><a class="meta" href="#/sector">so với các ngành khác</a></div>
+  return `<section class="panel"><div class="ph"><h2>${title}</h2><a class="meta" href="#/sector">so với các ngành khác</a></div>
     <div class="tags">${outChip(o, "m3")}${outChip(o, "m12")}</div>
     ${o.pos?.length ? `<p class="up" style="font-size:.8rem;margin-top:6px">＋ ${o.pos.map(esc).join(" · ")}</p>` : ""}${o.neg?.length ? `<p class="down" style="font-size:.8rem">− ${o.neg.map(esc).join(" · ")}</p>` : ""}
     ${o.m3?.exp != null ? `<p class="faint" style="font-size:.72rem;margin-top:4px">Lịch sử: ngành ở nhóm "${OUT_VI[o.m3.verdict]}" (3–6 tháng) trung bình ${pct(o.m3.exp, 1)} so với bình quân ngành sau 3 tháng, hơn ${nf(o.m3.win, 0)}% số lần. Chỉ là xác suất nghiêng.</p>` : ""}</section>`;
