@@ -153,7 +153,7 @@ def sentiment(C: pd.DataFrame, H: pd.DataFrame, V: pd.DataFrame, liq: pd.DataFra
         if len(x) < 50:
             continue
         q = pd.qcut(x["s"], 5, labels=False)
-        test[str(k)] = {"ic": _r(x["s"].corr(x["f"], method="spearman"), 3), "n": int(len(x)),
+        test[str(k)] = {"ic": _r(x["s"].rank().corr(x["f"].rank()), 3), "n": int(len(x)),
                         "q": [{"q": int(a) + 1, "r": _r(100 * g.mean()), "hit": _r(100 * (g > 0).mean(), 0)} for a, g in x.groupby(q)["f"]],
                         "all": _r(100 * x["f"].mean())}
     last = S.index[-1] if len(S) else None
