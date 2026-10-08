@@ -171,7 +171,7 @@ jobs:
         if: always() && steps.slot.outputs.skip != 'true' && steps.slot.outputs.mode == 'full'
         run: |
           python scripts/export_debug.py || true
-          bash scripts/publish_status.sh daily data/run.log data/meta.json site/data/meta.json data/check.json data/site_check.txt data/debug
+          bash scripts/publish_status.sh daily data/run.log data/meta.json site/data/meta.json data/check.json data/site_check.txt data/debug site/data/swing.json data/scheduler.txt
           if [ -f data/fwd_log.parquet ]; then bash scripts/publish_status.sh keep data/fwd_log.parquet || true; fi
 
       - name: Đẩy log lượt trong phiên lên nhánh status
