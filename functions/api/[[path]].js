@@ -37,6 +37,13 @@ export async function onRequest({ request, env, params }) {
     return json({ ok: r.status === 204, status: r.status }, r.status === 204 ? 200 : 502);
   }
 
+  // dữ liệu trong phiên do lượt 11:35 / 14:35 ghi vào – chỉ đọc
+  if (key === "intraday") {
+    if (request.method !== "GET") return json({ error: "Chỉ đọc" }, 405);
+    const v = await env.VNSTOCK_KV.get("intraday");
+    return json(v ? JSON.parse(v) : { ok: false });
+  }
+
   if (!KEYS.has(key)) return json({ error: "Không có API này" }, 404);
 
   if (request.method === "GET") {

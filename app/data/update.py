@@ -322,6 +322,147 @@ def update_orderflow(symbols: list[str], session_date, workers: int = 3) -> None
     log.info("Dòng lệnh (footprint) phiên %s: %s", session_date, dict(used))
 
 
+# ------------------------------------------------------------------ trong phiên: phiên sáng/chiều/ATC, nến 30 phút, lệnh cá mập, tin
+def update_intraday(symbols: list[str], focus: list[str], budget_sec: float = 420, tick_budget_sec: float = 150) -> dict:
+    """Mỗi lượt sau đóng cửa:
+    - nến phút 2 phiên gần nhất của mọi mã trong danh sách (≈ 1 request/mã) -> dòng phiên + nến 30 phút;
+    - tải dần lịch sử: nến giờ ~3 năm và nến phút ~6 tháng cho mã chưa có (giới hạn theo thời gian mỗi lượt);
+    - lệnh khớp theo Cá mập / Sói / Cừu cho các mã anh nắm/theo dõi;
+    Mọi bước đều có giới hạn thời gian để không làm chậm lượt chạy."""
+    import time as _t
+    from . import intraday as itd
+    t0 = _t.time()
+    ses_old = store.read("isess")
+    have_m = set(ses_old.loc[ses_old["src"] == "m", "symbol"]) if not ses_old.empty else set()
+    have_h = set(ses_old.loc[ses_old["src"] == "h", "symbol"]) if not ses_old.empty else set()
+    stats = Counter()
+    ses_new, bk_new = [], []
+
+    def minute(s, cb):
+        try:
+            df = itd.bars(s, "ONE_MINUTE", cb)
+            return s, df
+        except FetchError:
+            return s, None
+
+    # 1) phiên gần nhất cho mã đã có lịch sử phút; mã chưa có -> tải 6 tháng (nặng hơn, làm dần)
+    inc = [s for s in symbols if s in have_m]
+    new = [s for s in symbols if s not in have_m]
+    jobs = [(s, 700) for s in inc] + [(s, 30000) for s in new]
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        futs = {}
+        for s, cb in jobs:
+            futs[ex.submit(minute, s, cb)] = cb
+        for f in as_completed(futs):
+            s, df = f.result()
+            if df is None or df.empty:
+                stats["m_fail"] += 1
+                continue
+            stats["m_ok" if futs[f] < 1000 else "m_backfill"] += 1
+            sr = itd.session_rows(df, True)
+            if not sr.empty:
+                ses_new.append(sr.assign(symbol=s))
+            bk = itd.buckets(df)
+            if not bk.empty:
+                bk_new.append(bk.assign(symbol=s))
+            if _t.time() - t0 > budget_sec:
+                for g in futs:
+                    g.cancel()
+                stats["m_stopped"] = 1
+                break
+    # 2) nến giờ ~3 năm cho mã chưa có (để có lịch sử sáng/chiều dài)
+    hjobs = [s for s in symbols if s not in have_h][:200]
+    for s in hjobs:
+        if _t.time() - t0 > budget_sec + 120:
+            stats["h_stopped"] = 1
+            break
+        try:
+            df = itd.bars(s, "ONE_HOUR", 5000)
+            sr = itd.session_rows(df, False)
+            if not sr.empty:
+                ses_new.append(sr.assign(symbol=s))
+                stats["h_backfill"] += 1
+        except FetchError:
+            stats["h_fail"] += 1
+    if ses_new:
+        add = pd.concat(ses_new, ignore_index=True)
+        add["date"] = pd.to_datetime(add["date"])
+        if not ses_old.empty:
+            ses_old["date"] = pd.to_datetime(ses_old["date"])
+            # dữ liệu phút luôn được ưu tiên hơn dữ liệu giờ của cùng phiên
+            key = lambda d: d["symbol"].astype(str) + "|" + d["date"].dt.strftime("%Y%m%d")  # noqa: E731
+            km = set(key(ses_old[ses_old["src"] == "m"]))
+            add = add[~((add["src"] == "h") & key(add).isin(km))]
+            add_m = set(key(add[add["src"] == "m"]))
+            ses_old = ses_old[~key(ses_old).isin(add_m)]
+            ses_old = ses_old[~(key(ses_old).isin(set(key(add))) & (ses_old["src"] == "h"))]
+        df = pd.concat([ses_old, add], ignore_index=True) if not ses_old.empty else add
+        df = df.drop_duplicates(["symbol", "date"], keep="last").sort_values(["symbol", "date"]).reset_index(drop=True)
+        store.write("isess", df)
+    if bk_new:
+        bk = pd.concat(bk_new, ignore_index=True)
+        old = store.read("ibk")
+        df = pd.concat([old, bk], ignore_index=True) if not old.empty else bk
+        df["date"] = pd.to_datetime(df["date"])
+        df = df.drop_duplicates(["symbol", "date", "b"], keep="last")
+        df = df[df["date"] >= df["date"].max() - pd.Timedelta(days=200)]
+        store.write("ibk", df.sort_values(["symbol", "date", "b"]).reset_index(drop=True))
+    # 3) lệnh khớp Cá mập/Sói/Cừu cho mã anh nắm / theo dõi (hôm nay)
+    t1 = _t.time()
+    rows = []
+    now = datetime.now(tz=__import__("zoneinfo").ZoneInfo("Asia/Ho_Chi_Minh")).replace(tzinfo=None)
+    for s in focus:
+        if _t.time() - t1 > tick_budget_sec:
+            stats["t_stopped"] = 1
+            break
+        try:
+            tk = itd.ticks(s, max_pages=60, since=now.replace(hour=9, minute=0, second=0))
+            tk = tk[tk["time"].dt.date == now.date()] if not tk.empty else tk
+            sm = itd.tick_summary(tk)
+            if sm:
+                rows.append({"symbol": s, "date": pd.Timestamp(now.date()), "json": __import__("json").dumps(sm, ensure_ascii=False)})
+                stats["t_ok"] += 1
+        except FetchError:
+            stats["t_fail"] += 1
+    if rows:
+        store.upsert("shark", pd.DataFrame(rows), ["symbol", "date"])
+    stats["sec"] = round(_t.time() - t0)
+    log.info("Dữ liệu trong phiên: %s", dict(stats))
+    store.touch("intraday", **{k: int(v) for k, v in stats.items()})
+    return dict(stats)
+
+
+def update_news(symbols: list[str]) -> None:
+    from . import intraday as itd
+    try:
+        df = itd.news(set(symbols))
+    except Exception as e:  # noqa: BLE001
+        log.warning("Tin tức lỗi: %s", e)
+        return
+    if df.empty:
+        log.info("Tin tức: không có tin nhắc mã nào")
+        return
+    old = store.read("news")
+    df = pd.concat([old, df], ignore_index=True) if not old.empty else df
+    df["time"] = pd.to_datetime(df["time"])
+    df = df.drop_duplicates(["symbol", "link"], keep="first")
+    df = df[df["time"] >= pd.Timestamp.now() - pd.Timedelta(days=180)]
+    store.write("news", df.sort_values("time").reset_index(drop=True))
+    log.info("Tin tức: %d tin gắn mã (lưu %d)", int(df["time"].ge(pd.Timestamp.now() - pd.Timedelta(days=1)).sum()), len(df))
+
+
+def focus_symbols() -> list[str]:
+    """Mã anh đang nắm + đang theo dõi (để lấy lệnh cá mập và cảnh báo trong phiên)."""
+    try:
+        from ..portfolio_store import load_holdings, load_watchlist
+        hs, _, _ = load_holdings()
+        wl = load_watchlist()
+        out = [h["symbol"].upper() for h in hs] + [w["symbol"].upper() for w in wl]
+        return list(dict.fromkeys(out))
+    except Exception:  # noqa: BLE001
+        return []
+
+
 # ------------------------------------------------------------------ main
 def liquid_symbols(prices: pd.DataFrame, min_value_bn: float) -> list[str]:
     if prices.empty:
@@ -362,6 +503,21 @@ def run(force_fin: bool = False, only: list[str] | None = None) -> None:
         update_orderflow(top if not only else [s for s in syms if s in only], pd.Timestamp(last_session).normalize())
     else:
         log.info("Bỏ qua dòng lệnh: chưa hết phiên hoặc hôm nay không giao dịch")
+    try:
+        icfg = config.get("intraday", {}) or {}
+        iu = liquid_symbols(prices, float(icfg.get("min_value_bn", 2)))
+        vals = prices[prices["date"] >= prices["date"].max() - timedelta(days=45)]
+        vv = (vals["close"] * vals["volume"] / 1e6).groupby(vals["symbol"]).mean()
+        iu = sorted([s for s in iu if s in set(syms)], key=lambda x: -vv.get(x, 0))[: int(icfg.get("max_symbols", 450))]
+        foc = focus_symbols()
+        iu = list(dict.fromkeys(foc + iu)) if not only else [s for s in syms if s in only]
+        update_intraday(iu, foc[: int(icfg.get("tick_symbols", 12))], float(icfg.get("budget_sec", 420)), float(icfg.get("tick_budget_sec", 150)))
+    except Exception as e:  # noqa: BLE001
+        log.exception("Dữ liệu trong phiên lỗi: %s", e)
+    try:
+        update_news(syms)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Tin tức lỗi: %s", e)
     update_shares([s for s in div_syms if s in set(syms)] if not only else [s for s in syms if s in only])
     div_syms = [s for s in div_syms if s in set(syms)] if not only else [s for s in syms if s in only]
     update_dividends(div_syms, mark=not only)

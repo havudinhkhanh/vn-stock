@@ -1,11 +1,26 @@
 name: Cập nhật hằng ngày
+run-name: "${{ github.event_name == 'schedule' && 'Lịch GitHub (dự phòng)' || (inputs.mode == 'intraday' && 'Trong phiên' || 'Cập nhật') }}${{ inputs.auto && ' · hẹn giờ' || '' }}"
 
+# Giờ chạy chính do Cloudflare Worker hẹn giờ kích hoạt ĐÚNG GIỜ (xem worker/ và scheduler.yml):
+#   11:35 và 14:35 (trong phiên, ~1–2 phút) · 15:35 (đầy đủ) · 8:00 thứ 7.
+# Lịch GitHub dưới đây chỉ là dự phòng (hay trễ vài tiếng); lượt nào đã chạy rồi sẽ tự bỏ qua.
 on:
   schedule:
-    - cron: "35 8 * * 1-5"   # 15:35 giờ Việt Nam, thứ 2 – thứ 6
+    - cron: "35 4 * * 1-5"   # 11:35 giờ Việt Nam
+    - cron: "35 7 * * 1-5"   # 14:35
+    - cron: "35 8 * * 1-5"   # 15:35
+    - cron: "50 8 * * 1-5"   # 15:50 (dự phòng lần 2)
     - cron: "0 1 * * 6"      # 8:00 sáng thứ 7: tải lại BCTC, cổ tức, chạy backtest
   workflow_dispatch:
     inputs:
+      mode:
+        description: "intraday = lượt trong phiên (nhanh); để trống = đầy đủ"
+        type: string
+        default: ""
+      auto:
+        description: "Lượt hẹn giờ tự động (bỏ qua nếu lượt này hôm nay đã chạy)"
+        type: boolean
+        default: false
       fin:
         description: "Tải lại toàn bộ báo cáo tài chính"
         type: boolean
@@ -59,7 +74,16 @@ jobs:
           key: data-${{ github.run_id }}
           restore-keys: data-
 
+      - name: Xác định lượt chạy (chống chạy trùng)
+        id: slot
+        env:
+          EVENT: ${{ github.event_name }}
+          IN_MODE: ${{ inputs.mode }}
+          IN_AUTO: ${{ inputs.auto }}
+        run: python scripts/slot.py decide
+
       - name: Khôi phục nhật ký tín hiệu thực tế (nếu bộ nhớ đệm bị mất)
+        if: steps.slot.outputs.skip != 'true'
         run: |
           mkdir -p data
           if [ ! -f data/fwd_log.parquet ]; then
@@ -67,11 +91,20 @@ jobs:
           fi
 
       - name: Kết nối Cloudflare KV (nơi lưu danh mục của anh)
-        if: env.CF_API_TOKEN != ''
+        if: env.CF_API_TOKEN != '' && steps.slot.outputs.skip != 'true'
         run: python scripts/cloudflare.py kv >> "$GITHUB_ENV"
 
+      - name: Trong phiên – giá trực tiếp, cảnh báo, Telegram
+        if: steps.slot.outputs.skip != 'true' && steps.slot.outputs.mode == 'intraday'
+        run: |
+          mkdir -p data
+          ARGS=""
+          if [ -n "$TELEGRAM_BOT_TOKEN" ]; then ARGS="--notify"; fi
+          python run.py live $ARGS 2>&1 | tee data/live.log
+          exit ${PIPESTATUS[0]}
+
       - name: Tải dữ liệu, phân tích, gửi Telegram
-        if: inputs.export_only != true
+        if: inputs.export_only != true && steps.slot.outputs.skip != 'true' && steps.slot.outputs.mode == 'full'
         run: |
           ARGS=""
           if [ "${{ inputs.fin }}" = "true" ]; then ARGS="$ARGS --fin"; fi
@@ -86,15 +119,38 @@ jobs:
           kill %1 2>/dev/null || true
           exit $code
 
+      - name: Đánh dấu lượt đã chạy xong
+        if: success() && steps.slot.outputs.skip != 'true'
+        env:
+          SLOT: ${{ steps.slot.outputs.slot }}
+          SLOT_DATE: ${{ steps.slot.outputs.date }}
+        run: python scripts/slot.py mark
+
+      - name: Cài / cập nhật hẹn giờ đúng giờ (Cloudflare Worker) khi đã có token
+        if: env.CF_API_TOKEN != '' && steps.slot.outputs.skip != 'true' && steps.slot.outputs.mode == 'full'
+        continue-on-error: true
+        env:
+          GH_DISPATCH_TOKEN: ${{ secrets.GH_DISPATCH_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          [ -n "$GH_DISPATCH_TOKEN" ] || { echo "Chưa có GH_DISPATCH_TOKEN – vẫn dùng lịch GitHub (hay trễ)" | tee data/scheduler.txt; exit 0; }
+          h=$(cat worker/scheduler.js worker/wrangler.toml | sha1sum | cut -c1-12)
+          if [ "$(cat data/scheduler_hash 2>/dev/null)" = "$h" ]; then echo "Worker hẹn giờ đã cài (bản $h)"; exit 0; fi
+          cd worker
+          npx --yes wrangler@3 deploy --var GH_REPO:${{ github.repository }} 2>&1 | tail -15 | tee ../data/scheduler.txt
+          echo "$GH_DISPATCH_TOKEN" | npx --yes wrangler@3 secret put GH_TOKEN 2>&1 | tail -3 | tee -a ../data/scheduler.txt
+          cd .. && echo "$h" > data/scheduler_hash
+
       - name: Lưu dữ liệu cho lần chạy sau
-        if: always() && inputs.export_only != true
+        if: always() && inputs.export_only != true && steps.slot.outputs.skip != 'true'
         uses: actions/cache/save@v4
         with:
           path: data
           key: data-${{ github.run_id }}
 
       - name: Đăng trang web lên Cloudflare Pages
-        if: env.CF_API_TOKEN != '' && inputs.export_only != true
+        if: env.CF_API_TOKEN != '' && inputs.export_only != true && steps.slot.outputs.skip != 'true' && steps.slot.outputs.mode == 'full'
         env:
           OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
           GH_REPO: ${{ github.repository }}
@@ -112,14 +168,18 @@ jobs:
           curl -s -o /dev/null -w "%{http_code} %{redirect_url}\n" https://vn-stock.pages.dev/ > data/site_check.txt || true
 
       - name: Đẩy log chạy & dữ liệu kiểm tra lên nhánh status
-        if: always()
+        if: always() && steps.slot.outputs.skip != 'true' && steps.slot.outputs.mode == 'full'
         run: |
           python scripts/export_debug.py || true
           bash scripts/publish_status.sh daily data/run.log data/meta.json site/data/meta.json data/check.json data/site_check.txt data/debug
           if [ -f data/fwd_log.parquet ]; then bash scripts/publish_status.sh keep data/fwd_log.parquet || true; fi
 
+      - name: Đẩy log lượt trong phiên lên nhánh status
+        if: always() && steps.slot.outputs.skip != 'true' && steps.slot.outputs.mode == 'intraday'
+        run: bash scripts/publish_status.sh live data/live.log data/live_last.json
+
       - name: Lưu bản web để tải về xem (khi chưa có Cloudflare)
-        if: always()
+        if: always() && steps.slot.outputs.mode == 'full'
         uses: actions/upload-artifact@v4
         with:
           name: website

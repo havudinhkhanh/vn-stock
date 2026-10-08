@@ -21,7 +21,7 @@ import sys
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="VN-Stock")
-    ap.add_argument("cmd", choices=["all", "update", "build", "serve", "stock", "probe", "demo", "notify"])
+    ap.add_argument("cmd", choices=["all", "update", "build", "serve", "stock", "probe", "demo", "notify", "live"])
     ap.add_argument("symbol", nargs="?")
     ap.add_argument("--fin", action="store_true")
     ap.add_argument("--backtest", action="store_true")
@@ -43,6 +43,10 @@ def main() -> None:
         rep = probe.run()
         bad = [k for k, v in rep.items() if isinstance(v, dict) and v.get("ok") is False]
         print(f"\n{len(bad)} nguồn lỗi: {bad}")
+        return
+    if a.cmd == "live":
+        from app import live
+        live.run(notify=a.notify)
         return
     if a.cmd == "demo":
         from app import demo

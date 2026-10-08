@@ -1,0 +1,7 @@
+name = "vn-stock-scheduler"
+main = "scheduler.js"
+compatibility_date = "2024-09-23"
+workers_dev = false
+
+[triggers]
+crons = ["35 4 * * 1-5", "35 7 * * 1-5", "35 8 * * 1-5", "0 1 * * 6"]

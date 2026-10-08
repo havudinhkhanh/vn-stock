@@ -57,7 +57,17 @@ def compose(today: dict) -> tuple[str | None, dict]:
         for p in acts_new:
             lines.append(f"• <b>{p['symbol']}</b>: <b>{p['action']}</b> – giá {_fmt(p['price'])}, "
                          f"lãi/lỗ {_fmt(p['pnl_pct'], 1)}%\n  <i>{html.escape('; '.join(p['reasons']))}</i>")
-    near_prev = set(prev.get("near_sent", []))
+    # việc đã nhắn trong lượt trong phiên hôm nay thì không nhắn lại lúc đóng cửa
+    live_sent = set()
+    lp = store.path("live_state.json")
+    if lp.exists():
+        try:
+            ls = json.loads(lp.read_text(encoding="utf-8"))
+            if ls.get("date") == today["date"]:
+                live_sent = set(ls.get("sent") or [])
+        except ValueError:
+            pass
+    near_prev = set(prev.get("near_sent", [])) | {k.rsplit(":", 1)[0] for k in live_sent if k.endswith((":near", ":hit"))}
     near_now = {}
     for p in pfo.get("positions", []):
         if p["severity"] >= 2:
@@ -74,7 +84,7 @@ def compose(today: dict) -> tuple[str | None, dict]:
         if w not in prev.get("warnings", []):
             lines.append("⚠️ " + html.escape(w))
     sent = set(prev.get("alerts_sent", []))
-    al_new = [a for a in today.get("alerts") or [] if f"{a['id']}@{a['date']}" not in sent and a["id"] not in sent]
+    al_new = [a for a in today.get("alerts") or [] if f"{a['id']}@{a['date']}" not in sent and a["id"] not in sent and f"alert:{a['id']}" not in live_sent]
     if al_new:
         lines.append("<b>🔔 CẢNH BÁO GIÁ</b>")
         for a in al_new:

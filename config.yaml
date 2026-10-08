@@ -83,6 +83,14 @@ data:
   dividends_per_run: 120
   shares_per_run: 120
 
+intraday:
+  min_value_bn: 2             # theo dõi hành vi giá trong phiên cho mã GTGD bình quân ≥ 2 tỷ/ngày
+  max_symbols: 450            # tối đa số mã lấy nến phút mỗi lượt (thanh khoản cao nhất trước)
+  budget_sec: 420             # giới hạn thời gian tải nến phút/giờ mỗi lượt sau đóng cửa (tải dần lịch sử)
+  tick_symbols: 12            # số mã (đang nắm / theo dõi) lấy lệnh khớp Cá mập/Sói/Cừu
+  tick_budget_sec: 150
+  live_bars: 90               # số mã lấy nến phút trong lượt 11:35 / 14:35 (mã anh nắm, theo dõi, mua + mã biến động mạnh)
+
 schedule:
   rebalance: monthly          # monthly | quarterly
   financials_refresh_weekday: 5   # 0=Thứ 2 ... 5=Thứ 7: ngày tải lại toàn bộ BCTC

@@ -1,0 +1,44 @@
+name: Cài hẹn giờ đúng giờ (Cloudflare)
+
+# Cài một Cloudflare Worker có hẹn giờ (cron) để kích hoạt "Cập nhật hằng ngày" đúng 11:35, 14:35, 15:35
+# (thứ 2 – thứ 6) và 8:00 thứ 7. Lịch của GitHub vẫn giữ làm dự phòng; lượt trùng sẽ tự bỏ qua.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["worker/**", ".github/workflows/scheduler.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+      GH_DISPATCH_TOKEN: ${{ secrets.GH_DISPATCH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Kiểm tra token GitHub để kích hoạt chạy
+        run: |
+          mkdir -p out
+          if [ -z "$GH_DISPATCH_TOKEN" ]; then
+            echo "THIẾU secret GH_DISPATCH_TOKEN (xem README – Bước 7): vẫn cài Worker để kiểm tra quyền Cloudflare, nhưng chưa kích hoạt được" | tee -a out/scheduler.log; exit 0
+          fi
+          code=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $GH_DISPATCH_TOKEN" \
+            -H "Accept: application/vnd.github+json" https://api.github.com/repos/${{ github.repository }}/actions/workflows/daily.yml)
+          echo "GitHub token: HTTP $code" | tee -a out/scheduler.log
+          [ "$code" = "200" ] || { echo "Token không đọc được workflow – cần quyền Actions: Read and write cho repo này" | tee -a out/scheduler.log; exit 1; }
+      - name: Cài Worker hẹn giờ
+        working-directory: worker
+        run: |
+          set -o pipefail
+          npx --yes wrangler@3 deploy --var GH_REPO:${{ github.repository }} 2>&1 | tee -a ../out/scheduler.log
+          if [ -n "$GH_DISPATCH_TOKEN" ]; then
+            echo "$GH_DISPATCH_TOKEN" | npx --yes wrangler@3 secret put GH_TOKEN 2>&1 | tee -a ../out/scheduler.log
+          fi
+      - name: Đẩy kết quả lên nhánh status
+        if: always()
+        run: bash scripts/publish_status.sh scheduler out/scheduler.log
