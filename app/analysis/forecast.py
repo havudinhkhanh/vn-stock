@@ -89,6 +89,9 @@ def build_base(fa: dict, ys: pd.DataFrame, ttm_row: pd.Series | None, sector_gro
     eq = fa.get("equity_bn")
     if ni is None or eq is None or eq <= 0:
         return None
+    nfac = float((fa.get("norm") or {}).get("f") or 1.0)
+    if model == "FIN" and nfac != 1 and ni > 0:
+        ni = ni * nfac   # ngân hàng/CTCK/bảo hiểm: dự phóng từ lợi nhuận đã chuẩn hoá
     H = history(ys)
     years = [h["year"] for h in H]
     sg = sector_growth / 100 if sector_growth is not None and not np.isnan(sector_growth) else None
@@ -148,6 +151,9 @@ def build_base(fa: dict, ys: pd.DataFrame, ttm_row: pd.Series | None, sector_gro
         sga_now = float(np.clip(sga_now, 0, 0.6)) if sga_now is not None else 0.08
         sga_lt = _median(sga_hist, sga_now, 0, 0.6)
         why["gm"] = f"biên gộp 12 tháng gần nhất {_pct(gm_now)}"
+        if nfac != 1:
+            gm_now = 0.5 * gm_now + 0.5 * gm_lt
+            why["gm"] = f"chuẩn hoá: ½ biên 12 tháng + ½ trung vị nhiều năm = {_pct(gm_now)} (lợi nhuận 12 tháng lệch xa mức bình thường)"
         why["gm_lt"] = f"trung vị biên gộp {len([h for h in H if h['gm'] is not None])} năm của chính DN – biên đi dần về mức này"
         why["sga"] = f"chi phí bán hàng + quản lý ÷ doanh thu năm gần nhất {_pct(sga_now)}"
         why["sga_lt"] = "trung vị nhiều năm của chính DN"

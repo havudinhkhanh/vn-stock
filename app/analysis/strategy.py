@@ -102,7 +102,9 @@ def score_methods(u: pd.DataFrame, market_light: str) -> pd.DataFrame:
         "M": pd.Series(market_light != "red", index=u.index),
     })
     s["canslim"] = c.sum(axis=1) / 6 * 100
-    s["low_vol"] = _mean(_pct(u["vol_1y"], ascending=False), _pct(u["beta"], ascending=False))
+    # ít biến động: cả 1 năm lẫn 3 tháng gần nhất (mã vừa tăng/giảm sốc không còn là "phòng thủ")
+    s["low_vol"] = _mean(_pct(u["vol_1y"], ascending=False), _pct(u["beta"], ascending=False),
+                         _pct(u["vol_3m"], ascending=False) if "vol_3m" in u else None)
     for key, col in (("smc", "smc_bias"), ("vsa", "vsa_bias"), ("orderflow", "of_bias")):
         s[key] = (50 + 50 * pd.to_numeric(u.get(col, pd.Series(index=u.index, dtype=float)), errors="coerce")).fillna(50)
     wy = u.get("wy_phase", pd.Series(index=u.index, dtype=object)).astype(str)
@@ -144,7 +146,8 @@ def basket_members(u: pd.DataFrame, sc: pd.DataFrame, light: str) -> dict[str, p
         m &= (u["ni_yoy"].fillna(-100) > -10) & pos_cfo & ((u["de"].fillna(0) < 2) | ~ct)
     res["value"] = (0.6 * sc["value"] + 0.25 * sc["piotroski"] + 0.15 * sc["quality"])[m]
     m = ((sc["low_vol"] >= 60) & ((u["de"].fillna(0) < 1) | ~ct) & (u["cash_years"].fillna(0) >= 3)
-         & (u["roe"].fillna(0) >= 10))
+         & (u["roe"].fillna(0) >= 10)
+         & (u["chg1m"].fillna(0) <= 20) & (u["rsi"].fillna(50) <= 75))   # vừa tăng nóng thì không còn là phòng thủ
     res["defensive"] = (0.5 * sc["low_vol"] + 0.3 * sc["dividend"] + 0.2 * sc["quality"])[m]
     m = (sc["canslim"] >= 4 / 6 * 100 - 0.1) & (u["trend"] == "up")
     res["growth"] = (0.6 * sc["canslim"] + 0.4 * sc["momentum"])[m]

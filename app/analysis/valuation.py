@@ -58,6 +58,38 @@ def hist_multiples(qs: pd.DataFrame, close: pd.Series, shares: float | None) -> 
     return res
 
 
+def norm_earnings(qs: pd.DataFrame | None) -> dict:
+    """Lợi nhuận chuẩn hoá (áp cho MỌI mã): so lợi nhuận 12 tháng với trung vị chuỗi lợi nhuận 12 tháng của 20 quý gần nhất.
+    Lệch quá 60% (đỉnh hoặc đáy chu kỳ, lãi bất thường) → dùng ½ hiện tại + ½ mức bình thường.
+    Kiểm chứng 2019–2026: P/E chuẩn hoá dự báo lợi nhuận 3 tháng sau ngang/nhỉnh hơn P/E 12 tháng (IC 0,038 so với 0,036)
+    nhưng không bị "đánh lừa" bởi lợi nhuận đỉnh chu kỳ."""
+    out = {"f": 1.0}
+    if qs is None or qs.empty or "ni_parent_ttm" not in qs:
+        return out
+    q = qs.dropna(subset=["ni_parent_ttm"]).sort_values(["year", "quarter"])
+    t = pd.to_numeric(q["ni_parent_ttm"], errors="coerce").dropna()
+    if len(t) < 8:
+        return out
+    ttm, med = float(t.iloc[-1]), float(t.iloc[-20:].median())
+    out.update({"ttm": _r(ttm, 1), "med": _r(med, 1), "n_q": int(min(20, len(t)))})
+    if ttm > 0 and med > 0:
+        ratio = ttm / med
+        out["ratio"] = _r(ratio, 2)
+        if ratio > 1.6 or ratio < 1 / 1.6:
+            out["f"] = float(np.clip((0.5 * ttm + 0.5 * med) / ttm, 0.3, 3.0))
+            out["kind"] = "peak" if ratio > 1 else "trough"
+    nq = pd.to_numeric(q["ni_parent"], errors="coerce") if "ni_parent" in q else pd.Series(dtype=float)
+    if len(nq.dropna()) >= 5:
+        last, prev4 = float(nq.iloc[-1]), float(nq.iloc[-5:-1].mean())
+        if prev4 > 0 and last > 2 * prev4:
+            out["spike_q"] = {"q": f"Q{int(q['quarter'].iloc[-1])}/{int(q['year'].iloc[-1])}", "ni": _r(last, 1), "avg4": _r(prev4, 1)}
+    if "cfo" in q and ttm > 0:
+        cf = pd.to_numeric(q["cfo"], errors="coerce").iloc[-4:]
+        if cf.notna().sum() == 4:
+            out["cash_conv"] = _r(float(cf.sum()) / ttm, 2)
+    return out
+
+
 def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: dict,
           mos_pct: float) -> dict:
     price = fa.get("price")
@@ -114,11 +146,17 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
     # "rẻ so với P/E lịch sử của chính mã" thì KHÔNG (IC −0,018) và làm hỏng kết quả khi trộn vào (IC 0,012) →
     # mục tiêu chỉ dùng mặt bằng ngành (điều chỉnh theo ROE); lịch sử của mã chỉ để tham khảo / dự phòng khi thiếu ngành.
     pe_t = pe_ind * adj if pe_ind and 3 < pe_ind * adj < 40 else (hist.get("pe_med") if hist.get("pe_med") and 3 < hist["pe_med"] < 40 else None)
+    nz = fa.get("norm") or {}
+    nfac = float(nz.get("f") or 1.0)
     if pe_t and eps and eps > 0:
-        e = eps
+        e = eps * nfac
         src = f"ngành{f' ×{adj:.2f} theo ROE' if adj != 1 else ''}" if pe_ind else "lịch sử của mã (thiếu số liệu ngành)"
         lo_m, hi_m = (pe_ind * adj * 0.85, pe_ind * adj * 1.15) if pe_ind else (hist.get("pe_lo") or pe_t * 0.85, hist.get("pe_hi") or pe_t * 1.15)
-        methods.append({"key": "pe", "mult": pe_t, "name": f"P/E mục tiêu {pe_t:.1f}x ({src}) × EPS 12 tháng",
+        ename = "EPS 12 tháng" if nfac == 1 else f"EPS chuẩn hoá ({'đỉnh' if nfac < 1 else 'đáy'} chu kỳ: ½ mức 12 tháng + ½ mức bình thường 5 năm)"
+        nz["pe_ttm_val"] = _r(pe_t * eps / 1000)
+        if nz.get("med") and nz.get("ttm"):
+            nz["pe_med_val"] = _r(pe_t * eps * (nz["med"] / nz["ttm"]) / 1000)
+        methods.append({"key": "pe", "mult": pe_t, "name": f"P/E mục tiêu {pe_t:.1f}x ({src}) × {ename}",
                         "value": _r(pe_t * e / 1000), "w": 0.35 if ctype == "CT" else 0.20,
                         "range": [_r(lo_m * e / 1000), _r(hi_m * e / 1000)]})
     # 4) P/B mục tiêu (cùng logic: mặt bằng ngành điều chỉnh theo ROE)
@@ -161,6 +199,13 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
     highs = [m["range"][1] for m in used if m.get("range") and m["range"][1]]
     fair_lo = float(np.mean(lows)) if lows else fair * 0.8
     fair_hi = float(np.mean(highs)) if highs else fair * 1.2
+    # mục tiêu có điều kiện: nếu lợi nhuận giữ mức 12 tháng / về mức bình thường (ước tính qua phần P/E)
+    pm = next((m for m in used if m["key"] == "pe"), None)
+    if nfac != 1 and pm is not None:
+        if nz.get("pe_ttm_val"):
+            nz["fair_ttm"] = _r(fair + pm["w_eff"] * (nz["pe_ttm_val"] - pm["value"]))
+        if nz.get("pe_med_val"):
+            nz["fair_med"] = _r(fair + pm["w_eff"] * (nz["pe_med_val"] - pm["value"]))
     med_used = float(np.median([m["value"] for m in used]))
     buy_below = min(fair * (1 - mos_pct / 100), med_used * (1 - mos_pct / 200))
     upside = (fair / price - 1) * 100 if price else None
@@ -176,6 +221,9 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
     if spread > 3.0:
         reliable = False
         warning = warning or "Các phương pháp định giá cho kết quả rất khác nhau – độ tin cậy thấp."
+    if nz.get("cash_conv") is not None and nz["cash_conv"] < 0.5 and ctype == "CT":
+        w2 = f"Lợi nhuận 12 tháng chưa thành tiền: dòng tiền kinh doanh 4 quý chỉ bằng {nz['cash_conv'] * 100:.0f}% lợi nhuận."
+        warning = f"{warning} {w2}" if warning else w2
     if price is None:
         verdict = "n/a"
     elif not reliable:
@@ -192,5 +240,5 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
             "buy_below": _r(buy_below), "sell_above": _r(fair * 1.10), "upside": _r(upside, 1), "median": _r(med_used),
             "ke_parts": {"rf": _r(rf * 100, 2), "beta": _r(b, 2), "beta_used": _r(max(b, 1.0), 2), "erp": _r(erp * 100, 2), "size": _r(size_p * 100, 1),
                          "floor": cfg.get("ke_min", 12.0)},
-            "verdict": verdict, "reliable": reliable, "warning": warning, "methods": methods, "ke": _r(ke * 100, 2), "beta": _r(b, 2),
+            "verdict": verdict, "reliable": reliable, "warning": warning, "methods": methods, "norm": nz, "ke": _r(ke * 100, 2), "beta": _r(b, 2),
             "scenarios": sc, "model": model, "hist": {k: _r(v, 2) for k, v in hist.items()}}

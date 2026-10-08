@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from .analysis import swing as sw
+from .analysis import flow as fl
 from .data import store
 
 log = logging.getLogger("swing")
@@ -111,6 +112,30 @@ def run(prices: pd.DataFrame, listing: pd.DataFrame, u: pd.DataFrame, idx_close:
            "coverage": cov, "window": sw.W}
     (out_dir / "swing.json").write_text(json.dumps(_clean(out), ensure_ascii=False), encoding="utf-8")
 
+    # ---- dòng tiền lớn (gom / xả / bứt phá) + tâm lý thị trường
+    flow_by = {}
+    try:
+        P2 = {"C": C, "H": P["H"].reindex_like(C), "L": P["L"].reindex_like(C), "V": P["V"].reindex_like(C)}
+        F = fl.features(P2)
+        fev = fl.event_study(F, C, P2["H"], idx_close, liq)
+        cur = fl.current(F, C, liq_last, store.read("orderflow"), sh_by)
+        sent = fl.sentiment(C, P2["H"], P2["V"], liq, idx_close)
+        flow_by = {x["s"]: x for x in cur}
+        for x in cur:
+            if x["s"] in u.index:
+                x["sector"] = u.at[x["s"], "sector"]
+                x["chg1m"] = _r(u.at[x["s"], "chg1m"], 1)
+                x["val"] = _r(u.at[x["s"], "avg_value_bn"], 1)
+                x["price"] = _r(u.at[x["s"], "price"])
+        fout = {"date": out["date"], "window": fl.N, "events": fev, "rows": [x for x in cur if x["st"] or x["acc_20"] or x["dist_20"]],
+                "count": {"acc": sum(1 for x in cur if "acc" in x["st"]), "dist": sum(1 for x in cur if "dist" in x["st"]),
+                          "brk": sum(1 for x in cur if set(x["st"]) & {"brk", "acc_brk"}), "n": len(cur)},
+                "sentiment": sent}
+        (out_dir / "flow.json").write_text(json.dumps(_clean(fout), ensure_ascii=False), encoding="utf-8")
+        log.info("Dòng tiền lớn: %s · tâm lý %s (%s)", fout["count"], sent.get("now"), sent.get("label"))
+    except Exception as e:  # noqa: BLE001
+        log.exception("Dòng tiền lớn / tâm lý lỗi: %s", e)
+
     # ---- từng mã
     per = {}
     ses_by = {s: d for s, d in ses.groupby("symbol")} if not ses.empty else {}
@@ -122,7 +147,7 @@ def run(prices: pd.DataFrame, listing: pd.DataFrame, u: pd.DataFrame, idx_close:
                                "day": _r(100 * x.day_ret), "rng": _r(100 * x.rng, 1), "hi_t": int(x.hi_t), "lo_t": int(x.lo_t)})
         own = {k: {"n": int(p.get(f"o_{k}_n") or 0), "r5": _r(p.get(f"o_{k}_r5"))} for k in sw.EVENTS if f"o_{k}_n" in p.index}
         per[s] = {"profile": {k: (v if k in ("tags", "path", "vshare") else _r(v, 3)) for k, v in p.items() if not str(k).startswith("o_")},
-                  "own": own, "recent": recent, "today": sig_by.get(s), "news": nby.get(s, []), "shark": sh_by.get(s, []),
+                  "own": own, "recent": recent, "today": sig_by.get(s), "news": nby.get(s, []), "shark": sh_by.get(s, []), "flow": flow_by.get(s),
                   "market": out["market"]}
     # ---- bối cảnh cho lượt trong phiên
     vavg = P["V"].iloc[-20:].mean()

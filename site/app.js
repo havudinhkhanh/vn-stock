@@ -448,7 +448,7 @@ function ladder(p) {
 }
 
 async function viewToday() {
-  const [t, meta, pfr, rows, secs, m, LV] = await Promise.all([load("data/today.json"), load("data/meta.json"), Store.get("portfolio"), screenerRows(), secsData(), tryLoad("data/market.json"), liveData()]);
+  const [t, meta, pfr, rows, secs, m, LV, FJ] = await Promise.all([load("data/today.json"), load("data/meta.json"), Store.get("portfolio"), screenerRows(), secsData(), tryLoad("data/market.json"), liveData(), tryLoad("data/flow.json")]);
   const pf = pfr.data || {};
   const MV = secs?.market || {};
   const R = Object.fromEntries(rows.map((r) => [r.symbol, r]));
@@ -531,6 +531,7 @@ async function viewToday() {
       <small>Tiền mặt nên giữ <b>${nf(plan.cash, 0)}%</b></small></div>
   </section>
   ${liveBanner(LV)}
+  ${moodStrip(FJ)}
   ${seasonBanner(secs?.season)}
 
   <div class="g g-main sec">
@@ -1725,7 +1726,7 @@ async function viewStock(sym, tabArg) {
     return;
   }
   recentAdd(sym); await WL.load();
-  const [pfS, tS, evS, FJ, LV] = await Promise.all([Store.get("portfolio"), load("data/today.json"), tryLoad("data/events.json"), fbData(), liveData()]);
+  const [pfS, tS, evS, FJ, LV, FLJ] = await Promise.all([Store.get("portfolio"), load("data/today.json"), tryLoad("data/events.json"), fbData(), liveData(), tryLoad("data/flow.json")]);
   const held = (pfS.data?.holdings || []).some((h) => h.symbol === sym);
   const stepsBlock = (() => { try { return stepsHtml(stepsFor(d, { t: tS, pf: pfS.data || {}, ev: evS })); } catch (e) { console.warn(e); return ""; } })();
   const r = d.row, v = d.valuation || {}, ta = d.ta, fa = d.fa || {}, w = d.waves || {};
@@ -1769,6 +1770,7 @@ async function viewStock(sym, tabArg) {
         ${d.timing && !d.timing.ok ? `<p class="note" style="margin-top:6px">${esc(d.timing.reason)}</p>` : ""}</section>
       <section class="panel"><div class="ph"><h2>Định giá: ${esc(v.verdict || "chưa định giá được")}</h2><span class="meta">điểm ${scoreCell(r.composite)}</span></div>
         ${v.ok ? kpis([["Hợp lý", nf(v.fair)], ["Khoảng", `${nf(v.fair_lo)}–${nf(v.fair_hi)}`], ["Mua dưới", nf(v.buy_below)], ["Tiềm năng", pct(v.upside), cls(v.upside)]], false, "c2") : `<p class="muted">${esc(v.reason || "")}</p>`}
+        ${normNote(v)}
         ${v.warning ? `<p class="note" style="margin-top:6px">${esc(v.warning)}</p>` : ""}</section>
       ${valCtx(d, secs || {})}
     </div>
@@ -1790,7 +1792,7 @@ async function viewStock(sym, tabArg) {
   </div>
   <div class="g g-main sec sigrow"><div class="stack">${recentSignals(d).replace('panel sec', 'panel')}</div>
     <div class="stack">
-      ${swingPanel(d.swing, LV, sym)}
+      ${swingPanel(d.swing, LV, sym, FLJ)}
       <section class="panel"><div class="ph"><h2>Dấu chân tổ chức</h2><a class="meta" href="#/s/${sym}/sm">chi tiết</a></div>
         <dl class="kv"><dt>SMC</dt><dd>${sm.ok ? `${esc(sm.trend_vi)} ${biasPill(sm.bias, " ")}` : "—"}</dd>
           <dt>Premium/Discount</dt><dd>${sm.range ? esc(sm.range.zone.split(" (")[0]) + ` <small>${nf(sm.range.pos_pct, 0)}%</small>` : "—"}</dd>
@@ -1907,6 +1909,13 @@ async function viewStock(sym, tabArg) {
   bindStyleLevels();
 }
 
+function normNote(v) {
+  const z = v?.norm || {};
+  if (!z || !isNum(z.ratio)) return "";
+  if (!z.kind) return `<p class="faint" style="font-size:.74rem;margin-top:4px"><span data-g="norm_eps">Lợi nhuận 12 tháng</span> ${nf(z.ttm, 0)} tỷ, bằng ${nf(z.ratio, 2)} lần mức bình thường 5 năm (${nf(z.med, 0)} tỷ) – không cần chuẩn hoá.${isNum(z.cash_conv) ? ` Dòng tiền KD 4 quý = ${nf(z.cash_conv * 100, 0)}% lợi nhuận.` : ""}</p>`;
+  return `<div class="note" style="margin-top:6px"><b data-g="norm_eps">Lợi nhuận đang ở ${z.kind === "peak" ? "đỉnh" : "đáy"} so với bình thường:</b> 12 tháng ${nf(z.ttm, 0)} tỷ = ${nf(z.ratio, 2)} lần trung vị 5 năm (${nf(z.med, 0)} tỷ)${z.spike_q ? `; riêng ${esc(z.spike_q.q)} lãi ${nf(z.spike_q.ni, 0)} tỷ, gấp ${nf(z.spike_q.ni / z.spike_q.avg4, 1)} lần TB 4 quý trước` : ""}. Giá trị hợp lý dùng lợi nhuận <b>chuẩn hoá</b> (½ hiện tại + ½ bình thường).
+    <br>Mục tiêu có điều kiện: <b>${nf(z.fair_ttm)}</b> nếu lợi nhuận giữ mức 12 tháng · <b>${nf(v.fair)}</b> (đang dùng) · <b>${nf(z.fair_med)}</b> nếu về mức bình thường.${isNum(z.cash_conv) ? ` Dòng tiền KD 4 quý = <b class="${z.cash_conv < 0.5 ? "down" : ""}">${nf(z.cash_conv * 100, 0)}%</b> lợi nhuận.` : ""} Báo cáo quý tới sẽ cho biết kịch bản nào đúng.</div>`;
+}
 function entryState(d, lv) {
   if (!lv) return { k: "none", t: "Chưa có kế hoạch", c: "" };
   if (d.timing && !d.timing.ok) return { k: "trend", t: "Chưa đến lúc", c: "ref", why: d.timing.reason };
@@ -2672,18 +2681,91 @@ function sigCard(x, mine) {
   </div>`;
 }
 
+// ---- dòng tiền lớn (gom / xả / bứt phá) + tâm lý thị trường
+const FLOW_ST = { acc: ["Gom âm thầm", "up", "fl_acc"], dist: ["Xả âm thầm", "down", "fl_dist"], brk: ["Bứt phá có KL", "up", "fl_brk"], acc_brk: ["Gom rồi bứt phá", "up", "fl_brk"] };
+const flowPill = (k) => { const x = FLOW_ST[k]; return x ? `<span class="pill fl ${x[1]}" data-g="${x[2]}">${x[0]}</span>` : ""; };
+function flowAdvice(k, E) {
+  const e = (E || {})[k] || {}, b = (E || {})._base || {};
+  const hist = isNum(e.r20) ? `Lịch sử (${nf(e.n, 0)} lần từ 2016): 20 phiên sau TB ${pct(e.r20, 2)} so với VN-Index (mốc ${pct(b.r20, 2)}), ${nf(e.game, 0)}% số lần có nhịp +20% trong 60 phiên (mốc ${nf(b.game, 0)}%)${e.useful ? "" : " – chưa có ý nghĩa thống kê"}.` : "";
+  const act = { dist: "Đang nắm: siết dừng, hồi lên thì bán bớt; chưa nắm: đứng ngoài.",
+    acc: "Chỉ là dấu hiệu theo dõi – gom đơn thuần không dự báo được \"game\". Đặt cảnh báo giá ở đỉnh 20 phiên; chỉ mua khi BỨT PHÁ có KL.",
+    brk: "Có thể vào 1 phần khi giá giữ trên đỉnh cũ; dừng lỗ dưới đỉnh cũ / đáy phiên bứt phá.",
+    acc_brk: "Gom trước rồi bứt phá: vào 1 phần, dừng dưới vùng gom; lịch sử không tốt hơn bứt phá thường – đừng kỳ vọng quá." }[k] || "";
+  return `${hist} ${act}`.trim();
+}
+function flowLine(x, E) {
+  if (!x) return "";
+  const st = x.st || [];
+  const facts = `KL ${nf(x.vr, 1)}× bình thường · giá ${pct(x.pchg)} trong ${FLOW_N} phiên · KL phiên tăng/giảm ${nf(x.ud, 2)} · nến đóng ${isNum(x.clv) ? (x.clv > 0 ? "nửa trên" : "nửa dưới") : "—"}${isNum(x.delta10) ? ` · mua − bán chủ động 10 phiên ${pct(x.delta10, 1)} (${x.delta_pos}/${x.delta_n} phiên dương)` : ""}${isNum(x.shark5) ? ` · cá mập 5 phiên ${nf(x.shark5, 1)} tỷ` : ""}`;
+  if (!st.length) return `<p class="faint" style="font-size:.76rem">Dòng tiền lớn: không có dấu hiệu gom/xả rõ (${facts}).</p>`;
+  return `<div class="flw">${st.map(flowPill).join(" ")}${x.acc_days ? ` <small>${x.acc_days} phiên liên tiếp</small>` : ""}${x.dist_days ? ` <small>${x.dist_days} phiên liên tiếp</small>` : ""}<br><small>${facts}</small><br><small class="muted">${esc(flowAdvice(st[0], E))}</small></div>`;
+}
+let FLOW_N = 10;
+function moodGauge(S, big = true) {
+  if (!S || !isNum(S.now)) return "";
+  const c = S.now >= 60 ? "up" : S.now < 40 ? "down" : "ref";
+  return `<div class="mood ${big ? "big" : ""}"><b class="${c}">${nf(S.now, 0)}</b><span>/100 · <b>${esc(S.label)}</b>${isNum(S.chg5) ? ` · ${S.chg5 > 0 ? "+" : ""}${nf(S.chg5, 0)} so với tuần trước` : ""}</span>
+    <div class="mbar"><i style="left:${Math.max(0, Math.min(100, S.now))}%"></i></div><small class="mlab"><span>Sợ hãi</span><span>Thận trọng</span><span>Trung tính</span><span>Lạc quan</span><span>Hưng phấn</span></small></div>`;
+}
+function moodStrip(FJ) {
+  if (!FJ?.sentiment) return "";
+  const S = FJ.sentiment, k = FJ.count || {};
+  return `<section class="panel sec moodstrip"><div class="ph"><h2 data-g="mood">Tâm lý thị trường</h2><a class="meta" href="#/swing/mood">chi tiết & kiểm chứng</a></div>
+    <div class="ms-row">${moodGauge(S, false)}<div class="ms-k"><a href="#/swing/flow"><b class="down">${nf(k.dist, 0)}</b> mã xả âm thầm</a><a href="#/swing/flow"><b class="up">${nf(k.acc, 0)}</b> mã gom âm thầm</a><a href="#/swing/flow"><b class="up">${nf(k.brk, 0)}</b> mã bứt phá có KL</a></div></div></section>`;
+}
+function flowView(FJ, mine) {
+  FLOW_N = FJ.window || 10;
+  const E = FJ.events || {}, R = FJ.rows || [];
+  const evRows = ["dist", "acc", "brk", "acc_brk", "_base"].filter((k) => E[k]).map((k) => { const e = E[k]; return `<tr${k === "_base" ? ' class="muted"' : ""}><td class="l"><b>${esc(e.name)}</b></td><td>${nf(e.n, 0)}</td><td class="${cls(e.r20)}">${pct(e.r20, 2)}</td><td>${nf(e.t20, 1)}</td><td class="${cls(e.r60)}">${pct(e.r60, 2)}</td><td>${isNum(e.game) ? nf(e.game, 0) + "%" : "—"}${isNum(e.game_x) && k !== "_base" ? ` <small class="${cls(e.game_x)}">(${e.game_x > 0 ? "+" : ""}${nf(e.game_x, 0)})</small>` : ""}</td><td>${isNum(e.r20_a) ? `${pct(e.r20_a, 2)} / ${pct(e.r20_b, 2)}` : "—"}</td><td>${k === "_base" ? "" : e.useful ? '<b class="up">có</b>' : '<span class="muted">không</span>'}</td></tr>`; }).join("");
+  const tbl = (key, title, rows) => `<section class="panel"><div class="ph"><h2>${title}</h2><span class="meta">${rows.length} mã</span></div>
+    <p class="faint" style="font-size:.74rem;margin:0 0 4px">${esc(flowAdvice(key, E))}</p>
+    <div class="tw"><table class="flt"><thead><tr><th class="l">Mã</th><th data-g="fl_streak">Liên tiếp</th><th data-g="fl_streak">Trong 20p</th><th data-g="fl_vr">KL ×</th><th data-g="chg">Giá ${FLOW_N}p</th><th data-g="fl_ud">KL tăng/giảm</th><th data-g="fl_clv">Đóng cửa</th><th data-g="orderflow">Mua−bán chủ động 10p</th><th data-g="sw_shark">Cá mập 5p</th><th data-g="chg">1 tháng</th><th data-g="gtgd">GTGD</th></tr></thead>
+    <tbody>${rows.map((x) => `<tr class="${mine.has(x.s) ? "mine" : ""}"><td class="l"><a href="#/s/${x.s}"><b>${x.s}</b></a> <small class="faint">${esc((x.sector || "").slice(0, 16))}</small></td>
+      <td>${key === "dist" ? nf(x.dist_days, 0) : key === "acc" ? nf(x.acc_days, 0) : "—"}</td><td>${key === "dist" ? nf(x.dist_20, 0) : nf(x.acc_20, 0)}</td><td>${nf(x.vr, 1)}×</td><td class="${cls(x.pchg)}">${pct(x.pchg)}</td>
+      <td class="${(x.ud || 1) >= 1.2 ? "up" : (x.ud || 1) <= 0.8 ? "down" : ""}">${nf(x.ud, 2)}</td><td class="${cls(x.clv)}">${isNum(x.clv) ? (x.clv > 0 ? "nửa trên" : "nửa dưới") : "—"}</td>
+      <td class="${cls(x.delta10)}">${isNum(x.delta10) ? `${pct(x.delta10, 1)} <small>${x.delta_pos}/${x.delta_n}</small>` : '<small class="faint">chưa có</small>'}</td><td class="${cls(x.shark5)}">${isNum(x.shark5) ? nf(x.shark5, 1) : "—"}</td>
+      <td class="${cls(x.chg1m)}">${pct(x.chg1m)}</td><td>${nf(x.val, 0)}</td></tr>`).join("") || `<tr><td colspan="11" class="l muted">Không có mã nào.</td></tr>`}</tbody></table></div></section>`;
+  const sortMine = (a, b) => (mine.has(b.s) - mine.has(a.s)) || ((b.vr || 0) - (a.vr || 0));
+  const dist = R.filter((x) => (x.st || []).includes("dist")).sort(sortMine), acc = R.filter((x) => (x.st || []).includes("acc")).sort(sortMine);
+  const brk = R.filter((x) => (x.st || []).some((k) => k === "brk" || k === "acc_brk")).sort(sortMine);
+  return `<p class="note">"Tay to" để lại dấu vết ở <b>khối lượng</b> và <b>cách giá đóng cửa</b>: gom thì KL lớn nhiều phiên nhưng giá bị giữ đi ngang, nến đóng cửa cao, KL phiên tăng lớn hơn phiên giảm; xả thì ngược lại. Hệ thống quét mọi mã thanh khoản mỗi ngày và <b>kiểm chứng trên dữ liệu VN từ 2016</b> xem sau đó có "game" (+20% trong 60 phiên) thật không. Kết quả thẳng thắn: <b>xả âm thầm</b> báo trước giá kém đi; <b>gom âm thầm đơn thuần không dự báo được game</b> – chỉ khi giá <b>bứt phá có KL</b> thì xác suất có nhịp +20% mới tăng rõ.</p>
+    <section class="panel sec"><div class="ph"><h2>Kiểm chứng: sau mỗi dấu hiệu, giá đi đâu?</h2><span class="meta">mã GTGD ≥ 2 tỷ, từ 2016 · so với VN-Index</span></div>
+      <div class="tw"><table class="evt"><thead><tr><th class="l">Dấu hiệu</th><th>Số lần</th><th>20 phiên sau</th><th data-g="tstat">t</th><th>60 phiên sau</th><th data-g="fl_game">Có "game" (+20%/60p)</th><th>2016–6/2021 / 7/2021–nay</th><th>Có ý nghĩa?</th></tr></thead><tbody>${evRows}</tbody></table></div></section>
+    <div class="g g-dec sec">${tbl("dist", "Đang xả âm thầm", dist)}${tbl("acc", "Đang gom âm thầm", acc)}${tbl("brk", "Bứt phá có KL (3 phiên gần nhất)", brk)}</div>
+    <p class="faint" style="font-size:.72rem">"Mua − bán chủ động" lấy từ dữ liệu khớp lệnh theo bước giá (250 mã thanh khoản nhất, lưu từ khi hệ thống chạy); "Cá mập" chỉ có cho mã anh nắm/theo dõi. Không biết được ai đứng sau – chỉ thấy dấu vết trên giá và khối lượng.</p>`;
+}
+function moodView(FJ) {
+  const S = FJ.sentiment || {};
+  const comp = Object.values(S.comp || {});
+  const T = S.test || {};
+  const tt = (k) => T[k] ? `<table><thead><tr><th class="l">Nhóm điểm</th><th>VN-Index ${k} phiên sau</th><th>% lần tăng</th></tr></thead><tbody>${(T[k].q || []).map((q) => `<tr><td class="l">${["Sợ hãi nhất", "Thấp", "Giữa", "Cao", "Hưng phấn nhất"][q.q - 1]}</td><td class="${cls(q.r)}">${pct(q.r, 2)}</td><td>${nf(q.hit, 0)}%</td></tr>`).join("")}</tbody></table><small class="faint">tương quan ${nf(T[k].ic, 3)} · ${nf(T[k].n, 0)} mẫu (mỗi 5 phiên) · trung bình mọi lúc ${pct(T[k].all, 2)}</small>` : "";
+  const H = S.hist || { t: [], v: [] };
+  return `<div class="g g-main sec"><section class="panel"><div class="ph"><h2 data-g="mood">Tâm lý thị trường hôm nay</h2><span class="meta">${esc(S.date || "")}</span></div>${moodGauge(S)}
+      ${lineSvg([{ name: "Tâm lý (0–100)", color: css("--brand"), pts: H.t.map((t, i) => ({ x: t.slice(2, 7), y: H.v[i] })) }], { h: 200, dec: 0, ticks: 8, hlines: [{ y: 80, color: "var(--down)", label: "hưng phấn" }, { y: 20, color: "var(--up)", label: "sợ hãi" }] })}</section>
+    <section class="panel"><div class="ph"><h2>Thành phần</h2><span class="meta">xếp hạng so với 2 năm gần nhất</span></div>
+      <div class="tw"><table><thead><tr><th class="l">Chỉ báo</th><th>Hiện tại</th><th>Xếp hạng</th></tr></thead><tbody>${comp.map((c) => `<tr><td class="l">${esc(c.name)}</td><td>${nf(c.raw, c.name.includes("Thanh khoản") ? 2 : 1)}${c.name.includes("Thanh khoản") ? "×" : "%"}</td><td>${minibar(c.rank)} ${nf(c.rank, 0)}</td></tr>`).join("")}</tbody></table></div>
+      <p class="faint" style="font-size:.74rem">Chưa có lịch sử khối ngoại và dư nợ margin nên chưa đưa vào.</p></section></div>
+    <div class="g g2 sec"><section class="panel"><div class="ph"><h2>Kiểm chứng: 20 phiên sau</h2></div>${tt("20")}</section><section class="panel"><div class="ph"><h2>Kiểm chứng: 60 phiên sau</h2></div>${tt("60")}</section></div>
+    ${(() => { const q = T["20"]?.q || []; if (q.length < 5) return ""; const nm = ["sợ hãi nhất", "thấp", "giữa", "cao", "hưng phấn nhất"], best = q.reduce((a, b) => (b.r > a.r ? b : a)), worst = q.reduce((a, b) => (b.r < a.r ? b : a));
+      return `<p class="note">Trên dữ liệu VN từ 2016: 20 phiên sau, nhóm tâm lý <b>${nm[best.q - 1]}</b> cho VN-Index tốt nhất (${pct(best.r, 2)}), nhóm <b>${nm[worst.q - 1]}</b> kém nhất (${pct(worst.r, 2)}). Mức độ dự báo yếu (tương quan ${nf(T["20"].ic, 3)}) – dùng để điều chỉnh tỷ trọng cổ phiếu, không dùng một mình để mua/bán.</p>`; })()}`;
+}
+
 async function viewSwing(sub) {
-  const [SW, L, pfr, t] = await Promise.all([tryLoad("data/swing.json"), liveData(true), Store.get("portfolio"), tryLoad("data/today.json"), WL.load()]);
+  const [SW, L, pfr, t, FJ] = await Promise.all([tryLoad("data/swing.json"), liveData(true), Store.get("portfolio"), tryLoad("data/today.json"), tryLoad("data/flow.json"), WL.load()]);
   const mine = new Set([...(pfr.data?.holdings || []).map((h) => h.symbol), ...(WL.data?.items || []).map((x) => x.symbol),
     ...Object.values(t?.styles || {}).flatMap((s) => (s.picks || []).map((p) => p.symbol))]);
   const fresh = liveFresh(L);
   sub = sub || (fresh ? "live" : "today");
-  const tabs = [["live", "Trong phiên"], ["today", "Phiên gần nhất"], ["table", "Bảng hành vi giá"], ["test", "Kiểm chứng"]];
+  const tabs = [["live", "Trong phiên"], ["today", "Phiên gần nhất"], ["flow", "Dòng tiền lớn (gom / xả)"], ["mood", "Tâm lý thị trường"], ["table", "Bảng hành vi giá"], ["test", "Kiểm chứng"]];
   const nav = `<div class="views" style="margin-top:0">${tabs.map(([k, n]) => `<a class="btn ${k === sub ? "primary" : ""}" href="#/swing/${k}">${n}${k === "live" && fresh ? ' <span class="dot-live"></span>' : ""}</a>`).join("")}</div>`;
   const head = `<div class="ph"><h1>Biến động & đảo chiều</h1><span class="meta">${SW ? `${nf(SW.rows?.length, 0)} mã · cửa sổ ${SW.window} phiên · dữ liệu ${esc(SW.date)}` : "chưa có dữ liệu"}</span></div>`;
   if (sub === "live") {
     app().innerHTML = nav + head + liveSection(L, mine);
     bindLive(L, mine);
+    return;
+  }
+  if (sub === "flow" || sub === "mood") {
+    app().innerHTML = nav + head + (FJ ? (sub === "flow" ? flowView(FJ, mine) : moodView(FJ)) : `<div class="empty">Chưa có dữ liệu – chờ lượt chạy sau đóng cửa.</div>`);
     return;
   }
   if (!SW) { app().innerHTML = nav + head + `<div class="empty">Chưa có phân tích hành vi giá – chờ lượt chạy sau đóng cửa.</div>`; return; }
@@ -2756,7 +2838,7 @@ async function viewSwing(sub) {
     </div>`;
 }
 
-function swingPanel(SWd, live, sym) {
+function swingPanel(SWd, live, sym, FLJ) {
   if (!SWd || !SWd.profile) return "";
   const p = SWd.profile, M = SWd.market || {}, lr = liveFresh(live) ? (live.rows || []).find((r) => r.s === sym) : null;
   const tg = (p.tags || []).map(tagPill).join(" ");
@@ -2766,6 +2848,7 @@ function swingPanel(SWd, live, sym) {
   return `<section class="panel"><div class="ph"><h2>Hành vi giá & tay chơi lớn</h2><a class="meta" href="#/swing/table">so với các mã khác</a></div>
     ${lr ? `<div class="note live-note"><b>Trong phiên ${esc((live.at || "").slice(11, 16))}:</b> ${nf(lr.px)} <b class="${cls(lr.chg)}">${pct(lr.chg)}</b> · cao ${pct(lr.hi)} · thấp ${pct(lr.lo)}${isNum(lr.m_ret) ? ` · sáng ${pct(lr.m_ret)}` : ""}${isNum(lr.a_ret) ? ` · chiều ${pct(lr.a_ret)}` : ""} · KL ${isNum(lr.pace) ? nf(lr.pace, 1) + "× cùng giờ" : "—"} · NN ${nf(lr.fn, 1)} tỷ ${(lr.flags || []).map(flagPill).join(" ")}</div>` : ""}
     <div class="sgh"><span data-g="sw_score">Điểm bất thường</span> ${scoreCell(p.score)} ${tg || '<span class="muted">không có kiểu chơi nổi bật</span>'}</div>
+    ${SWd.flow ? flowLine(SWd.flow, FLJ?.events) : ""}
     ${kpis([["Biên độ TB", `${nf(p.rng_med, 1)}% <small>${nf(p.rng_rel, 2)}× TT</small>`], ["Phiên đảo chiều", `${nf(p.rev_rate, 1)}/100`], ["Phân phối / rũ bỏ", `${nf(p.pump_spike, 0)} / ${nf(p.dump_spike, 0)}`],
       ["Trần→rời / sàn→kéo", `${nf(p.leave_c, 0)} / ${nf(p.rec_f, 0)}`],
       ["Sáng tăng→chiều xả", isNum(p.s_p_fade) ? `${nf(p.s_p_fade, 0)}% <small>TT ${nf(M.p_fade, 0)}% · ${nf(p.s_n_up, 0)} lần</small>` : "—", (p.s_p_fade || 0) >= 60 ? "down" : ""],

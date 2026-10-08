@@ -89,9 +89,42 @@ def compose(today: dict) -> tuple[str | None, dict]:
         lines.append("<b>🔔 CẢNH BÁO GIÁ</b>")
         for a in al_new:
             lines.append(f"• <b>{a['symbol']}</b>: {html.escape(a['text'])}" + (f"\n  <i>{html.escape(a['note'])}</i>" if a.get("note") else ""))
+    # dòng tiền lớn với mã anh nắm / theo dõi: xả âm thầm, gom âm thầm, bứt phá có KL (chỉ nhắn khi trạng thái mới xuất hiện)
+    flow_now = []
+    try:
+        fp = config.OUT_DIR / "flow.json"
+        if fp.exists():
+            FJ = json.loads(fp.read_text(encoding="utf-8"))
+            mine = {p["symbol"] for p in pfo.get("positions", [])}
+            try:
+                from .portfolio_store import load_watchlist
+                mine |= {str(w.get("symbol", "")).upper() for w in load_watchlist()}
+            except Exception:  # noqa: BLE001
+                pass
+            E = FJ.get("events") or {}
+            VI = {"dist": "XẢ âm thầm", "acc": "GOM âm thầm", "brk": "BỨT PHÁ có KL", "acc_brk": "GOM rồi BỨT PHÁ"}
+            fl_prev = set(prev.get("flow_sent", []))
+            fl_lines = []
+            for x in FJ.get("rows") or []:
+                if x["s"] not in mine:
+                    continue
+                for k in x.get("st") or []:
+                    key = f"{x['s']}:{k}"
+                    flow_now.append(key)
+                    if key in fl_prev:
+                        continue
+                    e = E.get(k) or {}
+                    hist = f" · lịch sử 20 phiên sau TB {_fmt(e.get('r20'), 1)}% so VNI" if e.get("r20") is not None else ""
+                    fl_lines.append(f"• <b>{x['s']}</b>: {VI.get(k, k)} – KL {_fmt(x.get('vr'), 1)}×, giá {_fmt(x.get('pchg'), 1)}% trong 10 phiên, "
+                                    f"KL tăng/giảm {_fmt(x.get('ud'), 2)}{hist}")
+            if fl_lines:
+                lines.append("<b>🐋 DÒNG TIỀN LỚN (mã của anh)</b>")
+                lines.extend(fl_lines)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Không đọc được dòng tiền lớn: %s", e)
     sent_ids = list(sent | {a["id"] for a in today.get("alerts") or []})[-500:]
     state = {"light": reg["light"], "picks": cur_syms,
-             "acts": {p["symbol"]: p["action"] for p in acts}, "warnings": pfo.get("warnings", []), "alerts_sent": sent_ids, "near_sent": list(near_now)}
+             "acts": {p["symbol"]: p["action"] for p in acts}, "warnings": pfo.get("warnings", []), "alerts_sent": sent_ids, "near_sent": list(near_now), "flow_sent": flow_now}
     if not lines and config.get("notify.only_when_action", True):
         return None, state
     head = (f"<b>VN-Stock {today['date']}</b> · Đèn {LIGHT[reg['light']]} · VN-Index "

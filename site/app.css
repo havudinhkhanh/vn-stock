@@ -873,3 +873,19 @@ body.pdfing .tw>table>*>tr>:first-child{position:static!important}
 body.pdfing *{animation:none!important;transition:none!important}
 body.pdfing .views,body.pdfing .qa,body.pdfing #lvF,body.pdfing #swQ{display:none!important}
 @media (max-width:480px){.top-in .search{display:none}.top-in .upd{margin-right:auto}}
+
+/* ---------- dòng tiền lớn & tâm lý ---------- */
+.flw{margin:4px 0 6px;font-size:.8rem;line-height:1.5}
+table.flt td{white-space:nowrap}
+table.flt tr.mine td:first-child{box-shadow:inset 3px 0 0 var(--brand)}
+.mood{display:grid;gap:4px}
+.mood>b{font:700 2rem/1 var(--num)}
+.mood.big>b{font-size:3rem}
+.mood span{font-size:.82rem;color:var(--ink-2)}
+.mbar{position:relative;height:8px;border-radius:4px;background:linear-gradient(90deg,var(--down),var(--ref) 50%,var(--up));margin-top:4px}
+.mbar i{position:absolute;top:-4px;width:3px;height:16px;background:var(--ink);border-radius:2px;transform:translateX(-50%)}
+.mlab{display:flex;justify-content:space-between;font-size:.62rem;color:var(--ink-3)}
+.ms-row{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:14px;align-items:center}
+.ms-k{display:grid;gap:4px;font-size:.84rem}
+.ms-k a{color:inherit}.ms-k b{font:700 1.1rem/1 var(--num);margin-right:4px}
+@media (max-width:640px){.ms-row{grid-template-columns:1fr}}

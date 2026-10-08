@@ -266,6 +266,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             "ret_6m": float(c.iloc[-1] / c.iloc[-126] - 1) if len(c) > 126 else None,
             "rs_raw": ind.rs_rating_raw(c),
             "vol_1y": float(c.iloc[-250:].pct_change().std() * np.sqrt(250)) if len(c) > 60 else None,
+            "vol_3m": float(c.iloc[-63:].pct_change().std() * np.sqrt(250)) if len(c) > 63 else None,
             "beta": va.beta(c, idx["close"]) if len(c) > 120 else 1.0,
             "spk": [round(float(x), 2) for x in c.iloc[-30:]] if (s in deep and len(c) >= 30) else None,
         }
@@ -349,6 +350,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         qs = fq_by.get(s)
         ttm_row = fu.latest_row(qs) if qs is not None and not qs.empty else None
         sg = sector_growth["rev_yoy" if fa["ctype"] == "CT" else "ni_yoy"].get(r["industry"])
+        fa["norm"] = va.norm_earnings(qs)
         model = fc.build_base(fa, fy_by.get(s), ttm_row, sg, vcfg)
         if model is not None and s in overrides:
             ov = {k: float(v) for k, v in overrides[s].items()
