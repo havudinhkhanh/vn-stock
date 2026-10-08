@@ -34,6 +34,7 @@ from .analysis import technical as tech
 from .analysis import valuation as va
 from .analysis import forecast as fc
 from . import swing_build as swb
+from . import pairs_build as pab
 from .data import store
 from .portfolio_store import apply_profile, load_holdings, load_overrides, load_profile, load_watchlist
 
@@ -672,12 +673,18 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
                                     "backtest_range": [backtest.get("start"), backtest.get("end")] if backtest.get("ok") else None})
 
     sw_per = {}
+    wl_syms = {str(w.get("symbol", "")).upper() for w in load_watchlist()}
     try:
         log.info("Hành vi giá: biên độ, đảo chiều, kiểu tay chơi…")
-        wl_syms = {str(w.get("symbol", "")).upper() for w in load_watchlist()}
         sw_per = swb.run(prices[~prices["symbol"].isin(INDEX_SYMS)], listing, u, idx["close"], last_date, out_dir, advice, style_plans, held, wl_syms, active_style)
     except Exception as e:  # noqa: BLE001
         log.exception("Hành vi giá lỗi: %s", e)
+    rel_by = {}
+    try:
+        log.info("Mã liên quan: đồng pha, dẫn dắt, chiến thuật…")
+        rel_by = pab.run(prices[~prices["symbol"].isin(INDEX_SYMS)], listing, u, idx["close"], out_dir, held, wl_syms, pick_syms, cfg, sw_per)
+    except Exception as e:  # noqa: BLE001
+        log.exception("Mã liên quan lỗi: %s", e)
     for s, d in details.items():
         r = u.loc[s]
         peers = u[(u["industry"] == r["industry"]) & u["has_fin"]].sort_values("mcap_bn", ascending=False)
@@ -701,7 +708,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             "row": {k: r.get(k) for k in cols},
             "ohlc": _ohlc_payload(d["df"]),
             "ohlc_w": mtf_.payload(mtf_.resample(d["df"], "W")), "ohlc_m": mtf_.payload(mtf_.resample(d["df"], "M")),
-            "mtf": d.get("mtf"), "season": d.get("season"), "fb": fbres["current"].get(s), "swing": sw_per.get(s),
+            "mtf": d.get("mtf"), "season": d.get("season"), "fb": fbres["current"].get(s), "swing": sw_per.get(s), "rel": rel_by.get(s),
             "season_support": seas.support(None, d.get("mtf"), _sup_extra(r)),
             "ta": d["ta"], "waves": pat,
             "fa": d["fa"], "history": fu.history_table(fq_s, fy_by.get(s)),

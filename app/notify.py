@@ -122,9 +122,43 @@ def compose(today: dict) -> tuple[str | None, dict]:
                 lines.extend(fl_lines)
     except Exception as e:  # noqa: BLE001
         log.warning("Không đọc được dòng tiền lớn: %s", e)
+    rel_now = []
+    try:
+        pp = config.OUT_DIR / "pairs.json"
+        if pp.exists():
+            PJ = json.loads(pp.read_text(encoding="utf-8"))
+            held_ = {p["symbol"] for p in pfo.get("positions", [])}
+            mine_ = set(held_)
+            try:
+                from .portfolio_store import load_watchlist
+                mine_ |= {str(w.get("symbol", "")).upper() for w in load_watchlist()}
+            except Exception:  # noqa: BLE001
+                pass
+            r_prev = set(prev.get("rel_sent", []))
+            r_lines = []
+            for c in PJ.get("conc") or []:
+                key = f"conc:{c['a']}-{c['b']}"
+                rel_now.append(key)
+                if key not in r_prev:
+                    r_lines.append(f"• Đang nắm <b>{c['a']}</b> + <b>{c['b']}</b>: đồng pha {_fmt(c.get('rc'), 2)}, cùng sụt ≥10%/4 tuần {_fmt(c.get('p_dd'), 0)}% số lần – coi như MỘT vị thế")
+            for p in PJ.get("pairs") or []:
+                f8 = (p.get("fc") or [None] * 8)[-1]
+                if p["follow"] not in mine_ or f8 is None or abs(f8) < 2:
+                    continue
+                key = f"lead:{p['lead']}-{p['follow']}:{'+' if f8 > 0 else '-'}"
+                rel_now.append(key)
+                if key not in r_prev:
+                    caut = " (độ tin cậy thấp)" if (p.get("fdr") or 0) > 0.2 else ""
+                    r_lines.append(f"• <b>{p['lead']}</b> đi trước <b>{p['follow']}</b> {', '.join(str(g['L']) for g in p['lags'])} tuần{caut}: "
+                                   f"{p['lead']} 4 tuần {_fmt(p.get('lead_4w'), 1)}% vs VNI → dự báo {p['follow']} {_fmt(f8, 1)}% trong 8 tuần")
+            if r_lines:
+                lines.append("<b>🔗 MÃ LIÊN QUAN (mã của anh)</b>")
+                lines.extend(r_lines)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Không đọc được mã liên quan: %s", e)
     sent_ids = list(sent | {a["id"] for a in today.get("alerts") or []})[-500:]
     state = {"light": reg["light"], "picks": cur_syms,
-             "acts": {p["symbol"]: p["action"] for p in acts}, "warnings": pfo.get("warnings", []), "alerts_sent": sent_ids, "near_sent": list(near_now), "flow_sent": flow_now}
+             "acts": {p["symbol"]: p["action"] for p in acts}, "warnings": pfo.get("warnings", []), "alerts_sent": sent_ids, "near_sent": list(near_now), "flow_sent": flow_now, "rel_sent": rel_now}
     if not lines and config.get("notify.only_when_action", True):
         return None, state
     head = (f"<b>VN-Stock {today['date']}</b> · Đèn {LIGHT[reg['light']]} · VN-Index "

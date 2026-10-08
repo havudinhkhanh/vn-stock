@@ -1801,6 +1801,7 @@ async function viewStock(sym, tabArg) {
           <dt>Order Flow</dt><dd>${of.ok ? `${biasPill(of.bias)} <small>${of.days} phiên</small>` : '<small class="faint">đang tích luỹ dữ liệu</small>'}</dd></dl></section>
     </div>
   </div>
+  ${relPanel(d.rel, sym)}
   <div class="subtabs" role="tablist">${[["ov", "Tổng quan"], ["ta", "Kỹ thuật"], ["wv", "Sóng & mô hình"], ["sm", "Tạo lập & dòng tiền"], ["fa", "Cơ bản"], ["vl", "Dự phóng & định giá"], ["pe", "Cùng ngành"]]
     .map(([k, n]) => `<button role="tab" data-t="${k}">${n}</button>`).join("")}</div>
   <div id="tab"></div>`;
@@ -2756,12 +2757,18 @@ async function viewSwing(sub) {
     ...Object.values(t?.styles || {}).flatMap((s) => (s.picks || []).map((p) => p.symbol))]);
   const fresh = liveFresh(L);
   sub = sub || (fresh ? "live" : "today");
-  const tabs = [["live", "Trong phiên"], ["today", "Phiên gần nhất"], ["flow", "Dòng tiền lớn (gom / xả)"], ["mood", "Tâm lý thị trường"], ["table", "Bảng hành vi giá"], ["test", "Kiểm chứng"]];
+  const tabs = [["live", "Trong phiên"], ["today", "Phiên gần nhất"], ["flow", "Dòng tiền lớn (gom / xả)"], ["mood", "Tâm lý thị trường"], ["pairs", "Mã liên quan"], ["table", "Bảng hành vi giá"], ["test", "Kiểm chứng"]];
   const nav = `<div class="views" style="margin-top:0">${tabs.map(([k, n]) => `<a class="btn ${k === sub ? "primary" : ""}" href="#/swing/${k}">${n}${k === "live" && fresh ? ' <span class="dot-live"></span>' : ""}</a>`).join("")}</div>`;
   const head = `<div class="ph"><h1>Biến động & đảo chiều</h1><span class="meta">${SW ? `${nf(SW.rows?.length, 0)} mã · cửa sổ ${SW.window} phiên · dữ liệu ${esc(SW.date)}` : "chưa có dữ liệu"}</span></div>`;
   if (sub === "live") {
     app().innerHTML = nav + head + liveSection(L, mine);
     bindLive(L, mine);
+    return;
+  }
+  if (sub === "pairs") {
+    const PJ = await tryLoad("data/pairs.json");
+    app().innerHTML = nav + head + pairsView(PJ, mine);
+    bindPairs(PJ);
     return;
   }
   if (sub === "flow" || sub === "mood") {
@@ -2836,6 +2843,109 @@ async function viewSwing(sub) {
         ${M.vshare ? `<small class="faint">Nhịp khối lượng theo khung 30 phút: ${M.vshare.map((v, i) => `${B_LABELS[i]} ${nf(v, 0)}%`).join(" · ")}</small>` : ""}
         <p class="faint" style="font-size:.72rem;margin-top:4px">Dữ liệu: nến giờ của ${nf(cov.hourly_syms, 0)} mã (~3 năm), nến phút của ${nf(cov.minute_syms, 0)} mã (~6 tháng), từ ${esc(cov.ses_from || "—")}. Hệ thống tải dần mỗi lượt sau đóng cửa.</p></section>
     </div>`;
+}
+
+// ---------------------------------------------------------------- Mã liên quan: đồng pha & dẫn dắt
+function ccfSvg(ccf, lags, band, x, y) {
+  if (!ccf || !lags) return "";
+  const W = 210, H = 54, n = lags.length, bw = W / n, mid = H / 2, sc = (H / 2 - 3) / Math.max(0.5, ...ccf.map((v) => Math.abs(v || 0)));
+  const bars = ccf.map((v, i) => { const h = Math.abs(v || 0) * sc, L = lags[i], sig = Math.abs(v || 0) >= band;
+    return `<rect x="${(i * bw + 1).toFixed(1)}" y="${(v >= 0 ? mid - h : mid).toFixed(1)}" width="${(bw - 2).toFixed(1)}" height="${Math.max(h, 0.6).toFixed(1)}" fill="${L === 0 ? "var(--brand)" : sig ? "var(--ref)" : "var(--ink-3)"}" opacity="${L === 0 || sig ? 1 : 0.45}"><title>${L === 0 ? "Cùng tuần" : L > 0 ? `${x} đi trước ${L} tuần` : `${y} đi trước ${-L} tuần`}: r = ${nf(v, 2)}</title></rect>`; }).join("");
+  const by = band * sc;
+  return `<svg class="ccf" viewBox="0 0 ${W} ${H + 12}" width="100%" role="img" aria-label="Tương quan trễ">
+    <rect x="0" y="${(mid - by).toFixed(1)}" width="${W}" height="${(2 * by).toFixed(1)}" fill="var(--line-2)"/>
+    <line x1="0" x2="${W}" y1="${mid}" y2="${mid}" stroke="var(--line)"/>${bars}
+    <text x="0" y="${H + 10}" font-size="8" fill="var(--ink-3)">← ${esc(y)} đi trước</text><text x="${W / 2}" y="${H + 10}" font-size="8" text-anchor="middle" fill="var(--ink-3)">cùng tuần</text>
+    <text x="${W}" y="${H + 10}" font-size="8" text-anchor="end" fill="var(--ink-3)">${esc(x)} đi trước →</text></svg>`;
+}
+function relCard(x, c, R) {
+  const lv = c.lv || {}, z = lv.zone;
+  return `<div class="relc ${c.held ? "mine" : ""}">
+    <div class="relh"><a href="#/s/${c.s}"><b>${c.s}</b></a> <small class="muted">${esc((c.name || "").slice(0, 34))}</small>
+      <span class="tags">${c.same ? '<span class="pill">cùng ngành</span>' : `<span class="pill" title="${esc(c.industry || "")}">khác ngành</span>`}${c.held ? '<span class="pill brand">đang nắm</span>' : ""}<span class="pill ${c.es_c === "up" ? "buy" : ""}">${esc(c.es_t || "—")}</span></span></div>
+    <div class="reln">
+      <span data-g="rel_rc">Tương quan <b>${nf(c.rc, 2)}</b> <small>dài hạn ${nf(c.rc_l, 2)}</small></span>
+      <span data-g="rel_beta">Beta <b>${nf(c.beta, 2)}</b></span>
+      <span data-g="rel_dd">Cùng sụt <b class="${(c.p_dd || 0) >= 50 ? "down" : ""}">${isNum(c.p_dd) ? nf(c.p_dd, 0) + "%" : "—"}</b> <small>thường ${isNum(c.p_base) ? nf(c.p_base, 0) + "%" : "—"}</small></span>
+      <span>3 tháng ${esc(x)} <b class="${cls(c.r13_x)}">${pct(c.r13_x, 0)}</b> · ${esc(c.s)} <b class="${cls(c.r13_y)}">${pct(c.r13_y, 0)}</b></span>
+      <span>Giá <b>${nf(c.price)}</b>${z ? ` · vùng mua ${nf(z[0])}–${nf(z[1])} · cắt lỗ ${nf(lv.stop)}` : ""}</span>
+      <span>${esc(c.ta_label || "")}${c.verdict ? ` · ${esc(c.verdict)}` : ""}${(c.flow_st || []).length ? " · " + c.flow_st.map(flowPill).join(" ") : ""}</span></div>
+    ${ccfSvg(c.ccf, R.ccf_lags, R.ccf_band, x, c.s)}
+    <ul class="rels">${(c.strat || []).map((s) => `<li class="t-${s.tone || "n"}"><b>${esc(s.title)}</b> ${esc(s.text)}</li>`).join("")}</ul>
+  </div>`;
+}
+function relPanel(R, sym) {
+  if (!R) return `<section class="panel sec"><div class="ph"><h2>Mã liên quan</h2></div><p class="muted">Chưa đủ thanh khoản (≥ 3 tỷ/phiên) hoặc lịch sử để đo đồng pha – hoặc không có mã nào đi cùng nhịp đủ mạnh.</p></section>`;
+  const T = R.tests || {}, lp = (T.lead_pool || {})["13_4"] || {}, cu = T.catchup || {}, dl = T.daily_lead || {};
+  const ll = [...(R.leads || []).map((p) => ["lead", p]), ...(R.follows || []).map((p) => ["follow", p])];
+  const llHtml = ll.length ? ll.map(([k, p]) => { const o = k === "lead" ? p.follow : p.lead, f = p.fc || [];
+    return `<div class="note" style="margin-bottom:6px"><b>${k === "lead" ? `${sym} đi trước <a href="#/s/${o}">${o}</a>` : `<a href="#/s/${o}">${o}</a> đi trước ${sym}`}</b> ${p.lags.map((g) => `${g.L} tuần (r ${nf(g.r_tr, 2)} → ngoài mẫu ${nf(g.r_te, 2)})`).join(", ")}.
+      Dự báo ${k === "lead" ? o : sym} so với VN-Index: 4 tuần ${pct(f[3])}, 8 tuần ${pct(f[7])} (đã co 50%). ${(p.fdr || 0) > 0.2 ? `<span class="ref">Độ tin cậy thấp: ≈ ${nf(100 * p.fdr, 0)}% khả năng là ngẫu nhiên.</span>` : ""}</div>`; }).join("")
+    : `<p class="muted" style="font-size:.8rem">Không có mã nào <b>đi trước / đi sau</b> ${sym} vài tuần mà qua được kiểm chứng ngoài mẫu. Cả thị trường: ${nf(R.n_found, 0)} cặp qua trên ${nf(R.n_tests, 0)} phép thử (may rủi đã cho ≈ ${nf(R.exp_false, 1)} cặp) → các mã liên quan dưới đây <b>đi CÙNG lúc</b>, không đi trước nhau.</p>`;
+  return `<section class="panel sec rel"><div class="ph"><h2>Mã liên quan & chiến thuật</h2><span class="meta">đồng pha = lợi nhuận vượt VN-Index theo tuần cùng chiều · <a href="#/swing/pairs">kiểm chứng toàn thị trường</a></span></div>
+    ${llHtml}
+    ${(R.group || []).length ? `<ul class="rels grp">${R.group.map((s) => `<li class="t-${s.tone || "n"}"><b>${esc(s.title)}</b> ${esc(s.text)}</li>`).join("")}</ul>` : ""}
+    <div class="relg">${(R.co || []).map((c) => relCard(sym, c, R)).join("")}</div>
+    <details class="sec"><summary>Cách đọc và vì sao không khuyên “mã kia chạy trước thì mã này chạy sau”</summary>
+      <ul class="sgl">
+        <li><b>Tương quan</b>: lợi nhuận <i>vượt VN-Index</i> theo tuần, 2 năm gần nhất (và từ 2016). Đã bỏ phần cả thị trường cùng lên xuống, nên đây là mức “cùng câu chuyện” thật. Biểu đồ cột: tương quan khi lệch −8…+8 tuần; dải xám = mức ngẫu nhiên (±${nf(R.ccf_band, 2)}). Cột giữa cao, hai bên trong dải xám = hai mã đi cùng lúc.</li>
+        <li><b>Cùng sụt</b>: trong các cửa sổ 4 tuần mà ${sym} giảm ≥ 10%, mã kia cũng giảm ≥ 10% bao nhiêu % số lần (so với tỷ lệ bình thường của mã đó).</li>
+        <li><b>Dẫn dắt gộp</b> (${nf(lp.pairs, 0)} cặp đồng pha): mã dẫn chạy 13 tuần → mã theo 4 tuần sau: hệ số ${nf(lp.b_tr, 3)} (t ${nf(lp.t_tr, 1)}) giai đoạn 2016–2022, nhưng ${nf(lp.b_te, 3)} (t ${nf(lp.t_te, 1)}) từ 2023 → <b>${Math.abs(lp.t_te || 0) >= 2 ? "vẫn còn" : "không còn"}</b>.</li>
+        <li><b>Bắt kịp</b> (${nf(cu.pairs, 0)} cặp): mã tụt lại ≥ 2 độ lệch chuẩn so với mã đồng pha, 20 phiên sau thu hẹp ${pct(cu.r_tr)} (2016–2022, đúng ${nf(cu.hit_tr, 0)}%) và ${pct(cu.r_te)} (2023–nay, đúng ${nf(cu.hit_te, 0)}%).</li>
+        <li><b>Mã lớn dẫn mã nhỏ cùng ngành 1 phiên</b> (${nf(dl.pairs, 0)} cặp): t ${nf(dl.t_tr, 1)} trước 2023 → t ${nf(dl.t_te, 1)} từ 2023 (yếu dần, không đủ để giao dịch sau phí).</li>
+      </ul></details></section>`;
+}
+function pairsView(P, mine) {
+  if (!P) return `<div class="empty">Chưa có dữ liệu – chờ lượt chạy sau đóng cửa.</div>`;
+  const T = P.tests || {}, LP = T.lead_pool || {}, cu = T.catchup || {}, dl = T.daily_lead || {}, fd = T.follow_dd || [], stb = T.stability || {};
+  const vd = (t, t0) => (Math.abs(t0 || 0) < 2 ? '<span class="muted">không có</span>' : Math.abs(t || 0) >= 2 ? '<b class="up">còn</b>' : '<span class="down">không còn</span>');
+  const hyp = [
+    ...Object.values(LP).map((x) => [`Mã đồng pha chạy ${x.K} tuần → mã kia ${x.H} tuần sau`, `${x.pairs} cặp`, `${nf(x.b_tr, 3)} <small>t ${nf(x.t_tr, 1)}</small>`, `${nf(x.b_te, 3)} <small>t ${nf(x.t_te, 1)}</small>`, vd(x.t_te, x.t_tr)]),
+    ["Mã tụt lại ≥ 2σ so với mã đồng pha → bắt kịp trong 20 phiên", `${cu.pairs} cặp`, `${pct(cu.r_tr)} <small>đúng ${nf(cu.hit_tr, 0)}%</small>`, `${pct(cu.r_te)} <small>đúng ${nf(cu.hit_te, 0)}%</small>`, (cu.r_te || 0) > 0.5 ? '<b class="up">còn</b>' : '<span class="down">không còn</span>'],
+    ["Mã lớn tăng/giảm → mã nhỏ cùng ngành phiên sau", `${dl.pairs} cặp`, `${nf(dl.b_tr, 3)} <small>t ${nf(dl.t_tr, 1)}</small>`, `${nf(dl.b_te, 3)} <small>t ${nf(dl.t_te, 1)}</small>`, vd(dl.t_te, dl.t_tr)],
+  ];
+  const mineRows = Object.entries(P.mine || {});
+  return `<p class="note">Câu hỏi: <b>mã nào đi cùng mã nào</b> (né mã này thì né mã kia) và <b>mã nào chạy trước mã nào vài tuần</b> (để căn điểm mua mã đi sau). Mọi giả thuyết được chọn trên 2016–2022 rồi <b>kiểm chứng lại trên 2023–nay</b> – chỉ điều gì còn đúng ở giai đoạn sau mới được dùng để khuyên.</p>
+    <div class="g g2 sec">
+      <section class="panel"><div class="ph"><h2>Dẫn dắt từng cặp</h2><span class="meta">${nf(P.n_syms, 0)} mã GTGD ≥ ${nf(P.min_val, 0)} tỷ · ${nf(P.weeks, 0)} tuần</span></div>
+        ${kpis([["Phép thử (cặp × độ trễ)", nf(P.n_tests, 0)], ["Qua cả 2 giai đoạn", nf(P.n_found, 0), P.n_found > 3 * (P.exp_false || 0) ? "up" : "ref"], ["Kỳ vọng do may rủi", nf(P.exp_false, 1)], ["Khả năng là ngẫu nhiên", isNum(P.fdr) ? nf(100 * P.fdr, 0) + "%" : "—"]], false, "c2")}
+        <p class="note" style="margin-top:6px">${P.n_found <= 3 * (P.exp_false || 0) ? `Số cặp “dẫn dắt” tìm được gần bằng số do may rủi → <b>thị trường VN hiện không có quan hệ “mã A chạy trước mã B vài tuần” đủ tin cậy</b>. Các mã liên quan chủ yếu đi <b>cùng lúc</b>. Ai nói “mã này chạy rồi mã kia sẽ chạy sau x tuần” thường là nhìn lại quá khứ (chọn trên cùng dữ liệu).` : "Có một số cặp dẫn dắt qua kiểm chứng – xem bảng dưới, vẫn nên kết hợp tín hiệu riêng của mã đi sau."}</p>
+        ${(P.pairs || []).length ? `<div class="tw"><table><thead><tr><th class="l">Mã dẫn → mã theo</th><th>Độ trễ</th><th>r huấn luyện / ngoài mẫu</th><th>Đúng hướng</th><th>Dự báo 8 tuần</th><th class="l">Mã theo</th></tr></thead><tbody>
+          ${P.pairs.map((p) => `<tr><td class="l"><a href="#/s/${p.lead}">${p.lead}</a> → <a href="#/s/${p.follow}"><b>${p.follow}</b></a> <small class="faint">${esc(p.ind_l || "")} / ${esc(p.ind_f || "")}</small></td>
+            <td>${p.lags.map((g) => g.L + "t").join(", ")}</td><td>${p.lags.map((g) => `${nf(g.r_tr, 2)} / ${nf(g.r_te, 2)}`).join(", ")}</td><td>${nf(p.oos_hit, 0)}%</td><td class="${cls(p.fc?.[7])}">${pct(p.fc?.[7])}</td><td class="l">${esc(p.es_f || "")}</td></tr>`).join("")}</tbody></table></div>` : ""}
+        <div class="tw"><table><thead><tr><th>Độ trễ (tuần)</th>${(P.stats || []).map((s) => `<th>${s.L}</th>`).join("")}</tr></thead><tbody>
+          <tr><td class="l">Qua giai đoạn đầu (|t| ≥ 3)</td>${(P.stats || []).map((s) => `<td>${s.pass_train}</td>`).join("")}</tr>
+          <tr><td class="l">… và còn đúng 2023–nay</td>${(P.stats || []).map((s) => `<td><b>${s.pass_both}</b></td>`).join("")}</tr></tbody></table></div>
+        <p class="faint" style="font-size:.72rem;margin-top:4px">Phần lớn cặp “có vẻ dẫn dắt” ở giai đoạn đầu không còn đúng ở giai đoạn sau – đúng như kỳ vọng nếu đó là ngẫu nhiên.</p></section>
+      <section class="panel"><div class="ph"><h2>Các giả thuyết hay gặp</h2><span class="meta">gộp nhiều cặp · huấn luyện 2016–2022 / kiểm tra 2023–nay</span></div>
+        <div class="tw"><table><thead><tr><th class="l">Giả thuyết</th><th>Mẫu</th><th>2016–2022</th><th>2023–nay</th><th>Còn đúng?</th></tr></thead>
+          <tbody>${hyp.map((h) => `<tr><td class="l wrap">${h[0]}</td><td>${h[1]}</td><td>${h[2]}</td><td>${h[3]}</td><td>${h[4]}</td></tr>`).join("")}</tbody></table></div>
+        <h3 style="margin-top:10px">Đồng pha có bền? (chọn theo 2021–2022, đo lại 2023–nay)</h3>
+        <div class="tw"><table><thead><tr><th class="l">Tương quan 2021–2022</th><th>Số cặp</th><th>Tương quan về sau</th><th>Cùng sụt ≥ 10%/4 tuần</th><th>Bình thường</th></tr></thead><tbody>
+          ${(stb.buckets || []).map((b) => `<tr><td class="l">${b.lo < 0 ? "< " + nf(b.hi, 2) : b.hi > 1 ? "≥ " + nf(b.lo, 2) : nf(b.lo, 2) + "–" + nf(b.hi, 2)}</td><td>${nf(b.pairs, 0)}</td><td>${nf(b.later, 2)}</td><td><b>${nf(b.p_dd, 0)}%</b></td><td>${nf(b.p_base, 0)}%</td></tr>`).join("")}</tbody></table></div>
+        <h3 style="margin-top:10px">Mã đồng pha đã sụt, mã này chưa → 4 tuần sau (2023–nay)</h3>
+        <div class="tw"><table><thead><tr><th class="l">Mức đồng pha</th><th>Số lần</th><th>Mã này sụt ≥ 10%</th><th>Lợi nhuận TB</th><th>Mọi lúc: sụt / TB</th></tr></thead><tbody>
+          ${fd.map((b) => `<tr><td class="l">${b.lo < 0 ? "< " + nf(b.hi, 2) : b.hi > 1 ? "≥ " + nf(b.lo, 2) : nf(b.lo, 2) + "–" + nf(b.hi, 2)}</td><td>${nf(b.n, 0)}</td><td><b>${nf(b.p, 0)}%</b></td><td class="${cls(b.r)}">${pct(b.r, 2)}</td><td>${nf(b.p_base, 0)}% / ${pct(b.r_base, 2)}</td></tr>`).join("")}</tbody></table></div>
+        <p class="note" style="margin-top:6px"><b>Kết luận dùng được:</b> (1) đồng pha <b>bền</b> và rủi ro đến <b>cùng lúc</b> → né mã này vì lý do ngành thì né cả nhóm, và đừng coi nắm 2 mã đồng pha là đa dạng hoá; (2) mã đồng pha <b>mạnh</b> đã gãy thì mã còn lại dễ sụt theo hơn một chút → siết cắt lỗ; (3) không mua mã tụt lại chỉ vì “mã kia đã chạy”; (4) không có quan hệ “chạy trước vài tuần” đủ tin cậy để căn điểm mua.</p></section>
+    </div>
+    <div class="g g2 sec">
+      <section class="panel"><div class="ph"><h2>Danh mục & theo dõi của anh</h2><span class="meta">mã đồng pha mạnh nhất</span></div>
+        ${(P.conc || []).length ? `<p class="note"><b>Rủi ro tập trung:</b> ${P.conc.map((c) => `<a href="#/s/${c.a}">${c.a}</a> + <a href="#/s/${c.b}">${c.b}</a> (tương quan ${nf(c.rc, 2)}, cùng sụt ${nf(c.p_dd, 0)}%)`).join(" · ")} – coi mỗi cặp như một vị thế.</p>` : `<p class="faint" style="font-size:.78rem">Không có hai mã đang nắm nào đồng pha mạnh (≥ 0,4).</p>`}
+        ${mineRows.length ? `<div class="tw"><table><thead><tr><th class="l">Mã</th><th class="l">Đi cùng (tương quan · cùng sụt · trạng thái)</th></tr></thead><tbody>
+          ${mineRows.map(([s, L]) => `<tr><td class="l"><a href="#/s/${s}"><b>${s}</b></a></td><td class="l wrap">${L.map((c) => `<a href="#/s/${c.s}">${c.s}</a> <small>${nf(c.rc, 2)} · ${isNum(c.p_dd) ? nf(c.p_dd, 0) + "%" : "—"} · <span class="${c.es_c === "up" ? "up" : "muted"}">${esc(c.es_t || "")}</span></small>`).join(" &nbsp; ")}</td></tr>`).join("")}</tbody></table></div>` : '<p class="muted">Chưa có mã nắm/theo dõi đủ thanh khoản.</p>'}</section>
+      <section class="panel"><div class="ph"><h2>Cặp đồng pha mạnh nhất thị trường</h2><span class="meta"><input id="prQ" placeholder="Tìm mã" style="width:90px"></span></div>
+        <div class="tw" style="max-height:420px"><table id="prT"></table></div></section>
+    </div>`;
+}
+function bindPairs(P) {
+  if (!P || !$("#prT")) return;
+  const rows = (P.top || []).map((r) => ({ ...r, pair: r.a + "–" + r.b }));
+  const cols = [{ k: "pair", t: "Cặp" }, { k: "rc", t: "Tương quan 2 năm", num: 1, g: "rel_rc" }, { k: "rc_l", t: "Dài hạn", num: 1 }, { k: "p_dd", t: "Cùng sụt", num: 1, g: "rel_dd" }, { k: "p_base", t: "Bình thường", num: 1 }, { k: "same", t: "Cùng ngành" }];
+  const render = (r) => `<tr><td class="l"><a href="#/s/${r.a}"><b>${r.a}</b></a> – <a href="#/s/${r.b}"><b>${r.b}</b></a> <small class="faint">${esc((r.ind_a || "").slice(0, 16))}${r.ind_b !== r.ind_a ? " / " + esc((r.ind_b || "").slice(0, 16)) : ""}</small></td>
+    <td>${nf(r.rc, 2)}</td><td>${nf(r.rc_l, 2)}</td><td>${isNum(r.p_dd) ? nf(r.p_dd, 0) + "%" : "—"}</td><td>${isNum(r.p_base) ? nf(r.p_base, 0) + "%" : "—"}</td><td>${r.same ? "✓" : ""}</td></tr>`;
+  const draw = () => { const q = ($("#prQ").value || "").toUpperCase(); swSorter("prT", rows.filter((r) => !q || r.pair.includes(q)), cols, render, { k: "rc" }); };
+  $("#prQ").oninput = draw;
+  draw();
 }
 
 function swingPanel(SWd, live, sym, FLJ) {
@@ -3568,7 +3678,7 @@ const actBar = (s, opt = {}) => `<div class="qa">${starBtn(s, opt.label)}<button
 function cmpAdd(s) { const L = lsGet("cmp", []).filter((x) => x !== s); L.push(s); const out = L.slice(-4); lsSet("cmp", out); return out; }
 
 // ---- tìm nhanh (Ctrl/⌘ + K hoặc phím /)
-const PAGES = [["Hôm nay", "#/", "h"], ["Thị trường", "#/market", "m"], ["Trong phiên & biến động", "#/swing", "b"], ["Bảng hành vi giá (đẩy/xả, đảo chiều)", "#/swing/table", "x"], ["Toàn cảnh ngành", "#/sector", "n"], ["Bộ lọc", "#/screener", "l"], ["Theo dõi & cảnh báo", "#/watch", "t"], ["Lịch sự kiện", "#/watch/calendar", "e"],
+const PAGES = [["Hôm nay", "#/", "h"], ["Thị trường", "#/market", "m"], ["Trong phiên & biến động", "#/swing", "b"], ["Bảng hành vi giá (đẩy/xả, đảo chiều)", "#/swing/table", "x"], ["Mã liên quan (đồng pha / dẫn dắt)", "#/swing/pairs", "q"], ["Toàn cảnh ngành", "#/sector", "n"], ["Bộ lọc", "#/screener", "l"], ["Theo dõi & cảnh báo", "#/watch", "t"], ["Lịch sự kiện", "#/watch/calendar", "e"],
   ["So sánh mã", "#/compare", "c"], ["Danh mục đang nắm", "#/portfolio", "d"], ["Nhật ký giao dịch", "#/portfolio/journal", "j"], ["Khẩu vị & phong cách đầu tư", "#/portfolio/profile", "p"], ["Kiểm chứng", "#/backtest", "k"], ["Hướng dẫn", "#/guide", "?"]];
 async function palette(q0 = "") {
   const old = $("#pal"); if (old) { old.remove(); return; }
@@ -4105,7 +4215,7 @@ const PDFX = {
     const picks = ((t?.styles || {})[t?.style || "position"]?.picks || []).map((p) => p.symbol).filter((s) => !held.includes(s)).slice(0, 8);
     const L = await liveData();
     const S = [["#/", "Hôm nay", 1], ["#/portfolio", "Danh mục", 1], ...(liveFresh(L) ? [["#/swing/live", "Trong phiên", 1]] : []), ["#/swing/today", "Biến động – phiên gần nhất", 1],
-      ["#/market", "Thị trường", 1], ["#/sector", "Toàn cảnh các ngành", 1], ["#/swing/table", "Bảng hành vi giá", 0], ["#/backtest", "Kiểm chứng", 0],
+      ["#/market", "Thị trường", 1], ["#/sector", "Toàn cảnh các ngành", 1], ["#/swing/table", "Bảng hành vi giá", 0], ["#/swing/pairs", "Mã liên quan (đồng pha / dẫn dắt)", 0], ["#/backtest", "Kiểm chứng", 0],
       ...held.map((s) => [`#/s/${s}`, `Mã ${s} (đang nắm)`, 1]), ...picks.map((s) => [`#/s/${s}`, `Mã ${s} (danh sách mua)`, 1])];
     let o = $("#pdfdlg"); o?.remove();
     o = document.createElement("div"); o.id = "pdfdlg"; o.className = "pdfdlg";
