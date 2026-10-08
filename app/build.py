@@ -19,6 +19,7 @@ from .analysis import indicators as ind
 from .analysis import market as mk
 from .analysis import orderflow as ofl
 from .analysis import sector as sec_
+from .analysis import fwdback as fb_
 from .analysis import seasonal as seas
 from .analysis import mtf as mtf_
 from .analysis import sector_outlook as sec_out
@@ -576,9 +577,12 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         log.exception("Phân tích ngành lỗi: %s", e)
         sec_l2, sec_l3 = [], []
     outlook = {}
+    sec_m3 = None
     try:
         for lv, recs in (("sector", sec_l2), ("industry", sec_l3)):
             o = sec_out.run(u, wide, idx["close"], fq, lv)
+            if lv == "sector":
+                sec_m3 = (sec_out._LAST.get("score") or {}).get("m3")
             if not o:
                 continue
             for rec in recs:
@@ -587,6 +591,28 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             outlook[lv] = {k: v for k, v in o.items() if k != "current"}
     except Exception as e:  # noqa: BLE001
         log.exception("Triển vọng ngành lỗi: %s", e)
+    # ------------------------------------------------------------ chỉ số tương lai / quá khứ + trọng số riêng (có kiểm định)
+    fbres = {"summary": {"ok": False}, "current": {}, "ind": {}}
+    try:
+        log.info("Điểm tương lai / quá khứ + kiểm định trọng số…")
+        pp_ = prices[~prices["symbol"].isin(INDEX_SYMS)]
+        hi_ = pp_.pivot_table(index="date", columns="symbol", values="high").reindex(wide.index)
+        lo_ = pp_.pivot_table(index="date", columns="symbol", values="low").reindex(wide.index)
+        vo_ = pp_.pivot_table(index="date", columns="symbol", values="volume").reindex(wide.index)
+        fbres = fb_.run(u, wide, hi_, lo_, vo_, idx["close"], fq, sec_m3, "sector")
+        del hi_, lo_, vo_
+        for s_, c_ in fbres["current"].items():
+            if s_ in u.index:
+                for k_ in ("fwd", "back", "total", "w"):
+                    u.at[s_, f"fb_{k_}"] = c_.get(k_)
+        for c_ in ("fb_fwd", "fb_back", "fb_total", "fb_w"):
+            if c_ not in u:
+                u[c_] = None
+        cols2 = cols + ["fb_fwd", "fb_back", "fb_total", "fb_w"]
+        dump(out_dir / "screener.json", {"cols": cols2, "rows": u[cols2].replace({np.nan: None}).values.tolist()})
+    except Exception as e:  # noqa: BLE001
+        log.exception("Điểm tương lai/quá khứ lỗi: %s", e)
+    dump(out_dir / "fb.json", {"summary": fbres["summary"], "ind": fbres["ind"]})
     # ------------------------------------------------------------ mùa vụ ngành + kiểm chứng ngoài mẫu
     season = {"thresholds": seas.STRONG, "oos": {}, "sectors": [], "stocks": []}
     try:
@@ -663,7 +689,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             "row": {k: r.get(k) for k in cols},
             "ohlc": _ohlc_payload(d["df"]),
             "ohlc_w": mtf_.payload(mtf_.resample(d["df"], "W")), "ohlc_m": mtf_.payload(mtf_.resample(d["df"], "M")),
-            "mtf": d.get("mtf"), "season": d.get("season"),
+            "mtf": d.get("mtf"), "season": d.get("season"), "fb": fbres["current"].get(s),
             "season_support": seas.support(None, d.get("mtf"), _sup_extra(r)),
             "ta": d["ta"], "waves": pat,
             "fa": d["fa"], "history": fu.history_table(fq_s, fy_by.get(s)),

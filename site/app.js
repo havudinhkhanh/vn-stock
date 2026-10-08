@@ -466,7 +466,20 @@ async function viewToday() {
   const adv = br.adv || 0, dec = br.dec || 0, tot = adv + dec || 1;
   const lightCol = { green: "var(--up)", yellow: "var(--ref)", red: "var(--down)" }[reg.light];
 
-  const pickCard = (p) => `<div class="pickw">${pickCard0(p)}${actBar(p.symbol, { held: held.has(p.symbol) })}</div>`;
+  const pickSteps = (p) => {
+    const z = p.zone, q = capital ? sharesFor(capital, p.weight, z[1]) : null, q1 = q ? lot(q / 2) : null, today = t.date;
+    const risk = q && isNum(p.stop) ? q * (z[1] - p.stop) * 1000 : null;
+    const L = [
+      `<b>Đặt lệnh mua LO</b> trong vùng ${nf(z[0])}–${nf(z[1])}${q ? `: tổng ${nf(q, 0)} cp (${nf(p.weight, 1)}% vốn) – lệnh 1 ${nf(q1, 0)} cp ở ${nf(z[1])}, lệnh 2 ${nf(q - q1, 0)} cp ở ${nf(z[0])}` : ` – <a href="#/portfolio">nhập vốn</a> để biết số cổ phiếu`}. Không mua đuổi trên ${nf(z[1] * 1.02)}.`,
+      `<b>Dừng lỗ ${nf(p.stop)}</b>${isNum(p.stop_pct) ? ` (${pct(p.stop_pct, 1)})` : ""}${risk ? ` – nếu chạm mất ≈ ${big(risk)} đ` : ""}. Đặt lệnh dừng trên app CTCK ngay khi khớp.`,
+      `<b>Chốt lời</b> ${nf(p.t1)}${isNum(p.t2) ? ` (1/2) rồi ${nf(p.t2)}` : ""}.`,
+      `<b>Hàng về</b> ${addTradingDays(today, 2)} (T+2) – trước ngày này chưa bán được.`,
+      `<b>Xem lại</b> ngày ${addTradingDays(today, 20)} hoặc khi có BCTC quý mới; bỏ kế hoạch nếu đóng cửa dưới ${nf(p.stop)} hoặc mã rời danh sách MUA.`,
+      `<b>Ghi lại</b>: sau khi khớp bấm "Mua" bên dưới để danh mục và nhật ký tự cập nhật.`,
+    ];
+    return `<details class="psteps"><summary>Từng bước cho ${p.symbol}</summary><ol>${L.map((x) => `<li>${x}</li>`).join("")}</ol></details>`;
+  };
+  const pickCard = (p) => `<div class="pickw">${pickCard0(p)}${actBar(p.symbol, { held: held.has(p.symbol) })}${pickSteps(p)}</div>`;
   const pickCard0 = (p) => {
     const sh = sharesFor(capital, p.weight, p.zone[1]);
     const r = R[p.symbol] || {};
@@ -1418,7 +1431,7 @@ const COLDEF = {
   fscore: ["F-Score", "i"], rev_yoy: ["DT 12T", "pct"], ni_yoy: ["LN 12T", "pct"], rev_q_yoy: ["DT quý", "pct"], ni_q_yoy: ["LN quý", "pct"], rev_cagr3: ["DT CAGR3", "pct"], ni_cagr3: ["LN CAGR3", "pct"],
   ni_growth_streak: ["Quý LN tăng", "i"], eps: ["EPS (đ)", "i"], bvps: ["BVPS (đ)", "i"], div_yield: ["Cổ tức", "p1"], payout_pct: ["Tỷ lệ chi trả", "p0"], cash_years: ["Năm trả TM", "i"],
   ta_score: ["Điểm KT", "i"], ta_label: ["Kỹ thuật", "l"], trend: ["Xu hướng", "trend"], rsi: ["RSI", "i"], from_hi52: ["Cách đỉnh 52T", "pct"], beta: ["Beta", "x2"], vol_1y_pct: ["Biến động", "p0"],
-  rs_rating: ["RS", "i"], tf_d: ["Khung ngày", "tf"], tf_w: ["Khung tuần", "tf"], tf_m: ["Khung tháng", "tf"], tf_q: ["Khung quý", "tf"], mtf_align: ["Đồng thuận", "bias"], ss1_mean: ["Ngày này +1 tháng", "pct"], ss1_rel: ["So VN-Index +1 tháng", "pct"], ss1_hit: ["% năm hơn VNI", "p0"], ss_n: ["Số năm", "i"], canslim_flags: ["CANSLIM đạt", "l"], ind_rank: ["Hạng ngành", "rank"],
+  rs_rating: ["RS", "i"], tf_d: ["Khung ngày", "tf"], tf_w: ["Khung tuần", "tf"], tf_m: ["Khung tháng", "tf"], tf_q: ["Khung quý", "tf"], mtf_align: ["Đồng thuận", "bias"], fb_total: ["Điểm tổng (TL+QK)", "score"], fb_fwd: ["Điểm tương lai", "score"], fb_back: ["Điểm quá khứ", "score"], fb_w: ["Trọng số tương lai", "w"], ss1_mean: ["Ngày này +1 tháng", "pct"], ss1_rel: ["So VN-Index +1 tháng", "pct"], ss1_hit: ["% năm hơn VNI", "p0"], ss_n: ["Số năm", "i"], canslim_flags: ["CANSLIM đạt", "l"], ind_rank: ["Hạng ngành", "rank"],
   smc: ["SMC", "score"], smc_bias: ["SMC hướng", "bias"], smc_zone: ["Vị trí P/D", "zone"], vsa: ["VSA", "score"], vsa_bias: ["VSA hướng", "bias"], wyckoff_ev: ["Wyckoff", "score"], wy_phase: ["Pha Wyckoff", "wy"],
   orderflow: ["Order Flow", "score"], of_bias: ["OF hướng", "bias"], of_delta5: ["Delta 5 phiên", "dp"],
   piotroski: ["Piotroski", "score"], magic_formula: ["Magic F.", "score"], value: ["Giá trị", "score"], quality: ["Chất lượng", "score"], growth: ["Tăng trưởng", "score"], dividend: ["Cổ tức", "score"],
@@ -1433,6 +1446,7 @@ const VIEWS = {
   tech: ["Kỹ thuật", ["symbol", "price", "spk", "chg1d", "chg1w", "chg1m", "chg3m", "chg1y", "ret_12_1_pct", "rsi", "from_hi52", "beta", "vol_1y_pct", "ta_score", "ta_label", "trend", "rs_rating", "momentum", "avg_value_bn"]],
   smart: ["Tạo lập & dòng tiền", ["symbol", "sector", "price", "chg1m", "smc", "smc_bias", "smc_zone", "vsa", "vsa_bias", "wyckoff_ev", "wy_phase", "orderflow", "of_bias", "of_delta5", "ta_label", "trend"]],
   season: ["Mùa vụ", ["symbol", "sector", "price", "spk", "chg1m", "ss1_mean", "ss1_rel", "ss1_hit", "ss_n", "tf_w", "tf_m", "composite", "ni_yoy", "trend"]],
+  fb: ["Tương lai / quá khứ", ["symbol", "sector", "price", "spk", "chg1m", "fb_total", "fb_fwd", "fb_back", "fb_w", "pe", "pe_ind", "roe", "ni_yoy", "composite", "trend"]],
   mtf: ["Đa khung", ["symbol", "sector", "price", "spk", "chg1d", "chg1m", "chg1y", "tf_d", "tf_w", "tf_m", "tf_q", "mtf_align", "ta_label", "rsi", "from_hi52", "composite"]],
   methods: ["Điểm phương pháp", ["symbol", "sector", "composite", "piotroski", "magic_formula", "value", "quality", "growth", "dividend", "momentum", "canslim", "low_vol", "smc", "vsa", "wyckoff_ev", "orderflow"]],
 };
@@ -1452,6 +1466,7 @@ function fmtCol(r, k) {
   if (f === "x1") return nf(v, 1);
   if (f === "bn") return mcapFmt(v);
   if (f === "tf") return tfPill(v);
+  if (f === "w") return isNum(v) ? nf(v * 100, 0) + "%" : "—";
   if (f === "trend") return `<span class="${v === "up" ? "up" : v === "down" ? "down" : ""}">${TREND_VI[v] || "—"}</span>`;
   if (f === "rank") return isNum(v) ? `${nf(v, 0)}/${r.ind_n ?? "—"}` : "—";
   if (f === "bias") return isNum(v) ? `<span class="${v >= 0.25 ? "up" : v <= -0.25 ? "down" : "muted"}">${v > 0 ? "+" : ""}${nf(v, 2)}</span>` : "—";
@@ -1473,7 +1488,7 @@ async function viewScreener(arg) {
   const SPRE = [
     ["Đang trong danh sách MUA", { plan: "any", view: "overview" }], ["Rẻ + chất lượng", { maxPE: 12, minROE: 15, minF: 6, view: "valuation", sort: "upside" }],
     ["Cổ tức cao, bền", { minDiv: 6, minF: 5, view: "dividend", sort: "div_yield" }], ["Tăng trưởng mạnh", { minROE: 12, view: "growth", sort: "ni_yoy", trend: "notdown" }],
-    ["Giảm sâu, cơ bản tốt", { maxHi: -30, minF: 6, view: "valuation", sort: "upside" }], ["Tăng đồng thuận mọi khung", { trend: "mtfup", view: "mtf", sort: "mtf_align" }], ["Vào mùa từ hôm nay (≥ 75% số năm)", { view: "season", sort: "ss1_rel", minSS: 75 }], ["Xu hướng tháng tăng, ngày điều chỉnh", { trend: "mtfdip", view: "mtf", sort: "tf_m" }], ["Xu hướng tăng, điểm cao", { trend: "up", minScore: 60, view: "tech", sort: "composite" }],
+    ["Giảm sâu, cơ bản tốt", { maxHi: -30, minF: 6, view: "valuation", sort: "upside" }], ["Tăng đồng thuận mọi khung", { trend: "mtfup", view: "mtf", sort: "mtf_align" }], ["Vào mùa từ hôm nay (≥ 75% số năm)", { view: "season", sort: "ss1_rel", minSS: 75 }], ["Điểm tổng tương lai + quá khứ cao", { view: "fb", sort: "fb_total" }], ["Xu hướng tháng tăng, ngày điều chỉnh", { trend: "mtfdip", view: "mtf", sort: "tf_m" }], ["Xu hướng tăng, điểm cao", { trend: "up", minScore: 60, view: "tech", sort: "composite" }],
     ["Dòng tiền thông minh", { view: "smart", sort: "smc", minVal: 5 }], ["Mã tôi theo dõi", { watch: true, minVal: 0 }]];
   const saved = (vr.data && Array.isArray(vr.data.screener)) ? vr.data.screener : [];
   const sel = new Set();
@@ -1629,6 +1644,7 @@ async function viewBacktest() {
   const pst = Object.entries(ps.stats || {});
   app().innerHTML = `
   ${fwdSection(F)}
+  ${fbSection(await fbData())}
   ${SB ? `<section class="panel sec"><div class="ph"><h2>So sánh các phong cách đầu tư</h2><span class="meta">cùng giai đoạn, đã trừ phí · <a href="#/portfolio/profile">chọn phong cách</a></span></div>
     <div class="tw"><table data-hm="c5 c6"><thead><tr><th class="l">Phong cách</th><th>Lãi kép/năm</th><th>Sụt tối đa</th><th>Sharpe</th><th>Biến động</th><th class="l">Ghi chú</th></tr></thead><tbody>
     ${STYLE_ORDER.filter((k) => SB[k]?.ok).map((k) => { const x = SB[k]; return `<tr class="${(t.style || "position") === k ? "hl" : ""}"><td class="l"><b>${esc(STYLE_SHORT[k])}</b>${(t.style || "position") === k ? ' <span class="pill buy">đang dùng</span>' : ""}</td>
@@ -1703,7 +1719,9 @@ async function viewStock(sym, tabArg) {
     return;
   }
   recentAdd(sym); await WL.load();
-  const held = ((await Store.get("portfolio")).data?.holdings || []).some((h) => h.symbol === sym);
+  const [pfS, tS, evS, FJ] = await Promise.all([Store.get("portfolio"), load("data/today.json"), tryLoad("data/events.json"), fbData()]);
+  const held = (pfS.data?.holdings || []).some((h) => h.symbol === sym);
+  const stepsBlock = (() => { try { return stepsHtml(stepsFor(d, { t: tS, pf: pfS.data || {}, ev: evS })); } catch (e) { console.warn(e); return ""; } })();
   const r = d.row, v = d.valuation || {}, ta = d.ta, fa = d.fa || {}, w = d.waves || {};
   const o = d.ohlc;
   const last = o.c[o.c.length - 1], prev = o.c[o.c.length - 2];
@@ -1731,6 +1749,7 @@ async function viewStock(sym, tabArg) {
     ["LN 12T", pct(fa.ni_yoy ?? r.ni_yoy), cls(fa.ni_yoy ?? r.ni_yoy)], ["DT 12T", pct(fa.rev_yoy ?? r.rev_yoy), cls(fa.rev_yoy ?? r.rev_yoy)], ["Cổ tức", pct(fa.dividend?.yield ?? r.div_yield, 1, false)],
     ["F-Score", `${r.fscore ?? "—"}/9`], ["Vay/Vốn", nf(fa.de ?? r.de)], ["Beta", nf(d.beta)], ["GTGD/ngày", bn(r.avg_value_bn)], ["RS", `${sc.rs_rating ?? r.rs_rating ?? "—"}/100`],
     ["1 tháng", pct(r.chg1m), cls(r.chg1m)], ["1 năm", pct(r.chg1y), cls(r.chg1y)], ["Cách đỉnh 52T", pct(ta.from_hi52_pct), "down"]])}
+  <div class="g g-main sec fbrow"><div>${fbPanel(d, FJ).replace('panel sec fbp', 'panel fbp')}</div><div>${stepsBlock.replace('panel sec steps', 'panel steps')}</div></div>
   <div class="g g-main sec">
     <div>
       <div class="toolbar" id="tools"></div>
@@ -2317,6 +2336,127 @@ function lineTfChart(el, series, tf) {
   c.timeScale().fitContent();
   return c;
 }
+
+// ================================================================ TƯƠNG LAI vs QUÁ KHỨ + KHUYẾN NGHỊ TỪNG BƯỚC
+const FBV = { buy: ["Mua / tích luỹ", "up"], lean_buy: ["Nghiêng mua – chờ điểm vào", "up"], neutral: ["Trung tính – giữ, chưa mua thêm", "ref"], lean_sell: ["Nghiêng bán – không mua thêm", "down"], sell: ["Tránh / giảm tỷ trọng", "down"] };
+const fbLabel = (v) => (FBV[v] || ["—", ""])[0];
+const fbCls = (v) => (FBV[v] || ["", ""])[1];
+let FBJ = null;
+async function fbData() { if (!FBJ) FBJ = (await tryLoad("data/fb.json")) || { summary: {}, ind: {} }; return FBJ; }
+const fbGroup = (f) => (f >= 0.6 ? "fwd" : f >= 0.3 ? "mix" : "back");
+function fbInterp(k, raw, rank) {
+  if (!isNum(raw)) return "chưa có số liệu";
+  const lvl = !isNum(rank) ? "" : rank >= 80 ? "rất tốt so với thị trường" : rank >= 60 ? "tốt hơn đa số" : rank >= 40 ? "quanh mức giữa" : rank >= 20 ? "kém hơn đa số" : "thuộc nhóm kém nhất";
+  const P = (x, nd = 0) => pct(x * 100, nd);
+  const m = {
+    fpe: `P/E năm tới ≈ ${nf(raw, 1)} – ${lvl}${raw < 8 ? " (rẻ)" : raw > 20 ? " (đắt)" : ""}`,
+    pe: `P/E hiện tại ${nf(raw, 1)} – ${lvl}`,
+    peg: `PEG ${nf(raw, 2)}${raw < 1 ? " – rẻ so với tốc độ tăng" : raw > 2 ? " – đắt so với tốc độ tăng" : ""}`,
+    sector: `ngành được ${nf(raw, 0)}/100 điểm triển vọng 3–6 tháng`,
+    season: `các năm trước, tháng tới mã ${raw >= 0 ? "hơn" : "kém"} thị trường TB ${pct(Math.abs(raw), 1, false)}`,
+    accel: `tăng trưởng LN quý ${raw >= 0 ? "nhanh lên" : "chậm lại"} ${nf(Math.abs(raw) * 100, 0)} điểm %`,
+    cmf: `dòng tiền ${raw > 0.05 ? "đang vào (tích luỹ)" : raw < -0.05 ? "đang ra (phân phối)" : "cân bằng"} – CMF ${nf(raw, 2)}`,
+    pepct: `P/E đang ở phân vị ${nf(raw, 0)}% lịch sử của chính mã`,
+    mom: `giá 12–1 tháng ${P(raw)} – ${lvl}`,
+    ma200: `giá ${raw >= 0 ? "trên" : "dưới"} MA200 ${pct(Math.abs(raw) * 100, 0, false)}`,
+    gni: `LN 12 tháng ${P(raw)} so cùng kỳ`, grev: `doanh thu 12 tháng ${P(raw)} so cùng kỳ`,
+    roe: `ROE ${pct(raw * 100, 1, false)} – ${lvl}`, margin: `biên LN ròng ${pct(raw * 100, 1, false)}`, de: `nợ vay ${nf(raw, 2)} lần vốn chủ`,
+  };
+  return m[k] || nf(raw);
+}
+function fbPanel(d, FJ) {
+  const c = d.fb, S = FJ.summary || {}, I = FJ.ind || {};
+  if (!c) return "";
+  const wf = Math.round((c.w ?? 0.5) * 100);
+  const tile = (title, sc, v, sub) => `<div class="fbt ${fbCls(v)}"><small>${title}</small><b>${nf(sc, 0)}</b><span>${fbLabel(v)}</span>${sub ? `<small>${sub}</small>` : ""}</div>`;
+  const rows = Object.entries(I).map(([k, x]) => ({ k, ...x, ...(c.ind?.[k] || {}), w: S.ind_w?.[k], ic: S.ind_ic?.[k] }));
+  const grp = (g, t) => { const R = rows.filter((x) => fbGroup(x.f) === g).sort((a, b) => b.f - a.f); return R.length ? `<tr class="gh"><td colspan="7"><b>${t}</b></td></tr>` + R.map((x) => `<tr class="${x.w > 0 ? "" : "fboff"}">
+      <td class="l"><b>${esc(x.name)}</b><small>${esc(x.why)}</small></td><td>${isNum(x.rank) ? scoreCell(x.rank) : "—"}</td>
+      <td class="wrap">${esc(fbInterp(x.k, x.raw, x.rank))}</td><td>${nf(x.f * 100, 0)}%</td><td>${x.w > 0 ? nf(x.w, 1) + "%" : '<span class="faint">0</span>'}</td>
+      <td class="${(x.ic?.ic ?? 0) > 0.02 ? "up" : (x.ic?.ic ?? 0) < -0.02 ? "down" : ""}">${nf(x.ic?.ic, 3)} <small>t ${nf(x.ic?.t, 1)}</small></td>
+      <td><small>${nf(x.ic?.ic_a, 3)} → ${nf(x.ic?.ic_b, 3)}</small></td></tr>`).join("") : ""; };
+  const H = S.halves || {}, HS = S.halves_sector || {};
+  const cal = (S.calib || []).find((x) => x.key === c.v_total);
+  const own = isNum(c.w_raw) ? `Riêng lịch sử ${esc(d.symbol)} (${c.n} tháng: tương quan nhóm tương lai ${nf(c.icf, 2)}, nhóm quá khứ ${nf(c.icb, 2)}) gợi ý <b>${nf(c.w_raw * 100, 0)}% tương lai</b>.` : "";
+  const test = H.rho != null ? ` Nhưng kiểm định trên ${H.n} mã: mã nào nửa đầu (đến ${esc(H.mid)}) nghiêng tương lai thì nửa sau <b>${H.p < 0.1 ? "vẫn nghiêng" : "không còn nghiêng"}</b> (tương quan ${nf(H.rho, 2)}, p = ${nf(H.p, 2)}); gộp theo ngành cũng ${HS.p != null && HS.p < 0.1 ? "có" : "không"} lặp lại (p = ${nf(HS.p, 2)}). ${H.p < 0.1 ? "Vì vậy dùng trọng số riêng đã kéo về mức chung theo độ tin cậy." : `Vì vậy khác biệt từng mã là nhiễu – áp dụng trọng số chung <b>${wf}% tương lai</b> cho mọi mã.`}` : "";
+  return `<section class="panel sec fbp"><div class="ph"><h2>Khuyến nghị: tương lai, quá khứ và tổng hợp</h2><span class="meta">${esc(S.start || "")} → ${esc(S.end || "")} · kiểm chứng lợi nhuận 3 tháng sau</span></div>
+    <div class="fbtiles">${tile("Theo chỉ số hướng TƯƠNG LAI", c.fwd, c.v_fwd, "dự phóng, tăng tốc, dòng tiền, ngành, mùa vụ")}${tile("Theo chỉ số hướng QUÁ KHỨ", c.back, c.v_back, "kết quả kinh doanh, định giá hiện tại, đà giá")}
+      ${tile(`TỔNG – ${wf}% tương lai · ${100 - wf}% quá khứ`, c.total, c.v_total, cal ? `lịch sử nhóm này: ${pct(cal.ret, 1)} so với thị trường sau 3 tháng, ${nf(cal.win, 0)}% lần hơn` : "")}</div>
+    <div class="fbw"><i style="width:${wf}%"></i><span>tương lai ${wf}%</span><span>quá khứ ${100 - wf}%</span></div>
+    <p class="faint" style="font-size:.76rem;margin-top:6px">${own}${test}</p>
+    <details class="sec"><summary>Từng chỉ số – nhóm, hạng, trọng số, hiệu lực lịch sử</summary>
+      <div class="tw sec"><table class="fbtab"><thead><tr><th class="l">Chỉ số</th><th>Hạng</th><th class="l">Nghĩa là gì hôm nay</th><th>% tương lai</th><th>Trọng số</th><th>Tương quan với LN 3 tháng sau</th><th>Nửa đầu → nửa sau</th></tr></thead><tbody>
+        ${grp("fwd", "Hướng tương lai (≥ 60% tương lai)")}${grp("mix", "Hỗn hợp (30–60%)")}${grp("back", "Hướng quá khứ (< 30% tương lai)")}</tbody></table></div>
+      <p class="faint" style="font-size:.72rem;margin-top:6px">Hạng 0–100 so với mọi mã cùng thời điểm (cao = tốt). Trọng số chỉ số = mức dự báo đúng trung bình trong quá khứ; chỉ số dự báo ngược chiều được để 0 (in mờ) – ví dụ "rẻ so với lịch sử của mã" và "đà giá 12 tháng" ở VN lại thường đi kèm kết quả kém hơn trong 3 tháng sau. Chỉ số hỗn hợp chia vào cả hai điểm theo "% tương lai".</p></details></section>`;
+}
+
+// ---- KHUYẾN NGHỊ TỪNG BƯỚC (cầm tay chỉ việc)
+function nextEarnings(ev, today) { return (ev?.events || []).filter((e) => e.type === "earnings" && e.date >= today).sort((a, b) => (a.date < b.date ? -1 : 1))[0]; }
+function stepsFor(d, ctx) {
+  const { t, pf, ev, R } = ctx, sym = d.symbol, r = d.row || {}, fbx = d.fb || {}, lv = d.levels, v = d.valuation || {};
+  const today = t.date || new Date().toISOString().slice(0, 10), cap = capitalOf(pf), reg = t.regime || {};
+  const h = (pf?.holdings || []).find((x) => x.symbol === sym);
+  const px = r.price ?? d.ohlc.c[d.ohlc.c.length - 1];
+  const st = [];
+  const ern = nextEarnings(ev, today);
+  const pick = Object.entries(t.styles || {}).map(([k, p]) => [k, (p.picks || []).find((x) => x.symbol === sym) || (p.watch || []).find((x) => x.symbol === sym)]).find(([, x]) => x);
+  const verdict = fbx.v_total, mt = d.mtf?.summary || {}, sup = d.season_support;
+  const plus = Object.entries(fbx.ind || {}).filter(([k, x]) => isNum(x.rank) && x.rank >= 70 && (FBJ?.summary?.ind_w?.[k] || 0) > 0).map(([k, x]) => fbInterp(k, x.raw, x.rank)).slice(0, 3);
+  const minus = Object.entries(fbx.ind || {}).filter(([k, x]) => isNum(x.rank) && x.rank <= 30 && (FBJ?.summary?.ind_w?.[k] || 0) > 0).map(([k, x]) => fbInterp(k, x.raw, x.rank)).slice(0, 3);
+  st.push({ t: `Kết luận: ${fbLabel(verdict)} (điểm tổng ${nf(fbx.total, 0)}/100)`, c: fbCls(verdict),
+    d: `${plus.length ? "Điểm mạnh: " + plus.join("; ") + ". " : ""}${minus.length ? "Điểm yếu: " + minus.join("; ") + ". " : ""}Đa khung: ${mt.text || "—"}` });
+  const maxW = (t.risk?.max_weight_per_stock ?? 20), expo = reg.exposure ?? 100;
+  if (h) {
+    let peak = px; if (h.date) d.ohlc.t.forEach((dt, i) => { if (dt >= h.date) peak = Math.max(peak, d.ohlc.c[i]); });
+    const ep = exitPlan(h, px, peak, h.date ? tradingDaysBetween(h.date, today) : null, { atr: r.atr, e20: r.e20, e20_below2: r.e20_below2, fair: r.fair, fair_hi: r.fair_hi, div_yield: r.div_yield }, (t.risk?.max_stop_loss_pct ?? 20));
+    const pnl = (px * (1 - FEE_SELL / 100) / h.cost - 1) * 100;
+    const hit = ep.levels.filter((l) => l.status === "hit"), near = ep.levels.filter((l) => l.status === "near");
+    st.push({ t: `Anh đang nắm ${nf(h.qty, 0)} cp, giá vốn ${nf(h.cost)} – lãi/lỗ ${pct(pnl, 1)} sau phí`, d: `Theo luật thoát của phong cách ${STYLE_SHORT[ep.style]}. Hoà vốn sau phí: ${nf(ep.breakeven)}.` });
+    const full = hit.find((l) => l.sell >= 0.999);
+    if (full) { st[0].t += " – nhưng mã đang nắm đã chạm mức thoát: làm theo kỷ luật trước"; st[0].c = "down"; }
+    if (hit.length) hit.forEach((l) => st.push(l.sell > 0 ? { t: `Làm ngay: ${l.label}${l.price ? " (" + nf(l.price) + ")" : ""} → ${fracVi(l.sell).toLowerCase()}${l.qty ? " " + nf(l.qty, 0) + " cp" : ""}`, c: l.kind === "tp" ? "up" : "down",
+      d: `${l.why}. Phiên tới đặt lệnh bán LO bằng giá tham chiếu hoặc lệnh ATC nếu muốn chắc khớp${isNum(l.proceeds) ? `; tiền về ≈ ${big(l.proceeds)} đ sau phí, thuế` : ""}. Khớp xong bấm "Bán" ở bảng Kế hoạch thoát trong tab Danh mục để hệ thống ghi lãi/lỗ và đánh dấu đã làm.` }
+      : { t: `Xem lại luận điểm: ${l.label}`, c: "ref", d: `${l.why}. Việc cần làm: (1) đọc BCTC quý gần nhất – lợi nhuận còn tăng không; (2) so P/E với ngành; (3) nếu lý do mua ban đầu không còn, bán dần 1/2 trong 1–2 tuần; nếu vẫn còn, ghi lại lý do giữ vào Nhật ký.` }));
+    else st.push({ t: "Chưa chạm mức thoát nào – giữ", d: near.length ? `Sắp chạm: ${near.map((l) => `${l.label} ${nf(l.price)}`).join("; ")}. Đặt sẵn lệnh chờ trên app CTCK.` : `Mức gần nhất: ${ep.levels.filter((l) => l.price).map((l) => `${l.label} ${nf(l.price)} (${pct(l.dist, 1)})`).slice(0, 2).join("; ")}.` });
+    if ((verdict === "buy" || verdict === "lean_buy") && cap) {
+      const wNow = (h.qty * px * 1000) / cap * 100;
+      if (wNow < maxW - 2 && lv) st.push({ t: `Có thể mua thêm tới trần ${maxW}% vốn (đang ${nf(wNow, 1)}%)`, d: `Chỉ mua thêm trong vùng ${nf(lv.zone[0])}–${nf(lv.zone[1])}, tối đa ${nf(lot(((maxW - wNow) / 100) * cap / (lv.zone[1] * 1000)), 0)} cp; không bình quân giá khi khung tuần đang giảm.` });
+    }
+    if (verdict === "lean_sell" || verdict === "sell") st.push({ t: "Không mua thêm; cân nhắc giảm 1/3 nếu đóng cửa dưới MA50", c: "down", d: `Điểm tổng thấp (${nf(fbx.total, 0)}). Nếu muốn giữ, giữ tỷ trọng ≤ ${Math.round(maxW / 2)}% vốn và theo đúng điểm dừng ${nf(ep.stop)}.` });
+  } else if (verdict === "buy" || verdict === "lean_buy") {
+    const zone = pick?.[1]?.zone || lv?.zone, stop = pick?.[1]?.stop ?? lv?.stop, t1 = pick?.[1]?.t1 ?? lv?.t1, t2 = pick?.[1]?.t2 ?? lv?.t2;
+    const inZone = zone && px <= zone[1] * 1.005;
+    const wPlan = pick?.[1]?.weight ?? Math.min(maxW, 8);
+    const money = cap ? cap * Math.min(wPlan, maxW) / 100 : null;
+    st.push({ t: `Thị trường: đèn ${LIGHT_VI[reg.light] || "—"} – tổng cổ phiếu tối đa ${expo}% vốn`, d: `${reg.text || ""} ${cap ? `Với vốn ${big(cap)} đ: phần cho ${sym} tối đa ${nf(Math.min(wPlan, maxW), 1)}% ≈ ${big(money)} đ.` : 'Nhập tổng vốn ở tab Danh mục để em tính số cổ phiếu cụ thể.'}` });
+    if (zone) {
+      const q = money ? lot(money / (zone[1] * 1000)) : null;
+      const q1 = q ? lot(q / 2) : null, q2 = q && q1 ? q - q1 : null;
+      st.push({ t: inZone ? `Mua trong vùng ${nf(zone[0])}–${nf(zone[1])} – giá đang trong vùng` : `Chờ giá về vùng ${nf(zone[0])}–${nf(zone[1])} (hiện ${nf(px)}, cao hơn ${pct((px / zone[1] - 1) * 100, 1)})`, c: inZone ? "up" : "ref",
+        d: `${q ? `Tổng ≈ ${nf(q, 0)} cp. Chia 2 lệnh LO: lệnh 1 ${nf(q1, 0)} cp ở ${nf(zone[1])}; lệnh 2 ${nf(q2, 0)} cp ở ${nf(zone[0])} hoặc khi giá đóng cửa vượt đỉnh 5 phiên gần nhất (xác nhận). ` : ""}Không mua đuổi trên ${nf(zone[1] * 1.02)}. Hàng về T+2: mua hôm nay bán được từ ${addTradingDays(today, 2)}.` });
+    }
+    if (isNum(stop)) st.push({ t: `Đặt điểm dừng lỗ ${nf(stop)} (${pct((stop / (zone?.[1] || px) - 1) * 100, 1)})`, c: "down",
+      d: `${zone && cap ? `Nếu chạm, mất ≈ ${big(lot((cap * Math.min(wPlan, maxW) / 100) / (zone[1] * 1000)) * ((zone[1] - stop) * 1000))} đ (${nf((Math.min(wPlan, maxW) * (1 - stop / zone[1])), 2)}% tổng vốn). ` : ""}Đặt lệnh dừng (stop order) trên app CTCK ngay sau khi khớp mua; dời lên theo bảng "Kế hoạch thoát" khi giá tăng.` });
+    if (isNum(t1)) st.push({ t: `Chốt lời từng phần: ${nf(t1)}${isNum(t2) ? ` rồi ${nf(t2)}` : ""}`, c: "up", d: `Đến mục tiêu 1 bán 1/2, đến mục tiêu 2 bán phần còn lại (hoặc theo phong cách anh chọn trong Danh mục).` });
+  } else {
+    const bb = v.ok && v.reliable ? v.buy_below : null;
+    st.push({ t: "Chưa mua lúc này", c: fbCls(verdict), d: `Điểm tổng ${nf(fbx.total, 0)} – ${fbLabel(verdict).toLowerCase()}.` });
+    const conds = [];
+    if (isNum(bb) && px > bb) conds.push(`giá về ≤ ${nf(bb)} (giá trị hợp lý trừ biên an toàn, còn ${pct((bb / px - 1) * 100, 1)})`);
+    if (mt.signs?.W === -1) conds.push("khung tuần chuyển từ Giảm sang Ngang/Tăng");
+    if (isNum(fbx.total)) conds.push("điểm tổng lên ≥ 55");
+    st.push({ t: "Khi nào xem lại", d: `Đặt cảnh báo giá (nút 🔔) và chờ một trong các điều kiện: ${conds.join("; ") || "điểm tổng cải thiện"}.` });
+  }
+  if (sup?.verdict && d.season?.same?.h1) { const s1 = d.season.same.h1; st.push({ t: `Mùa vụ: ngày này các năm trước sau 1 tháng TB ${pct(s1.mean, 1)} (${nf(s1.hit * s1.n / 100, 0)}/${s1.n} năm lãi)`, c: SUP_VI[sup.verdict]?.[1], d: `${(SUP_VI[sup.verdict] || [""])[0]}${sup.pros?.length ? ": " + sup.pros.join(", ") : ""}${sup.cons?.length ? "; ngược lại: " + sup.cons.join(", ") : ""}. Chỉ dùng như yếu tố phụ.` }); }
+  const checks = [];
+  if (ern) checks.push(`${new Date(ern.date + "T00:00:00").toLocaleDateString("vi-VN")}: ${ern.title.split(" (")[0]} – đọc LN quý mới, nếu giảm > 30% so cùng kỳ thì xem lại`);
+  checks.push(`${addTradingDays(today, 20)} (20 phiên nữa): mở lại trang này xem điểm tổng và đa khung còn ủng hộ không`);
+  st.push({ t: "Mốc kiểm tra", d: checks.join(" · ") });
+  st.push({ t: "Điều kiện đổi ý", d: `Bỏ kế hoạch nếu: đóng cửa dưới điểm dừng; điểm tổng xuống < 45; khung tuần và tháng cùng chuyển Giảm; hoặc đèn thị trường chuyển Đỏ khi anh đang nắm quá ${expo}% vốn cổ phiếu.` });
+  return st;
+}
+const stepsHtml = (st, title = "Việc anh nên làm – từng bước") => `<section class="panel sec steps"><div class="ph"><h2>${title}</h2><span class="meta">tính từ số liệu phiên gần nhất</span></div>
+  <ol class="stl">${st.map((s) => `<li class="${s.c || ""}"><b>${esc(s.t)}</b><span>${esc(s.d || "")}</span></li>`).join("")}</ol></section>`;
 
 // ================================================================ MÙA VỤ (ngày này / tháng này các năm trước)
 const MON_VI = ["Th1", "Th2", "Th3", "Th4", "Th5", "Th6", "Th7", "Th8", "Th9", "Th10", "Th11", "Th12"];
@@ -2924,6 +3064,30 @@ async function viewJournal() {
 }
 
 // ================================================================ THEO DÕI THỰC TẾ (forward test)
+function fbSection(FJ) {
+  const S = FJ?.summary || {}, I = FJ?.ind || {};
+  if (!S.ok) return "";
+  const W = S.walk || {}, H = S.halves || {}, HS = S.halves_sector || {};
+  const WN = { naive: "Mọi chỉ số bằng nhau, 50/50", eq: "Trọng số chỉ số theo hiệu lực, 50/50", glob: "… + trọng số nhóm chung", stock: "… + trọng số riêng từng mã", fwd: "Chỉ nhóm tương lai", back: "Chỉ nhóm quá khứ" };
+  return `<section class="panel sec"><div class="ph"><h2>Chỉ số tương lai vs quá khứ – kiểm định giả thuyết</h2><span class="meta">${esc(S.start)} → ${esc(S.end)} · ${S.n_stocks} mã · lợi nhuận 3 tháng sau so với bình quân</span></div>
+    <div class="g g2"><div>
+      <h3>Giả thuyết: mỗi mã cần trọng số tương lai/quá khứ khác nhau</h3>
+      ${kpis([["Lặp lại giữa 2 nửa (từng mã)", nf(H.rho, 2), H.p < 0.1 ? "up" : "down", "Tương quan thứ hạng giữa 'mức nghiêng tương lai' của mỗi mã ở nửa đầu và nửa sau"], ["p (hoán vị)", nf(H.p, 2), H.p < 0.1 ? "up" : "down"],
+        ["Lặp lại (gộp theo ngành)", nf(HS.rho, 2), HS.p < 0.1 ? "up" : "down"], ["p ngành", nf(HS.p, 2)], ["Độ lệch thật giữa các mã (τ)", nf(S.tau, 3)], ["Trọng số tương lai áp dụng", pct((S.w_glob ?? 0.5) * 100, 0, false)]])}
+      <p class="note" style="margin-top:6px">${H.p < 0.1 ? "Khác biệt giữa các mã có lặp lại – dùng trọng số riêng (đã kéo về mức chung theo độ tin cậy)." : `<b>Bác bỏ</b> giả thuyết với dữ liệu hiện có: mã nghiêng tương lai ở nửa đầu không còn nghiêng ở nửa sau (p = ${nf(H.p, 2)}), gộp theo ngành cũng không (p = ${nf(HS.p, 2)}). Khác biệt từng mã là nhiễu, nên mọi mã dùng chung ${pct((S.w_glob ?? 0.5) * 100, 0, false)} tương lai. Trang mã vẫn hiện "riêng lịch sử mã gợi ý" để anh tham khảo. Hệ thống đo lại mỗi tuần – nếu khác biệt trở nên có ý nghĩa, trọng số riêng sẽ tự bật.`}</p>
+      <h3 class="sec">Walk-forward (mỗi năm chỉ dùng các năm trước)</h3>
+      <div class="tw"><table><thead><tr><th class="l">Cách tính điểm</th><th>Tương quan</th><th>t</th><th>Nhóm 20% điểm cao – 20% thấp / 3 tháng</th><th>% tháng đúng</th></tr></thead><tbody>
+        ${Object.entries(WN).map(([k, n]) => { const x = W[k] || {}; return `<tr><td class="l">${n}</td><td class="${x.ic > 0.03 ? "up" : ""}">${nf(x.ic, 3)}</td><td>${nf(x.t, 2)}</td><td class="${cls(x.spread)}">${pct(x.spread, 2)}</td><td>${nf(x.hit, 0)}%</td></tr>`; }).join("")}</tbody></table></div>
+    </div><div>
+      <h3>Hiệu lực từng chỉ số</h3>
+      <div class="tw"><table><thead><tr><th class="l">Chỉ số</th><th>% tương lai</th><th>Tương quan</th><th>t</th><th>Nửa đầu → sau</th><th>Trọng số</th></tr></thead><tbody>
+        ${Object.entries(I).sort((a, b) => b[1].f - a[1].f).map(([k, x]) => { const c = S.ind_ic?.[k] || {}; return `<tr class="${(S.ind_w?.[k] || 0) > 0 ? "" : "fboff"}"><td class="l">${esc(x.name)}</td><td>${nf(x.f * 100, 0)}%</td><td class="${c.ic > 0.02 ? "up" : c.ic < -0.02 ? "down" : ""}">${nf(c.ic, 3)}</td><td>${nf(c.t, 1)}</td><td><small>${nf(c.ic_a, 3)} → ${nf(c.ic_b, 3)}</small></td><td>${nf(S.ind_w?.[k], 1)}%</td></tr>`; }).join("")}</tbody></table></div>
+      <h3 class="sec">Điểm tổng → kết quả 3 tháng sau</h3>
+      <div class="tw"><table><thead><tr><th class="l">Nhóm điểm</th><th>Số lần</th><th>So với bình quân</th><th>% lần hơn</th></tr></thead><tbody>
+        ${(S.calib || []).map((c) => `<tr><td class="l">${fbLabel(c.key)} (${c.lo}–${c.hi})</td><td>${nf(c.n, 0)}</td><td class="${cls(c.ret)}">${pct(c.ret, 2)}</td><td>${nf(c.win, 0)}%</td></tr>`).join("")}</tbody></table></div>
+      <p class="faint" style="font-size:.72rem;margin-top:6px">Tương quan dương nhưng nhỏ (≈ 0,03–0,05): đủ để nghiêng xác suất khi chọn giữa nhiều mã, không đủ để chắc chắn từng mã. Nhóm điểm cao nhất chưa chắc tốt hơn nhóm "nghiêng mua" – nên coi khuyến nghị tổng là một lớp lọc, kết hợp kế hoạch giá và quản trị rủi ro.</p>
+    </div></div></section>`;
+}
 function fwdSection(F) {
   if (!F || !F.ok) return `<section class="panel hero"><div class="ph"><h2>Theo dõi thực tế – tín hiệu từ nay về sau</h2></div><p class="muted">${esc(F?.reason || "Chưa có dữ liệu – hệ thống bắt đầu ghi từ lượt chạy kế tiếp.")}</p>
     <p class="faint" style="font-size:.74rem">Mỗi ngày hệ thống ghi lại danh sách MUA, sau đó đo xem các mã đó đi thế nào sau 5/20/60 phiên so với VN-Index, và chạy một danh mục giấy làm đúng theo hệ thống. Đây là kết quả không thể "tối ưu ngược" như backtest.</p></section>`;

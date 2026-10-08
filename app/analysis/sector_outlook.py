@@ -146,6 +146,7 @@ def run(u: pd.DataFrame, wide: pd.DataFrame, idx_close: pd.Series, fq: pd.DataFr
         num = sum(rk[k].fillna(0) * x for k, x in w.items())
         den = sum(rk[k].notna() * x for k, x in w.items())
         score = (num / den.replace(0, np.nan)).where(den >= 0.65)
+        _LAST.setdefault("score", {})[key] = score
         bt = _backtest(score, fwd[h], fwd.get(h * 2) if h * 2 in fwd else None, sec_ret, dates, h)
         out_h[key] = {"label": H["label"], "h": h, "weights": w, "bt": bt}
         last = dates[-1]
