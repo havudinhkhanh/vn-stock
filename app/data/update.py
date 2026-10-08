@@ -389,15 +389,12 @@ def update_intraday(symbols: list[str], focus: list[str], budget_sec: float = 42
         add["date"] = pd.to_datetime(add["date"])
         if not ses_old.empty:
             ses_old["date"] = pd.to_datetime(ses_old["date"])
-            # dữ liệu phút luôn được ưu tiên hơn dữ liệu giờ của cùng phiên
-            key = lambda d: d["symbol"].astype(str) + "|" + d["date"].dt.strftime("%Y%m%d")  # noqa: E731
-            km = set(key(ses_old[ses_old["src"] == "m"]))
-            add = add[~((add["src"] == "h") & key(add).isin(km))]
-            add_m = set(key(add[add["src"] == "m"]))
-            ses_old = ses_old[~key(ses_old).isin(add_m)]
-            ses_old = ses_old[~(key(ses_old).isin(set(key(add))) & (ses_old["src"] == "h"))]
         df = pd.concat([ses_old, add], ignore_index=True) if not ses_old.empty else add
-        df = df.drop_duplicates(["symbol", "date"], keep="last").sort_values(["symbol", "date"]).reset_index(drop=True)
+        # cùng một phiên: dữ liệu phút luôn ưu tiên hơn dữ liệu giờ; cùng nguồn thì bản mới nhất thắng
+        df["_p"] = (df["src"] == "m").astype(int)
+        df["_o"] = np.arange(len(df))
+        df = df.sort_values(["symbol", "date", "_p", "_o"]).drop_duplicates(["symbol", "date"], keep="last")
+        df = df.drop(columns=["_p", "_o"]).reset_index(drop=True)
         store.write("isess", df)
     if bk_new:
         bk = pd.concat(bk_new, ignore_index=True)
