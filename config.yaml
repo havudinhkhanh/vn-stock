@@ -69,6 +69,7 @@ risk:
 valuation:
   risk_free: 3.2              # % lợi suất TPCP 10 năm (tự cập nhật nếu lấy được, nếu không dùng số này)
   equity_risk_premium: 8.0    # % phần bù rủi ro cổ phiếu Việt Nam
+  ke_min: 12.0                # % chi phí vốn tối thiểu (beta < 1 không được kéo ke xuống; DN nhỏ cộng 1–2%)
   terminal_growth: 4.0        # % tăng trưởng dài hạn (≈ GDP danh nghĩa thận trọng)
   tax_rate: 20                # % thuế TNDN
   forecast_years: 5

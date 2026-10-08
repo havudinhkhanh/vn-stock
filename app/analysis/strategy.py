@@ -176,9 +176,11 @@ def trade_levels(row: pd.Series, risk_cfg: dict) -> dict:
         entry = buy_below
         state = "wait"
     else:
+        # chưa định giá được: không coi là "mua được" theo giá trị – chỉ vào nếu mã nằm trong rổ đã kiểm chứng (GARP, tăng trưởng…)
         zone = [round(price * 0.97, 2), round(price, 2)]
         entry = price
         state = "now"
+    no_val = not buy_below
     stop_atr = entry - 2.5 * atr
     stop_sup = sup * 0.97 if sup and sup < entry else stop_atr
     stop = max(min(stop_atr, stop_sup), entry * (1 - max_sl))
@@ -189,9 +191,21 @@ def trade_levels(row: pd.Series, risk_cfg: dict) -> dict:
     if t2 <= t1:
         t2 = t1 * 1.10
     rr = (t1 - entry) / (entry - stop) if entry > stop else None
-    return {"zone": zone, "entry": round(entry, 2), "stop": round(stop, 2),
-            "stop_pct": round(100 * (stop / entry - 1), 1), "t1": round(t1, 2), "t2": round(t2, 2),
-            "t1_pct": round(100 * (t1 / entry - 1), 1), "rr": round(rr, 2) if rr else None, "state": state}
+    # độ "kéo giãn": giá cách EMA20 bao nhiêu lần ATR, tăng bao nhiêu % trong 1 tháng.
+    # Kiểm chứng 2016–2026 (mã xu hướng tăng): kéo giãn KHÔNG làm lợi nhuận 20 phiên sau kém đi, nhưng sụt sau khi mua sâu hơn
+    # (tăng > 25%/tháng: 52% số lần sụt ≥ 10% trong 20 phiên) → chia lệnh, không cấm mua.
+    e20 = v("e20")
+    ext_atr = (price - e20) / atr if e20 and atr else None
+    ret1m = v("chg1m")
+    ext = bool((ext_atr is not None and ext_atr > 2.5) or (ret1m is not None and ret1m > 25))
+    out = {"zone": zone, "entry": round(entry, 2), "stop": round(stop, 2),
+           "stop_pct": round(100 * (stop / entry - 1), 1), "t1": round(t1, 2), "t2": round(t2, 2),
+           "t1_pct": round(100 * (t1 / entry - 1), 1), "rr": round(rr, 2) if rr else None, "state": state,
+           "no_val": no_val, "ext": ext, "ext_atr": round(ext_atr, 2) if ext_atr is not None else None,
+           "rsi": round(v("rsi"), 1) if v("rsi") is not None else None, "ret1m": round(ret1m, 1) if ret1m is not None else None}
+    if state == "now" and ext:
+        out["split"] = {"now": 0.5, "lo": round(price - atr, 2), "days": 10}
+    return out
 
 
 def timing_ok(row: pd.Series) -> tuple[bool, str]:

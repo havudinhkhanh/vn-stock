@@ -108,7 +108,8 @@ const FC = {
         const pbt = gp - sga - interest + other;
         const tax = Math.max(0, pbt * a.tax);
         ni = (pbt - tax) * (1 - base.minority);
-        fcfe = ni * a.conv;
+        const ct = isNum(a.conv_term) ? a.conv_term : a.conv;
+        fcfe = ni * (a.conv + (ct - a.conv) * t / n);
         row = { revenue: rev, gross_profit: gp, sga, interest, pbt, ni };
       } else {
         ni = niPrev * (1 + g);
@@ -130,7 +131,8 @@ const FC = {
     let pv = 0; rows.forEach((r) => (pv += r.fcfe / Math.pow(1 + ke, r.year_offset)));
     const last = rows[rows.length - 1];
     const roeT = Math.min(Math.max(last.roe ?? 0.12, 0.06), 0.25);
-    const tv = (last.ni * (1 + g) * (1 - g / roeT)) / (ke - g);
+    const fT = base.model === "CT" && last.ni ? last.fcfe * (1 + g) : last.ni * (1 + g) * (1 - g / roeT);
+    const tv = fT / (ke - g);
     const val = pv + tv / Math.pow(1 + ke, rows.length);
     return val > 0 ? val / base.shares : null;
   },
@@ -471,7 +473,9 @@ async function viewToday() {
     const z = p.zone, q = capital ? sharesFor(capital, p.weight, z[1]) : null, q1 = q ? lot(q / 2) : null, today = t.date;
     const risk = q && isNum(p.stop) ? q * (z[1] - p.stop) * 1000 : null;
     const L = [
-      `<b>Đặt lệnh mua LO</b> trong vùng ${nf(z[0])}–${nf(z[1])}${q ? `: tổng ${nf(q, 0)} cp (${nf(p.weight, 1)}% vốn) – lệnh 1 ${nf(q1, 0)} cp ở ${nf(z[1])}, lệnh 2 ${nf(q - q1, 0)} cp ở ${nf(z[0])}` : ` – <a href="#/portfolio">nhập vốn</a> để biết số cổ phiếu`}. Không mua đuổi trên ${nf(z[1] * 1.02)}.`,
+      p.ext && p.split
+        ? `<b>Đang kéo giãn</b> (giá cách EMA20 ${nf(p.ext_atr, 1)} ATR, 1 tháng ${pct(p.ret1m)}) – <b>chia 2 lệnh</b>: ${q ? `${nf(q1, 0)} cp mua ngay trong vùng ${nf(z[0])}–${nf(z[1])}, ${nf(q - q1, 0)} cp đặt LO ở ${nf(p.split.lo)} (−1 ATR), giữ lệnh 10 phiên` : `1/2 mua ngay, 1/2 đặt LO ở ${nf(p.split.lo)} trong 10 phiên`}. Kiểm chứng 2016–2026: mua lúc kéo giãn không làm lợi nhuận 20 phiên kém đi, nhưng ~2/3 số lần giá lùi về được mức −1 ATR và sụt sau khi mua sâu hơn – chia lệnh để giá vốn tốt hơn.`
+        : `<b>Đặt lệnh mua LO</b> trong vùng ${nf(z[0])}–${nf(z[1])}${q ? `: tổng ${nf(q, 0)} cp (${nf(p.weight, 1)}% vốn) – lệnh 1 ${nf(q1, 0)} cp ở ${nf(z[1])}, lệnh 2 ${nf(q - q1, 0)} cp ở ${nf(z[0])}` : ` – <a href="#/portfolio">nhập vốn</a> để biết số cổ phiếu`}. Không mua đuổi trên ${nf(z[1] * 1.02)}.`,
       `<b>Dừng lỗ ${nf(p.stop)}</b>${isNum(p.stop_pct) ? ` (${pct(p.stop_pct, 1)})` : ""}${risk ? ` – nếu chạm mất ≈ ${big(risk)} đ` : ""}. Đặt lệnh dừng trên app CTCK ngay khi khớp.`,
       `<b>Chốt lời</b> ${nf(p.t1)}${isNum(p.t2) ? ` (1/2) rồi ${nf(p.t2)}` : ""}.`,
       `<b>Hàng về</b> ${addTradingDays(today, 2)} (T+2) – trước ngày này chưa bán được.`,
@@ -1760,7 +1764,7 @@ async function viewStock(sym, tabArg) {
     <div class="stack">
       ${styleLevels(d)}
       <section class="panel" id="planPos" hidden><div class="ph"><h2>Kế hoạch giao dịch</h2><span class="meta">${d.timing?.ok ? '<b class="up">đủ điều kiện kỹ thuật</b>' : '<b class="ref">chưa đến lúc</b>'}</span></div>
-        ${lv ? kpis([["Vùng mua", `${nf(lv.zone[0])}–${nf(lv.zone[1])}`], ["Cắt lỗ", `${nf(lv.stop)} <small>${pct(lv.stop_pct, 0)}</small>`, "down"], ["Mục tiêu 1", `${nf(lv.t1)} <small>${pct(lv.t1_pct, 0)}</small>`, "up"], ["Mục tiêu 2", nf(lv.t2), "up"], ["Lời / lỗ", nf(lv.rr, 1) + "x"], ["Trạng thái", lv.state === "now" ? "Mua được" : "Chờ giá"]], false, "c2")
+        ${lv ? kpis([["Vùng mua", `${nf(lv.zone[0])}–${nf(lv.zone[1])}`], ["Cắt lỗ", `${nf(lv.stop)} <small>${pct(lv.stop_pct, 0)}</small>`, "down"], ["Mục tiêu 1", `${nf(lv.t1)} <small>${pct(lv.t1_pct, 0)}</small>`, "up"], ["Mục tiêu 2", nf(lv.t2), "up"], ["Lời / lỗ", nf(lv.rr, 1) + "x"], ["Trạng thái", entryState(d, lv).t]], false, "c2")
           : `<p class="muted">Chưa có kế hoạch (thiếu định giá hoặc kỹ thuật).</p>`}
         ${d.timing && !d.timing.ok ? `<p class="note" style="margin-top:6px">${esc(d.timing.reason)}</p>` : ""}</section>
       <section class="panel"><div class="ph"><h2>Định giá: ${esc(v.verdict || "chưa định giá được")}</h2><span class="meta">điểm ${scoreCell(r.composite)}</span></div>
@@ -1903,11 +1907,20 @@ async function viewStock(sym, tabArg) {
   bindStyleLevels();
 }
 
+function entryState(d, lv) {
+  if (!lv) return { k: "none", t: "Chưa có kế hoạch", c: "" };
+  if (d.timing && !d.timing.ok) return { k: "trend", t: "Chưa đến lúc", c: "ref", why: d.timing.reason };
+  if (lv.state === "wait") return { k: "wait", t: "Chờ giá", c: "ref", why: `Giá còn trên vùng mua an toàn – chờ về ${nf(lv.zone[0])}–${nf(lv.zone[1])}` };
+  if (lv.no_val && !d.in_plan) return { k: "noval", t: "Chưa định giá được", c: "ref", why: "Không đủ số liệu định giá đáng tin – chỉ mua nếu mã vào danh sách MUA của rổ đã kiểm chứng" };
+  if (!d.in_plan) return { k: "notplan", t: "Đạt giá – ngoài danh sách MUA", c: "ref", why: "Giá và xu hướng đạt nhưng mã không được chọn vào danh sách MUA (rổ của mã không được phân bổ vốn, đã đủ số mã, vượt trần ngành hoặc đèn thị trường) – chỉ theo dõi" };
+  if (lv.ext) return { k: "split", t: "Mua được – chia 2 lệnh", c: "up", why: `Đang kéo giãn (giá cách EMA20 ${nf(lv.ext_atr, 1)} ATR, 1 tháng ${pct(lv.ret1m)}): mua 1/2 ngay, 1/2 đặt LO ${nf(lv.split?.lo)} trong 10 phiên` };
+  return { k: "now", t: "Mua được", c: "up" };
+}
 function styleLevels(d) {
   const L = d.style_levels || {}, lv = d.levels, sel0 = lsGet("stockStyle", "position");
   const body = (k) => {
-    if (k === "position") return lv ? `${kpis([["Vùng mua", `${nf(lv.zone[0])}–${nf(lv.zone[1])}`], ["Cắt lỗ", `${nf(lv.stop)} <small>${pct(lv.stop_pct, 0)}</small>`, "down"], ["Mục tiêu 1", `${nf(lv.t1)} <small>${pct(lv.t1_pct, 0)}</small>`, "up"], ["Mục tiêu 2", nf(lv.t2), "up"], ["Lời / lỗ", nf(lv.rr, 1) + "x"], ["Trạng thái", lv.state === "now" ? "Mua được" : "Chờ giá"]], false, "c2")}
-      ${d.timing && !d.timing.ok ? `<p class="note" style="margin-top:6px">${esc(d.timing.reason)}</p>` : `<p class="faint" style="font-size:.74rem;margin-top:4px">Đủ điều kiện xu hướng. Nắm 1–6 tháng, cắt lỗ tối đa 20%.</p>`}` : `<p class="muted">Chưa có kế hoạch (thiếu định giá hoặc kỹ thuật).</p>`;
+    if (k === "position") { const es = entryState(d, lv); return lv ? `${kpis([["Vùng mua", `${nf(lv.zone[0])}–${nf(lv.zone[1])}`], ["Cắt lỗ", `${nf(lv.stop)} <small>${pct(lv.stop_pct, 0)}</small>`, "down"], ["Mục tiêu 1", `${nf(lv.t1)} <small>${pct(lv.t1_pct, 0)}</small>`, "up"], ["Mục tiêu 2", nf(lv.t2), "up"], ["Lời / lỗ", nf(lv.rr, 1) + "x"], ["Trạng thái", es.t, es.c]], false, "c2")}
+      ${es.why ? `<p class="note" style="margin-top:6px">${esc(es.why)}</p>` : `<p class="faint" style="font-size:.74rem;margin-top:4px">Đủ điều kiện xu hướng, giá và nằm trong danh sách MUA. Nắm 1–6 tháng, cắt lỗ tối đa 20%.</p>`}` : `<p class="muted">Chưa có kế hoạch (thiếu định giá hoặc kỹ thuật).</p>`; }
     const x = L[k] || {};
     if (x.none) return `<p class="muted">${esc(x.reason)}</p>`;
     if (k === "swing") return `${kpis([["Điểm vào", `${nf(x.zone[0])}–${nf(x.zone[1])}`], ["Cắt lỗ", `${nf(x.stop)} <small>${pct(x.stop_pct, 1)}</small>`, "down"], ["Mục tiêu 1", `${nf(x.t1)} <small>${pct(x.t1_pct, 0)}</small>`, "up"], ["Mục tiêu 2", nf(x.t2), "up"]], false, "c2")}
@@ -2098,15 +2111,19 @@ function bindVal(d) {
       let val = m.value, lo = m.range?.[0], hi = m.range?.[1];
       if (m.key === "dcf") { val = res.base.dcf; lo = res.bear.dcf; hi = res.bull.dcf; }
       if (m.key === "ddm") { val = res.base.ddm; lo = res.bear.ddm; hi = res.bull.ddm; }
-      if (m.key === "pe" && m.mult) { val = m.mult * fwd / 1000; }
       return { ...m, value: val, lo, hi };
     }).filter((m) => isNum(m.value) && m.value > 0);
-    const med = ms.map((m) => m.value).sort((x, y) => x - y)[Math.floor(ms.length / 2)];
-    ms.forEach((m) => (m.used = m.value >= med / 2.5 && m.value <= med * 2.5));
+    const medOf = (a) => { const x = a.slice().sort((p, q) => p - q), k = x.length; return k ? (k % 2 ? x[(k - 1) / 2] : (x[k / 2 - 1] + x[k / 2]) / 2) : null; };
+    const act = ms.filter((m) => m.w > 0);
+    const med = medOf(act.map((m) => m.value));
+    ms.forEach((m) => (m.used = m.w > 0 && m.value >= med / 2.5 && m.value <= med * 2.5));
     const used = ms.filter((m) => m.used);
-    const ws = used.reduce((s, m) => s + m.w, 0);
-    const fair = used.reduce((s, m) => s + m.value * m.w, 0) / (ws || 1);
-    const buy = fair * (1 - d.mos / 100), price = d.row.price, up = (fair / price - 1) * 100;
+    used.forEach((m) => (m.we = m.w / (1 + 3 * Math.abs(Math.log(m.value / med)))));
+    const ws = used.reduce((s, m) => s + m.we, 0) || 1;
+    used.forEach((m) => (m.we /= ws));
+    const fair = used.reduce((s, m) => s + m.value * m.we, 0);
+    const medU = medOf(used.map((m) => m.value));
+    const buy = Math.min(fair * (1 - d.mos / 100), medU * (1 - d.mos / 200)), price = d.row.price, up = (fair / price - 1) * 100;
     const lo = Math.min(fair, ...used.map((m) => m.lo).filter(isNum).concat([fair * 0.8])), hi = Math.max(fair, ...used.map((m) => m.hi).filter(isNum).concat([fair * 1.2]));
     const L = Math.min(lo, price) * 0.9, R = Math.max(hi, price) * 1.08, X = (x) => ((x - L) / (R - L)) * 100;
     $("#vOut").innerHTML = `
@@ -2118,9 +2135,9 @@ function bindVal(d) {
         <div class="mk" style="left:${X(fair)}%;color:var(--up);top:30px">Hợp lý ${nf(fair)}</div></div>
       <div class="leg" style="margin-top:14px"><span><i style="background:color-mix(in srgb,var(--brand) 25%,transparent)"></i>Vùng mua an toàn</span><span><i style="background:color-mix(in srgb,var(--up) 35%,transparent)"></i>Vùng hợp lý (Xấu → Tốt)</span></div>
       <div class="tw sec"><table data-hm="c5"><thead><tr><th class="l">Phương pháp</th><th>Giá trị</th><th>Xấu</th><th>Tốt</th><th>Trọng số</th></tr></thead><tbody>
-      ${ms.map((m) => `<tr style="${m.used ? "" : "opacity:.5"}"><td class="wrap">${esc(m.name)}${m.used ? "" : " <small>(lệch xa, bỏ qua)</small>"}</td><td><b>${nf(m.value)}</b></td><td>${nf(m.lo)}</td><td>${nf(m.hi)}</td><td>${nf(m.w * 100, 0)}%</td></tr>`).join("")}
+      ${ms.map((m) => `<tr style="${m.used ? "" : "opacity:.5"}"><td class="wrap">${esc(m.name)}${m.used ? "" : m.w === 0 ? "" : " <small>(lệch xa, bỏ qua)</small>"}</td><td><b>${nf(m.value)}</b></td><td>${nf(m.lo)}</td><td>${nf(m.hi)}</td><td>${m.used ? nf(m.we * 100, 0) + "%" : "0%"}</td></tr>`).join("")}
       </tbody></table></div>
-      <p class="faint" style="margin-top:4px;font-size:.74rem">ke = lãi suất phi rủi ro + beta ${nf(v.beta)} × phần bù rủi ro. Giá trị theo nghìn đồng/cổ phiếu.</p>`;
+      <p class="faint" style="margin-top:4px;font-size:.74rem">ke = max(lãi suất phi rủi ro ${nf(v.ke_parts?.rf, 1)}% + max(beta ${nf(v.beta)}; 1) × phần bù ${nf(v.ke_parts?.erp, 0)}% + phần bù quy mô ${nf(v.ke_parts?.size, 0)}%; tối thiểu ${nf(v.ke_parts?.floor, 0)}%). Trọng số thực = trọng số gốc giảm dần khi phương pháp lệch xa trung vị; DCF bị tắt khi mô hình mong manh. Mua an toàn = thấp hơn của (hợp lý × (1 − biên an toàn)) và (trung vị các phương pháp × (1 − ½ biên an toàn)). Giá trị theo nghìn đồng/cổ phiếu.</p>`;
     const rows = res.base.rows;
     const yr0 = new Date().getFullYear();
     const lines = base.model === "CT" ? [["Doanh thu", "revenue", 0], ["LN gộp", "gross_profit", 0], ["LN trước thuế", "pbt", 0], ["LN cổ đông mẹ", "ni", 0], ["EPS (đ)", "eps", 0], ["Cổ tức (đ)", "dps", 0], ["Dòng tiền tự do", "fcfe", 0], ["Tăng trưởng", "g", "p"], ["ROE", "roe", "p"]]
@@ -2438,6 +2455,10 @@ function stepsFor(d, ctx) {
       if (wNow < maxW - 2 && lv) st.push({ t: `Có thể mua thêm tới trần ${maxW}% vốn (đang ${nf(wNow, 1)}%)`, d: `Chỉ mua thêm trong vùng ${nf(lv.zone[0])}–${nf(lv.zone[1])}, tối đa ${nf(lot(((maxW - wNow) / 100) * cap / (lv.zone[1] * 1000)), 0)} cp; không bình quân giá khi khung tuần đang giảm.` });
     }
     if (verdict === "lean_sell" || verdict === "sell") st.push({ t: "Không mua thêm; cân nhắc giảm 1/3 nếu đóng cửa dưới MA50", c: "down", d: `Điểm tổng thấp (${nf(fbx.total, 0)}). Nếu muốn giữ, giữ tỷ trọng ≤ ${Math.round(maxW / 2)}% vốn và theo đúng điểm dừng ${nf(ep.stop)}.` });
+  } else if ((verdict === "buy" || verdict === "lean_buy") && !Object.values(t.styles || {}).some((p) => (p.picks || []).some((x) => x.symbol === sym)) && entryState(d, lv).k !== "now" && entryState(d, lv).k !== "split") {
+    const es = entryState(d, lv);
+    st.push({ t: `Điểm tổng nghiêng mua nhưng CHƯA vào lệnh: ${es.t}`, c: "ref", d: `${es.why || ""}. Điểm tổng chỉ nói mã tốt hay xấu tương đối; vào lệnh còn cần đúng xu hướng, đúng giá và nằm trong danh sách MUA.` });
+    if (lv?.zone) st.push({ t: `Đặt cảnh báo giá ${nf(lv.zone[1])}`, d: `Bấm 🔔 ở trên, chọn "giá giảm tới ≤ ${nf(lv.zone[1])}" hoặc "khi mã vào danh sách MUA" – Telegram sẽ nhắn khi đến lúc.` });
   } else if (verdict === "buy" || verdict === "lean_buy") {
     const zone = pick?.[1]?.zone || lv?.zone, stop = pick?.[1]?.stop ?? lv?.stop, t1 = pick?.[1]?.t1 ?? lv?.t1, t2 = pick?.[1]?.t2 ?? lv?.t2;
     const inZone = zone && px <= zone[1] * 1.005;

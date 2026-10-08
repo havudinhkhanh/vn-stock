@@ -304,6 +304,8 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             if boost and r["ta_score"] is not None:
                 r["ta_score"] = int(np.clip(r["ta_score"] + boost, 0, 100))
                 ta["score"] = r["ta_score"]
+                ov_ = (r["ta_score"] - 50) / 50   # nhãn phải khớp với điểm sau khi cộng/trừ mô hình
+                ta["label"] = r["ta_label"] = ("Mua mạnh" if ov_ > 0.5 else "Mua" if ov_ > 0.15 else "Bán mạnh" if ov_ < -0.5 else "Bán" if ov_ < -0.15 else "Trung tính")
                 ta["pattern_boost"] = {"points": boost, "patterns": used_p}
             try:
                 mt = mtf_.full(df)
@@ -354,7 +356,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             model["assumptions"].update(ov)
             model["overridden"] = sorted(ov)
         hist = va.hist_multiples(qs, d["df"]["close"], fa.get("shares_mn"))
-        peers = {"pe_ind_med": r.get("pe_ind_med"), "pb_ind_med": r.get("pb_ind_med")}
+        peers = {"pe_ind_med": r.get("pe_ind_med"), "pb_ind_med": r.get("pb_ind_med"), "roe_ind_med": r.get("roe_ind_med")}
         val = va.value(fa, model, peers, hist, r["beta"], vcfg, mos)
         d["val"] = val
         if val.get("ok"):

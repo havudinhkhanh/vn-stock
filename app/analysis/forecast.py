@@ -113,19 +113,21 @@ def build_base(fa: dict, ys: pd.DataFrame, ttm_row: pd.Series | None, sector_gro
     gmid = 0.5 * float(np.clip(gmid_own, -0.1, 0.4)) + 0.5 * sg_c if gmid_own is not None else sg_c
     gmid = float(np.clip(gmid, -0.05, 0.25))
     gterm_cfg = cfg.get("terminal_growth", 4.0) / 100
-    gterm = float(np.clip(0.6 * gterm_cfg + 0.4 * (cagr_lt if cagr_lt is not None else gterm_cfg) * 0.5, 0.025, 0.05))
+    gterm = float(np.clip(0.6 * gterm_cfg + 0.4 * (cagr_lt if cagr_lt is not None else gterm_cfg) * 0.5, 0.025, 0.04))
     lbl = "doanh thu" if model == "CT" else "lợi nhuận"
     why["g1"] = (f"{lbl} 12 tháng {_pct(ttm_g)}, CAGR 3 năm {_pct(cagr3)}, ngành {_pct(sg)}; lịch sử dao động ±{_pct(vol, 0)}"
                  f" nên tin ngành {w_sec * 100:.0f}%")
     why["gmid"] = f"CAGR {lbl} {len(level) - 1 if level else 0} năm của chính DN {_pct(cagr_lt)}, hội tụ một nửa về ngành {_pct(sg)}"
-    why["gterm"] = f"60% mức chuẩn {_pct(gterm_cfg)} + 40% một nửa CAGR dài hạn, giới hạn 2,5–5%"
+    why["gterm"] = f"60% mức chuẩn {_pct(gterm_cfg)} + 40% một nửa CAGR dài hạn, giới hạn 2,5–4%"
 
     dps = (fa.get("dividend") or {}).get("dps_avg3") or (fa.get("dividend") or {}).get("dps_ttm") or 0
     eps = fa.get("eps") or 0
     payout = float(np.clip(dps / eps, 0, 0.9)) if eps and eps > 0 else 0.0
     why["payout"] = "cổ tức tiền mặt bình quân 3 năm ÷ EPS hiện tại"
     conv = _median([h["conv"] for h in H], 0.7, 0.1, 1.2)
-    nconv = len([h for h in H if h["conv"] is not None])
+    cv = [h["conv"] for h in H if h["conv"] is not None]
+    conv_raw = float(np.median(cv)) if cv else None
+    nconv = len(cv)
     why["conv"] = f"trung vị {nconv} năm (dòng tiền kinh doanh − đầu tư TSCĐ) ÷ lợi nhuận" if nconv else "chưa đủ lịch sử – dùng 70%"
     if model == "FIN":
         conv = None
@@ -133,7 +135,7 @@ def build_base(fa: dict, ys: pd.DataFrame, ttm_row: pd.Series | None, sector_gro
     base = {"model": model, "shares": shares, "equity": eq, "ni": ni, "price": fa.get("price"), "bvps": fa.get("bvps"),
             "years": int(cfg.get("forecast_years", 5))}
     a = {"g1": round(g1, 4), "gmid": round(gmid, 4), "gterm": round(gterm, 4), "payout": round(payout, 3),
-         "conv": round(conv, 3) if conv is not None else None}
+         "conv": round(conv, 3) if conv is not None else None, "conv_raw": round(conv_raw, 3) if conv_raw is not None else None}
     if model == "CT":
         rev = fa.get("revenue_ttm")
         if not rev or rev <= 0:
@@ -162,8 +164,12 @@ def build_base(fa: dict, ys: pd.DataFrame, ttm_row: pd.Series | None, sector_gro
             if nt and npar is not None and nt > 0:
                 minority = float(np.clip(1 - npar / nt, 0, 0.6))
         base.update({"revenue": rev, "interest": interest, "other": other, "minority": minority})
+        roe_lt = _median([h["roe"] for h in H], 0.12, 0.06, 0.30)
+        conv_term = float(np.clip(1 - gterm / max(roe_lt, 0.06), 0.3, 0.95))
         a.update({"gm": round(gm_now, 4), "gm_lt": round(gm_lt, 4), "sga": round(sga_now, 4), "sga_lt": round(sga_lt, 4),
-                  "tax": (fa.get("tax_rate") or 20) / 100})
+                  "tax": (fa.get("tax_rate") or 20) / 100, "conv_term": round(conv_term, 3)})
+        why["conv_term"] = (f"dài hạn: doanh nghiệp tăng {_pct(gterm)}/năm với ROE {_pct(roe_lt)} cần giữ lại {_pct(gterm / max(roe_lt, 0.06))} lợi nhuận"
+                            " → phần còn lại là dòng tiền tự do; tỷ lệ thành tiền đi dần từ mức lịch sử về mức này (năm cuối = giá trị cuối kỳ)")
         why["tax"] = "thuế thực tế 12 tháng gần nhất"
     else:
         roe_now = ni / eq
@@ -226,7 +232,9 @@ def project(base: dict, a: dict) -> list[dict]:
             tax = max(0.0, pbt * a["tax"])
             ni_all = pbt - tax
             ni = ni_all * (1 - base["minority"])
-            fcfe = ni * a["conv"]
+            ct = a.get("conv_term", a["conv"])
+            ct = a["conv"] if ct is None else ct
+            fcfe = ni * (a["conv"] + (ct - a["conv"]) * t / n)
             row = {"revenue": rev, "gross_profit": gp, "sga": sga, "interest": interest,
                    "pbt": pbt, "ni": ni}
         else:
@@ -245,20 +253,28 @@ def project(base: dict, a: dict) -> list[dict]:
     return rows
 
 
-def dcf_value(base: dict, a: dict, rows: list[dict], ke: float) -> float | None:
-    """Giá trị nội tại / cổ phiếu (nghìn đồng) theo FCFE."""
+def dcf_detail(base: dict, a: dict, rows: list[dict], ke: float) -> tuple[float | None, float | None]:
+    """(giá trị nội tại / cổ phiếu (nghìn đồng) theo FCFE, tỷ trọng giá trị cuối kỳ trong tổng).
+    Năm cuối kỳ dùng ĐÚNG tỷ lệ thành tiền của năm dự phóng cuối (doanh nghiệp) để không nhảy vọt dòng tiền."""
     g = a["gterm"]
     if ke <= g + 0.01:
         ke = g + 0.01
     pv = sum(r["fcfe"] / (1 + ke) ** r["year_offset"] for r in rows)
     last = rows[-1]
-    roe_t = min(max(last["roe"] or 0.12, 0.06), 0.25)
-    fcfe_t = last["ni"] * (1 + g) * (1 - g / roe_t)
-    tv = fcfe_t / (ke - g)
-    val = pv + tv / (1 + ke) ** len(rows)
+    if base["model"] == "CT" and last["ni"]:
+        fcfe_t = last["fcfe"] * (1 + g)
+    else:
+        roe_t = min(max(last["roe"] or 0.12, 0.06), 0.25)
+        fcfe_t = last["ni"] * (1 + g) * (1 - g / roe_t)
+    tv = fcfe_t / (ke - g) / (1 + ke) ** len(rows)
+    val = pv + tv
     if val <= 0:
-        return None
-    return val / base["shares"]
+        return None, None
+    return val / base["shares"], (tv / val if val else None)
+
+
+def dcf_value(base: dict, a: dict, rows: list[dict], ke: float) -> float | None:
+    return dcf_detail(base, a, rows, ke)[0]
 
 
 def ddm_value(base: dict, a: dict, rows: list[dict], ke: float) -> float | None:
@@ -286,9 +302,10 @@ def scenarios(model: dict, ke: float) -> dict:
             if a0.get("gm_lt") is not None:
                 a["gm_lt"] = a0["gm_lt"] + sc["gm"]
         rows = project(base, a)
+        dv, tvs = dcf_detail(base, a, rows, ke)
         out[k] = {
             "label": sc["label"], "g1": round(a["g1"], 4),
-            "dcf": _r(dcf_value(base, a, rows, ke), 2),
+            "dcf": _r(dv, 2), "tv_share": _r(tvs, 3),
             "ddm": _r(ddm_value(base, a, rows, ke), 2),
             "rows": [{kk: (_r(v, 2) if isinstance(v, float) else v) for kk, v in r.items()} for r in rows],
         }
