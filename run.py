@@ -35,6 +35,10 @@ def main() -> None:
     only = [s.strip().upper() for s in a.only.split(",") if s.strip()] or None
 
     if a.cmd == "probe":
+        if a.symbol == "intraday":
+            from app.data import probe_intra
+            probe_intra.run()
+            return
         from app.data import probe
         rep = probe.run()
         bad = [k for k, v in rep.items() if isinstance(v, dict) and v.get("ok") is False]

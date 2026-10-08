@@ -2,6 +2,11 @@ name: Kiểm tra nguồn dữ liệu
 
 on:
   workflow_dispatch:
+    inputs:
+      what:
+        description: "Để trống = nguồn dữ liệu; intraday = nến phút, khớp lệnh, tin tức, quyền token"
+        type: string
+        default: ""
 
 permissions:
   contents: write   # để đẩy báo cáo lên nhánh `status`
@@ -13,6 +18,9 @@ jobs:
     env:
       VNSTOCK_DATA: probe_out
       VNSTOCK_RETRIES: "1"
+      CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+      CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      GH_DISPATCH_TOKEN: ${{ secrets.GH_DISPATCH_TOKEN }}
       PYTHONUNBUFFERED: "1"
     steps:
       - uses: actions/checkout@v4
@@ -24,7 +32,7 @@ jobs:
       - name: Thử từng nguồn (VCI, TCBS, Yahoo)
         run: |
           mkdir -p probe_out
-          python run.py probe 2>&1 | tee probe_out/probe.log
+          python run.py probe ${{ inputs.what }} 2>&1 | tee probe_out/probe.log
           exit ${PIPESTATUS[0]}
       - name: Đẩy báo cáo lên nhánh status
         if: always()
