@@ -1,0 +1,43 @@
+16:37:58 INFO update: Giá: 20/140 lô
+16:38:03 INFO update: Giá: 40/140 lô
+16:38:09 INFO update: Giá: 60/140 lô
+16:38:14 INFO update: Giá: 80/140 lô
+16:38:20 INFO update: Giá: 100/140 lô
+16:38:25 INFO update: Giá: 120/140 lô
+16:38:31 INFO update: Giá: 140/140 lô
+16:38:33 INFO update: Thống kê request: {'VCI': {'ok': 140, 'fail': 0, 'tripped': 0}, 'KBS': {'ok': 1, 'fail': 0, 'tripped': 0}}
+16:38:33 INFO update: Giá: nguồn {'VCI': 1525, 'FAIL': 1}, tổng 3726715 dòng
+16:38:33 INFO update: Tải BCTC cho 431 mã
+16:40:26 INFO update: BCTC: 100/431 mã ({'VCI': 100})
+16:42:18 INFO update: BCTC: 200/431 mã ({'VCI': 199, 'KBS': 1})
+16:44:09 INFO update: BCTC: 300/431 mã ({'VCI': 299, 'KBS': 1})
+16:45:59 INFO update: BCTC: 400/431 mã ({'VCI': 399, 'KBS': 1})
+16:46:31 INFO update: BCTC xong: {'VCI': 430, 'KBS': 1} · request: {'VCI': {'ok': 1870, 'fail': 0, 'tripped': 0}, 'KBS': {'ok': 7, 'fail': 0, 'tripped': 0}}
+16:46:31 INFO update: Bỏ qua dòng lệnh: chưa hết phiên hoặc hôm nay không giao dịch
+16:47:45 INFO update: Dữ liệu trong phiên: {'m_ok': 221, 'h_backfill': 8, 'sec': 73}
+16:47:53 INFO update: Tin tức: 27 tin gắn mã (lưu 147)
+16:49:04 WARNING http: VCI_EVENTS lỗi 6 lần liên tiếp – tạm ngắt 240s
+16:49:06 INFO update: Số cổ phiếu hiện tại: {'ok': 31, 'fail': 89}
+16:49:06 INFO update: Cổ tức: {'FAIL': 1, 'SKIP': 119} · còn 372 mã chưa có lịch sử (sẽ tải dần ở các lần sau) · request: {'VCI': {'ok': 2100, 'fail': 0, 'tripped': 0}, 'KBS': {'ok': 7, 'fail': 0, 'tripped': 0}, 'VCI_EVENTS': {'ok': 31, 'fail': 6, 'tripped': 1, 'last_error': "VCI_EVENTS https://iq.vietcap.com.vn/api/iq-insight-service/v1/company/details: HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read t"}}
+16:49:06 INFO build: Nhiều người dùng: 2 tài khoản đang hoạt động (quản trị: havudinhkhanh@gmail.com)
+16:49:18 INFO build: Phân tích 1521 mã (348 mã phân tích sâu)
+16:49:46 INFO build:   200/1521 mã
+16:50:13 INFO build:   400/1521 mã
+16:50:40 INFO build:   600/1521 mã
+16:51:08 INFO build:   800/1521 mã
+16:51:36 INFO build:   1000/1521 mã
+16:52:03 INFO build:   1200/1521 mã
+16:52:31 INFO build:   1400/1521 mã
+16:53:07 INFO build: Điểm tương lai / quá khứ + kiểm định trọng số…
+16:53:39 INFO build: Hành vi giá: biên độ, đảo chiều, kiểu tay chơi…
+16:53:40 INFO swing: Hành vi giá: 277 mã, nến ngày 2014-01-02 → 2026-10-09
+16:53:47 INFO swing: Dòng tiền lớn: {'acc': 7, 'dist': 4, 'brk': 29, 'n': 221} · tâm lý 31.0 (Thận trọng)
+16:53:48 INFO swing: Hành vi giá: 272 mã trong bảng, 79 tín hiệu hôm nay, kiểm chứng {'ic_vol': 0.366, 't_vol': 35.8, 'ic_ret': -0.02, 't_ret': -1.4}
+16:53:48 INFO build: Mã liên quan: đồng pha, dẫn dắt, chiến thuật…
+16:53:49 INFO pairs: Mã liên quan: 193 mã đủ thanh khoản
+16:53:50 INFO pairs: Mã liên quan: 181 mã có danh sách đồng pha, 2 cặp dẫn dắt qua kiểm chứng (kỳ vọng sai 0.7)
+16:53:50 INFO digest: Bản tin thị trường 2026-10-09: VN-Index giảm 0,22% về 1.735,09 điểm, thanh khoản 16,3 nghìn tỷ (cao hơn TB 20 phiên 16%).
+16:53:51 INFO build: Báo cáo tuần 2026-10-05 → 2026-10-09
+16:53:52 INFO personal: Người dùng: {'users': 2, 'new': 0, 'push': 0, 'email': 0}
+16:54:12 INFO build: Xuất xong 1517 mã, 346 trang chi tiết trong 306s
+16:54:12 INFO notify: Telegram: không có việc cần làm, không gửi.

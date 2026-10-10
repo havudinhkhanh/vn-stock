@@ -1,0 +1,29 @@
+chart.ONE_MINUTE.300 {'n': 300, 'first': '2026-10-08 13:17', 'last': '2026-10-09 14:45', 'sec': 2.5}
+chart.ONE_MINUTE.5000 {'n': 5000, 'first': '2026-09-09 14:01', 'last': '2026-10-09 14:45', 'sec': 0.9}
+chart.ONE_MINUTE.30000 {'n': 30000, 'first': '2026-03-31 10:04', 'last': '2026-10-09 14:45', 'sec': 1.4}
+chart.ONE_HOUR.300 {'n': 300, 'first': '2026-07-15 09:00', 'last': '2026-10-09 14:00', 'sec': 0.3}
+chart.ONE_HOUR.5000 {'n': 3499, 'first': '2023-09-11 10:00', 'last': '2026-10-09 14:00', 'sec': 0.4}
+chart.ONE_HOUR.30000 {'n': 3499, 'first': '2023-09-11 10:00', 'last': '2026-10-09 14:00', 'sec': 0.4}
+chart.ONE_DAY.300 {'n': 300, 'first': '2025-07-28 07:00', 'last': '2026-10-09 07:00', 'sec': 0.3}
+chart.ONE_DAY.5000 {'n': 4939, 'first': '2006-12-13 07:00', 'last': '2026-10-09 07:00', 'sec': 0.4}
+chart.ONE_DAY.30000 {'n': 4939, 'first': '2006-12-13 07:00', 'last': '2026-10-09 07:00', 'sec': 0.4}
+multi []
+ticks {'n': 100, 'last': [{'id': 525052472, 'symbol': 'HPG', 'truncTime': '1791530879', 'matchType': 's', 'matchVol': '300.0', 'matchPrice': '20150.0', 'accumulatedVolume': '15113000.0', 'createdAt': '2026-10-09T07:27:59.934Z', 'updatedAt': '2026-10-09T07:27:59.934Z', 'accumulatedValue': '303421.355', 'type': 'sheep'}, {'id': 525052361, 'symbol': 'HPG', 'truncTime': '1791530877', 'matchType': 'b', 'matchVol': '2000.0', 'matchPrice': '20150.0', 'accumulatedVolume': '15112700.0', 'createdAt': '2026-10-09T07:27:57.931Z', 'updatedAt': '2026-10-09T07:27:57.931Z', 'accumulatedValue': '303415.31', 'type': 'sheep'}], 'sec': 0.3, 'bytes': 29475}
+news vci_iq_news ERR VCI https://iq.vietcap.com.vn/api/iq-insight-service/v1/company/FPT/news: HTTP 404 {"serverDateTime":"2026-10-10T03:40:59.554618307","traceId":"3aea84b322b595c0d77969b833a40379","status":404,"code
+news vci_iq_news2 {"serverDateTime": "2026-10-10T03:40:59.840454218", "traceId": "6b10cda686913651253ede16d2591181", "status": 400, "code": 202, "msg": "Error", "exception": "Invalid datetime", "successful": false, "da
+news vci_iq_events ERR VCI https://iq.vietcap.com.vn/api/iq-insight-service/v1/company/FPT/events: HTTP 404 {"serverDateTime":"2026-10-10T03:41:00.138256381","traceId":"e29e660582922f643768d32feda31f66","status":404,"co
+news tcbs_activity ERR TCBS https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/FPT/activity-news: HTTP 404 {"status":404,"message":"Service not found"}
+news tcbs_events ERR TCBS https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/FPT/events-news: HTTP 404 {"status":404,"message":"Service not found"}
+news cafef_rss 200 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:media="http://search.ya
+news vnexpress_rss 200 <?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Kinh doanh - VnExpress RSS</title>
+    <description>VnExpress RS
+cf verify {'status': 200, 'success': True, 'errors': [], 'n': None, 'names': {'id': '4192e714b4ba549642e6216e96cfda71', 'status': 'active'}}
+cf workers {'status': 200, 'success': True, 'errors': [], 'n': 1, 'names': ['vn-stock-scheduler']}
+cf subdomain {'status': 200, 'success': True, 'errors': [], 'n': None, 'names': {'subdomain': 'havudinhkhanh'}}
+cf pages {'status': 200, 'success': True, 'errors': [], 'n': 1, 'names': ['0ebe25f7-5d03-4243-b1ce-b06a727e1f5c']}
+cf d1 {'status': 401, 'success': False, 'errors': [{'code': 10000, 'message': 'Authentication error'}], 'n': None, 'names': None}
+cf access {'status': 200, 'success': True, 'errors': [], 'n': 0, 'names': []}
+gh token True 200
