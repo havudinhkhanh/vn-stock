@@ -92,7 +92,9 @@ jobs:
 
       - name: Kết nối Cloudflare KV (nơi lưu danh mục của anh)
         if: env.CF_API_TOKEN != '' && steps.slot.outputs.skip != 'true'
-        run: python scripts/cloudflare.py kv >> "$GITHUB_ENV"
+        run: |
+          python scripts/cloudflare.py kv >> "$GITHUB_ENV"
+          python scripts/cloudflare.py d1 >> "$GITHUB_ENV" || true
 
       - name: Trong phiên – giá trực tiếp, cảnh báo, Telegram
         if: steps.slot.outputs.skip != 'true' && steps.slot.outputs.mode == 'intraday'

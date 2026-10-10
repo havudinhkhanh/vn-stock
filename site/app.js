@@ -59,13 +59,16 @@ const Store = {
       const r = await fetch(`api/${key}`, { cache: "no-store" });
       if (r.ok && (r.headers.get("content-type") || "").includes("json")) return { data: await r.json(), remote: true };
     } catch (e) { /* chạy trên máy: không có API */ }
+    if (typeof ME !== "undefined" && ME && !ME.legacy) return { data: null, remote: false };   // nhiều người dùng: không dùng bản lưu trên máy (có thể của người khác)
     return { data: lsGet(key, null), remote: false };
   },
   async put(key, data) {
-    lsSet(key, data);
+    const multi = typeof ME !== "undefined" && ME && !ME.legacy;
+    if (!multi) lsSet(key, data);
     try {
       const r = await fetch(`api/${key}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(data) });
       if (r.ok) return true;
+      if (multi) { let m = `Chưa lưu được (HTTP ${r.status})`; try { m = (await r.json()).error || m; } catch (e) { /* rỗng */ } setTimeout(() => toast("⚠️ " + m), 60); }
     } catch (e) { /* bỏ qua */ }
     return false;
   },
@@ -182,7 +185,13 @@ async function route() {
   const r = parts[0], arg = parts.slice(1).map((x) => decodeURIComponent(x));
   window.scrollTo(0, 0);
   try {
-    if (!r) { setTab("today"); await viewToday(); }
+    const gate = ROUTE_FEATURE[r] && ROUTE_FEATURE[r](arg[0]);
+    if (gate && !can(gate)) { setTab(r); await lockView(gate); }
+    else if (!r) { setTab("today"); if (can("today")) await viewToday(); else await viewDigest(null, true); }
+    else if (r === "digest") { setTab(""); await viewDigest(arg[0]); }
+    else if (r === "account") { setTab(""); await viewAccount(); }
+    else if (r === "admin") { setTab(""); await viewAdmin(arg[0]); }
+    else if (r === "notifications") { setTab(""); await viewNotifications(); }
     else if (r === "market") { setTab("market"); await viewMarket(); }
     else if (r === "swing") { setTab("swing"); await viewSwing(arg[0]); }
     else if (r === "sector") { setTab("sector"); if (arg[0]) await viewSector(arg[0], arg[1]); else await viewSectors(); }
@@ -199,7 +208,14 @@ async function route() {
     app().innerHTML = `<div class="panel"><h2>Chưa có dữ liệu để hiển thị</h2><p>${esc(e.message)}</p>
       <p class="muted">Hệ thống cập nhật mỗi chiều sau 15h35. Nếu đây là lần đầu, chờ lượt chạy đầu tiên hoàn tất (khoảng 30–60 phút).</p></div>`;
   }
+  if (multiUser()) deTelegram(app());
   app().focus({ preventScroll: true });
+}
+// chế độ nhiều người dùng: Telegram chỉ dành cho chủ sở hữu – trên web gọi chung là "thông báo"
+function deTelegram(root) {
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const rp = [[/nhắn Telegram/g, "gửi thông báo"], [/tin Telegram/g, "thông báo"], [/cảnh báo Telegram/g, "thông báo"], [/qua Telegram/g, "qua thông báo"], [/Telegram sẽ nhắn/g, "Hệ thống sẽ báo"], [/Telegram/g, "thông báo"]];
+  for (let n = w.nextNode(); n; n = w.nextNode()) { if (n.nodeValue.includes("Telegram")) rp.forEach(([a, b]) => (n.nodeValue = n.nodeValue.replace(a, b))); }
 }
 
 // ================================================================ đồ thị SVG nhỏ (không cần thư viện)
@@ -448,7 +464,7 @@ function ladder(p) {
 }
 
 async function viewToday() {
-  const [t, meta, pfr, rows, secs, m, LV, FJ] = await Promise.all([load("data/today.json"), load("data/meta.json"), Store.get("portfolio"), screenerRows(), secsData(), tryLoad("data/market.json"), liveData(), tryLoad("data/flow.json")]);
+  const [t, meta, pfr, rows, secs, m, LV, FJ] = await Promise.all([loadToday(), load("data/meta.json"), Store.get("portfolio"), screenerRows(), secsData(), tryLoad("data/market.json"), liveData(), tryLoad("data/flow.json")]);
   const pf = pfr.data || {};
   const MV = secs?.market || {};
   const R = Object.fromEntries(rows.map((r) => [r.symbol, r]));
@@ -588,6 +604,7 @@ async function viewToday() {
 
 async function runNow(meta) {
   const b = $("#runNow"); if (!b) return;
+  if (!isAdmin()) { b.closest("section, .panel, p")?.remove?.(); b.remove(); return; }
   b.onclick = async () => {
     b.disabled = true;
     try {
@@ -818,7 +835,7 @@ function bindGroupEditor(g, GROUPS, rows) {
   if ($("#gEditBtn")) $("#gEditBtn").onclick = () => { box.hidden = !box.hidden; if (!box.hidden) box.scrollIntoView({ behavior: "smooth", block: "start" }); };
 }
 async function viewSector(name, lvArg) {
-  const [secs, rows, m, t, gr] = await Promise.all([load("data/sectors.json"), screenerRows(), load("data/market.json"), load("data/today.json"), Store.get("groups")]);
+  const [secs, rows, m, t, gr] = await Promise.all([load("data/sectors.json"), screenerRows(), load("data/market.json"), loadToday(), Store.get("groups")]);
   const L2 = secs.sector || [], L3 = secs.industry || [];
   const byName2 = Object.fromEntries(L2.map((s) => [s.name, s])), byName3 = Object.fromEntries(L3.map((s) => [s.name, s]));
   let GROUPS = gr.data && Array.isArray(gr.data.list) ? gr.data.list : [];
@@ -1213,7 +1230,7 @@ function tradeBox(o, onDone) {
 }
 
 async function viewPortfolio() {
-  const [pfr, jr, t, rows, m] = await Promise.all([Store.get("portfolio"), Store.get("journal"), load("data/today.json"), screenerRows(), tryLoad("data/market.json")]);
+  const [pfr, jr, t, rows, m] = await Promise.all([Store.get("portfolio"), Store.get("journal"), loadToday(), screenerRows(), tryLoad("data/market.json")]);
   const pf = pfr.data || { holdings: [], cash: 0, capital: null }; pf.holdings = pf.holdings || [];
   const J = { trades: (jr.data && jr.data.trades) || [] };
   const R = Object.fromEntries(rows.map((r) => [r.symbol, r]));
@@ -1485,7 +1502,7 @@ function fmtCol(r, k) {
 }
 
 async function viewScreener(arg) {
-  const [rows, meth, td, vr] = await Promise.all([screenerRows(), load("data/methods.json"), load("data/today.json"), Store.get("views")]);
+  const [rows, meth, td, vr] = await Promise.all([screenerRows(), load("data/methods.json"), loadToday(), Store.get("views")]);
   await WL.load();
   const W = { ...meth.weights, ...lsGet("weights", {}) };
   const sectors = [...new Set(rows.map((r) => r.sector).filter(Boolean))].sort();
@@ -1637,7 +1654,7 @@ async function viewScreener(arg) {
 
 // ================================================================ KIỂM CHỨNG (BACKTEST)
 async function viewBacktest() {
-  const [b, meth, t, secs, F, SB] = await Promise.all([load("data/backtest.json"), load("data/methods.json"), load("data/today.json"), tryLoad("data/sectors.json"), tryLoad("data/fwd.json"), tryLoad("data/styles_bt.json")]);
+  const [b, meth, t, secs, F, SB] = await Promise.all([load("data/backtest.json"), load("data/methods.json"), loadToday(), tryLoad("data/sectors.json"), tryLoad("data/fwd.json"), tryLoad("data/styles_bt.json")]);
   const SBs = SB;
   if (!b.ok) { app().innerHTML = `<h1>Kiểm chứng</h1><div class="empty">${esc(b.reason || "Backtest chưa chạy – sẽ có sau lượt chạy cuối tuần.")}</div>`; return; }
   const series = [["combo", b.combo, css("--brand")], ["combo_regime", b.combo_regime, css("--up")], ["bench", b.benchmark, css("--ink-3")]];
@@ -1726,9 +1743,12 @@ async function viewStock(sym, tabArg) {
     return;
   }
   recentAdd(sym); await WL.load();
-  const [pfS, tS, evS, FJ, LV, FLJ] = await Promise.all([Store.get("portfolio"), load("data/today.json"), tryLoad("data/events.json"), fbData(), liveData(), tryLoad("data/flow.json")]);
+  if (d._locked) {   // gói Miễn phí: các phần chuyên sâu đã được lược khỏi dữ liệu
+    d.style_levels = {}; d.waves = {}; d.levels = null; d.timing = null; d.in_plan = false; d.mtf = null; d.season = null; d.season_support = null; d.fb = null; d.swing = null; d.rel = null;
+  }
+  const [pfS, tS, evS, FJ, LV, FLJ] = await Promise.all([Store.get("portfolio"), loadToday(), tryLoad("data/events.json"), fbData(), liveData(), tryLoad("data/flow.json")]);
   const held = (pfS.data?.holdings || []).some((h) => h.symbol === sym);
-  const stepsBlock = (() => { try { return stepsHtml(stepsFor(d, { t: tS, pf: pfS.data || {}, ev: evS })); } catch (e) { console.warn(e); return ""; } })();
+  const stepsBlock = d._locked ? lockBox("stock_full", "Kết luận & việc nên làm từng bước").replace("panel lockp", "panel sec steps lockp") : (() => { try { return stepsHtml(stepsFor(d, { t: tS, pf: pfS.data || {}, ev: evS })); } catch (e) { console.warn(e); return ""; } })();
   const r = d.row, v = d.valuation || {}, ta = d.ta, fa = d.fa || {}, w = d.waves || {};
   const o = d.ohlc;
   const last = o.c[o.c.length - 1], prev = o.c[o.c.length - 2];
@@ -1801,7 +1821,7 @@ async function viewStock(sym, tabArg) {
           <dt>Order Flow</dt><dd>${of.ok ? `${biasPill(of.bias)} <small>${of.days} phiên</small>` : '<small class="faint">đang tích luỹ dữ liệu</small>'}</dd></dl></section>
     </div>
   </div>
-  ${relPanel(d.rel, sym)}
+  ${d._locked ? lockBox("stock_full", "Phân tích đầy đủ mã " + sym + ": vùng mua, kế hoạch theo phong cách, sóng & SMC, hành vi giá, mã liên quan", true) : relPanel(d.rel, sym, new Set((pfS.data?.holdings || []).map((h) => h.symbol)))}
   <div class="subtabs" role="tablist">${[["ov", "Tổng quan"], ["ta", "Kỹ thuật"], ["wv", "Sóng & mô hình"], ["sm", "Tạo lập & dòng tiền"], ["fa", "Cơ bản"], ["vl", "Dự phóng & định giá"], ["pe", "Cùng ngành"]]
     .map(([k, n]) => `<button role="tab" data-t="${k}">${n}</button>`).join("")}</div>
   <div id="tab"></div>`;
@@ -1927,6 +1947,7 @@ function entryState(d, lv) {
   return { k: "now", t: "Mua được", c: "up" };
 }
 function styleLevels(d) {
+  if (d._locked) return lockBox("stock_full", "Kế hoạch giao dịch theo phong cách", true);
   const L = d.style_levels || {}, lv = d.levels, sel0 = lsGet("stockStyle", "position");
   const body = (k) => {
     if (k === "position") { const es = entryState(d, lv); return lv ? `${kpis([["Vùng mua", `${nf(lv.zone[0])}–${nf(lv.zone[1])}`], ["Cắt lỗ", `${nf(lv.stop)} <small>${pct(lv.stop_pct, 0)}</small>`, "down"], ["Mục tiêu 1", `${nf(lv.t1)} <small>${pct(lv.t1_pct, 0)}</small>`, "up"], ["Mục tiêu 2", nf(lv.t2), "up"], ["Lời / lỗ", nf(lv.rr, 1) + "x"], ["Trạng thái", es.t, es.c]], false, "c2")}
@@ -2191,7 +2212,7 @@ function tabPeers(d) {
 
 // ================================================================ HƯỚNG DẪN
 async function viewGuide() {
-  const [m, t] = await Promise.all([load("data/methods.json"), load("data/today.json")]);
+  const [m, t] = await Promise.all([load("data/methods.json"), loadToday()]);
   const glo = Object.entries(GLOSS).sort((a, b) => a[1].t.localeCompare(b[1].t, "vi"));
   const gloHtml = `<section class="panel sec" id="gloss"><div class="ph"><h2>Từ điển chỉ số và ký hiệu</h2><span class="meta">${glo.length} mục · rê chuột hoặc chạm vào chữ gạch chấm ở bất kỳ trang nào để xem nhanh</span></div>
     <div class="filters"><div class="field w200"><label for="gq">Tìm</label><input id="gq" placeholder="P/E, ROE, sụt tối đa, RRG…" autocomplete="off"></div></div>
@@ -2711,7 +2732,7 @@ function moodGauge(S, big = true) {
 function moodStrip(FJ) {
   if (!FJ?.sentiment) return "";
   const S = FJ.sentiment, k = FJ.count || {};
-  return `<section class="panel sec moodstrip"><div class="ph"><h2 data-g="mood">Tâm lý thị trường</h2><a class="meta" href="#/swing/mood">chi tiết & kiểm chứng</a></div>
+  return `<section class="panel sec moodstrip"><div class="ph"><h2 data-g="mood">Tâm lý thị trường</h2><span class="meta"><a href="#/digest">📰 Bản tin phiên</a> · <a href="#/swing/mood">chi tiết & kiểm chứng</a></span></div>
     <div class="ms-row">${moodGauge(S, false)}<div class="ms-k"><a href="#/swing/flow"><b class="down">${nf(k.dist, 0)}</b> mã xả âm thầm</a><a href="#/swing/flow"><b class="up">${nf(k.acc, 0)}</b> mã gom âm thầm</a><a href="#/swing/flow"><b class="up">${nf(k.brk, 0)}</b> mã bứt phá có KL</a></div></div></section>`;
 }
 function flowView(FJ, mine) {
@@ -2752,7 +2773,7 @@ function moodView(FJ) {
 }
 
 async function viewSwing(sub) {
-  const [SW, L, pfr, t, FJ] = await Promise.all([tryLoad("data/swing.json"), liveData(true), Store.get("portfolio"), tryLoad("data/today.json"), tryLoad("data/flow.json"), WL.load()]);
+  const [SW, L, pfr, t, FJ] = await Promise.all([tryLoad("data/swing.json"), liveData(true), Store.get("portfolio"), tryLoadToday(), tryLoad("data/flow.json"), WL.load()]);
   const mine = new Set([...(pfr.data?.holdings || []).map((h) => h.symbol), ...(WL.data?.items || []).map((x) => x.symbol),
     ...Object.values(t?.styles || {}).flatMap((s) => (s.picks || []).map((p) => p.symbol))]);
   const fresh = liveFresh(L);
@@ -2766,7 +2787,8 @@ async function viewSwing(sub) {
     return;
   }
   if (sub === "pairs") {
-    const PJ = await tryLoad("data/pairs.json");
+    const [PJ, TT] = await Promise.all([tryLoad("data/pairs.json"), tryLoadToday()]);
+    if (PJ) { PJ.conc = TT?.rel?.conc || PJ.conc || []; PJ.mine = TT?.rel?.mine || PJ.mine || {}; }
     app().innerHTML = nav + head + pairsView(PJ, mine);
     bindPairs(PJ);
     return;
@@ -2858,8 +2880,9 @@ function ccfSvg(ccf, lags, band, x, y) {
     <text x="0" y="${H + 10}" font-size="8" fill="var(--ink-3)">← ${esc(y)} đi trước</text><text x="${W / 2}" y="${H + 10}" font-size="8" text-anchor="middle" fill="var(--ink-3)">cùng tuần</text>
     <text x="${W}" y="${H + 10}" font-size="8" text-anchor="end" fill="var(--ink-3)">${esc(x)} đi trước →</text></svg>`;
 }
-function relCard(x, c, R) {
+function relCard(x, c, R, H) {
   const lv = c.lv || {}, z = lv.zone;
+  c = { ...c, held: H ? H.has(c.s) : !!c.held };
   return `<div class="relc ${c.held ? "mine" : ""}">
     <div class="relh"><a href="#/s/${c.s}"><b>${c.s}</b></a> <small class="muted">${esc((c.name || "").slice(0, 34))}</small>
       <span class="tags">${c.same ? '<span class="pill">cùng ngành</span>' : `<span class="pill" title="${esc(c.industry || "")}">khác ngành</span>`}${c.held ? '<span class="pill brand">đang nắm</span>' : ""}<span class="pill ${c.es_c === "up" ? "buy" : ""}">${esc(c.es_t || "—")}</span></span></div>
@@ -2874,7 +2897,7 @@ function relCard(x, c, R) {
     <ul class="rels">${(c.strat || []).map((s) => `<li class="t-${s.tone || "n"}"><b>${esc(s.title)}</b> ${esc(s.text)}</li>`).join("")}</ul>
   </div>`;
 }
-function relPanel(R, sym) {
+function relPanel(R, sym, H) {
   if (!R) return `<section class="panel sec"><div class="ph"><h2>Mã liên quan</h2></div><p class="muted">Chưa đủ thanh khoản (≥ 3 tỷ/phiên) hoặc lịch sử để đo đồng pha – hoặc không có mã nào đi cùng nhịp đủ mạnh.</p></section>`;
   const T = R.tests || {}, lp = (T.lead_pool || {})["13_4"] || {}, cu = T.catchup || {}, dl = T.daily_lead || {};
   const ll = [...(R.leads || []).map((p) => ["lead", p]), ...(R.follows || []).map((p) => ["follow", p])];
@@ -2885,7 +2908,7 @@ function relPanel(R, sym) {
   return `<section class="panel sec rel"><div class="ph"><h2>Mã liên quan & chiến thuật</h2><span class="meta">đồng pha = lợi nhuận vượt VN-Index theo tuần cùng chiều · <a href="#/swing/pairs">kiểm chứng toàn thị trường</a></span></div>
     ${llHtml}
     ${(R.group || []).length ? `<ul class="rels grp">${R.group.map((s) => `<li class="t-${s.tone || "n"}"><b>${esc(s.title)}</b> ${esc(s.text)}</li>`).join("")}</ul>` : ""}
-    <div class="relg">${(R.co || []).map((c) => relCard(sym, c, R)).join("")}</div>
+    <div class="relg">${(R.co || []).map((c) => relCard(sym, c, R, H)).join("")}</div>
     <details class="sec"><summary>Cách đọc và vì sao không khuyên “mã kia chạy trước thì mã này chạy sau”</summary>
       <ul class="sgl">
         <li><b>Tương quan</b>: lợi nhuận <i>vượt VN-Index</i> theo tuần, 2 năm gần nhất (và từ 2016). Đã bỏ phần cả thị trường cùng lên xuống, nên đây là mức “cùng câu chuyện” thật. Biểu đồ cột: tương quan khi lệch −8…+8 tuần; dải xám = mức ngẫu nhiên (±${nf(R.ccf_band, 2)}). Cột giữa cao, hai bên trong dải xám = hai mã đi cùng lúc.</li>
@@ -3247,7 +3270,7 @@ function navStats(dates, nav, rf = 0.03) {
 }
 
 async function viewProfile() {
-  const [t, G, saved, SB, BT] = await Promise.all([load("data/today.json"), tryLoad("data/profile_grid.json"), Store.get("profile"), tryLoad("data/styles_bt.json"), tryLoad("data/backtest.json")]);
+  const [t, G, saved, SB, BT] = await Promise.all([loadToday(), tryLoad("data/profile_grid.json"), Store.get("profile"), tryLoad("data/styles_bt.json"), tryLoad("data/backtest.json")]);
   const prof0 = saved.data && Object.keys(saved.data).length ? saved.data : null;
   const risk = t.risk || {};
   const P = {
@@ -3455,7 +3478,7 @@ function fifo(trades) {
   return { closed, open };
 }
 async function viewJournal() {
-  const [jr, t, rows, m, pfr] = await Promise.all([Store.get("journal"), load("data/today.json"), screenerRows(), load("data/market.json"), Store.get("portfolio")]);
+  const [jr, t, rows, m, pfr] = await Promise.all([Store.get("journal"), loadToday(), screenerRows(), load("data/market.json"), Store.get("portfolio")]);
   const J = { trades: (jr.data && jr.data.trades) || [] };
   const pf = pfr.data || { holdings: [], cash: 0, capital: null }; pf.holdings = pf.holdings || [];
   const R = Object.fromEntries(rows.map((r) => [r.symbol, r]));
@@ -3659,7 +3682,7 @@ async function alertBox(sym, preset = {}) {
   };
 }
 async function quickTrade(sym, side) {
-  const [pfr, jr, t] = await Promise.all([Store.get("portfolio"), Store.get("journal"), load("data/today.json"), screenerRows()]);
+  const [pfr, jr, t] = await Promise.all([Store.get("portfolio"), Store.get("journal"), loadToday(), screenerRows()]);
   const pf = pfr.data || { holdings: [], cash: 0, capital: null }; pf.holdings = pf.holdings || [];
   const J = { trades: (jr.data && jr.data.trades) || [] };
   const h = pf.holdings.find((x) => x.symbol === sym), r = (SCREENER || []).find((x) => x.symbol === sym) || {};
@@ -3678,7 +3701,7 @@ const actBar = (s, opt = {}) => `<div class="qa">${starBtn(s, opt.label)}<button
 function cmpAdd(s) { const L = lsGet("cmp", []).filter((x) => x !== s); L.push(s); const out = L.slice(-4); lsSet("cmp", out); return out; }
 
 // ---- tìm nhanh (Ctrl/⌘ + K hoặc phím /)
-const PAGES = [["Hôm nay", "#/", "h"], ["Thị trường", "#/market", "m"], ["Trong phiên & biến động", "#/swing", "b"], ["Bảng hành vi giá (đẩy/xả, đảo chiều)", "#/swing/table", "x"], ["Mã liên quan (đồng pha / dẫn dắt)", "#/swing/pairs", "q"], ["Toàn cảnh ngành", "#/sector", "n"], ["Bộ lọc", "#/screener", "l"], ["Theo dõi & cảnh báo", "#/watch", "t"], ["Lịch sự kiện", "#/watch/calendar", "e"],
+const PAGES = [["Hôm nay", "#/", "h"], ["Bản tin thị trường mỗi phiên", "#/digest", "r"], ["Thông báo", "#/notifications", "o"], ["Tài khoản & cài đặt thông báo", "#/account", "a"], ["Thị trường", "#/market", "m"], ["Trong phiên & biến động", "#/swing", "b"], ["Bảng hành vi giá (đẩy/xả, đảo chiều)", "#/swing/table", "x"], ["Mã liên quan (đồng pha / dẫn dắt)", "#/swing/pairs", "q"], ["Toàn cảnh ngành", "#/sector", "n"], ["Bộ lọc", "#/screener", "l"], ["Theo dõi & cảnh báo", "#/watch", "t"], ["Lịch sự kiện", "#/watch/calendar", "e"],
   ["So sánh mã", "#/compare", "c"], ["Danh mục đang nắm", "#/portfolio", "d"], ["Nhật ký giao dịch", "#/portfolio/journal", "j"], ["Khẩu vị & phong cách đầu tư", "#/portfolio/profile", "p"], ["Kiểm chứng", "#/backtest", "k"], ["Hướng dẫn", "#/guide", "?"]];
 async function palette(q0 = "") {
   const old = $("#pal"); if (old) { old.remove(); return; }
@@ -3761,7 +3784,7 @@ function initGlobal() {
 
 // ================================================================ THEO DÕI (danh sách + cảnh báo) & LỊCH SỰ KIỆN
 async function viewWatch(sub) {
-  const [rows, t, ev, pfr, jr] = await Promise.all([screenerRows(), load("data/today.json"), tryLoad("data/events.json"), Store.get("portfolio"), Store.get("journal")]);
+  const [rows, t, ev, pfr, jr] = await Promise.all([screenerRows(), loadToday(), tryLoad("data/events.json"), Store.get("portfolio"), Store.get("journal")]);
   await WL.load();
   const R = Object.fromEntries(rows.map((r) => [r.symbol, r]));
   const hits = Object.fromEntries((t.alerts || []).map((a) => [a.id, a]));
@@ -3849,7 +3872,7 @@ async function viewCompare(arg) {
   lsSet("cmp", syms);
   const D = {};
   await Promise.all(syms.map(async (s) => { D[s] = await tryLoad(`data/stocks/${s}.json`); }));
-  const t = await load("data/today.json"), S = await secsData();
+  const t = await loadToday(), S = await secsData();
   const per = lsGet("cmpPer", 250);
   const first = syms[0] && R[syms[0]];
   const sug = first ? rows.filter((x) => x.industry === first.industry && !syms.includes(x.symbol)).sort((a, b) => (b.mcap_bn || 0) - (a.mcap_bn || 0)).slice(0, 6) : [];
@@ -4210,7 +4233,7 @@ const PDFX = {
     return c.toDataURL("image/png");
   },
   async dialog() {
-    const [pf, t] = await Promise.all([Store.get("portfolio"), tryLoad("data/today.json")]);
+    const [pf, t] = await Promise.all([Store.get("portfolio"), tryLoadToday()]);
     const held = [...new Set((pf.data?.holdings || []).map((h) => h.symbol))].slice(0, 12);
     const picks = ((t?.styles || {})[t?.style || "position"]?.picks || []).map((p) => p.symbol).filter((s) => !held.includes(s)).slice(0, 8);
     const L = await liveData();
@@ -4233,8 +4256,343 @@ const PDFX = {
   },
 };
 
+// ================================================================ tài khoản, gói hội viên, thông báo, quản trị, bản tin
+let ME = null, PLANS = null, PERSONAL;
+const multiUser = () => !!ME && !ME.legacy;
+const can = (f) => !ME || ME.legacy || (ME.features || []).includes("*") || (ME.features || []).includes(f);
+const isAdmin = () => !ME || ME.legacy || ME.role === "admin";
+async function fetchMe() {
+  try {
+    const r = await fetch("api/auth/me", { cache: "no-store" });
+    if (r.status === 401) return null;
+    if (r.ok && (r.headers.get("content-type") || "").includes("json")) { const j = await r.json(); return j.legacy ? { ...j.me, legacy: true } : j.me; }
+  } catch (e) { /* chạy trên máy, không có API */ }
+  return { legacy: true, role: "admin", features: ["*"] };
+}
+async function plansData() { if (!PLANS) { try { PLANS = await (await fetch("api/auth/plans")).json(); } catch (e) { PLANS = { plans: {}, feature_names: {}, order: [] }; } } return PLANS; }
+const featName = (f) => (PLANS?.feature_names || {})[f] || f;
+async function personalData() {
+  if (PERSONAL !== undefined) return PERSONAL;
+  if (!multiUser()) return (PERSONAL = null);
+  try { const r = await fetch("api/personal", { cache: "no-store" }); PERSONAL = r.ok ? await r.json() : null; } catch (e) { PERSONAL = null; }
+  return PERSONAL;
+}
+async function loadToday() {
+  const t = await load("data/today.json");
+  if (t.__merged) return t;
+  const P = await personalData();
+  if (P && P.personal) Object.assign(t, P.personal);
+  else if (multiUser()) { t.portfolio = null; t.alerts = []; }
+  t.__merged = true;
+  return t;
+}
+async function tryLoadToday() { try { return await loadToday(); } catch (e) { return null; } }
+async function api(path, method = "GET", body) {
+  const r = await fetch("api/" + path, { method, cache: "no-store", headers: body ? { "content-type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  let j = {};
+  try { j = await r.json(); } catch (e) { /* rỗng */ }
+  if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+  return j;
+}
+
+// ---- khoá tính năng theo gói
+function lockBox(feature, title, small = false) {
+  return `<section class="panel lockp ${small ? "sm" : ""}"><div class="ph"><h2>🔒 ${esc(title || featName(feature))}</h2><span class="pill brand">Gói Pro</span></div>
+    <p class="muted">${small ? "Phần này dành cho gói Pro." : "Tính năng này dành cho thành viên gói Pro."} Gói hiện tại của anh/chị: <b>${esc(ME?.plan_name || "Miễn phí")}</b>.</p>
+    <a class="btn primary" href="#/account">Xem quyền lợi các gói</a></section>`;
+}
+async function lockView(feature) {
+  await plansData();
+  app().innerHTML = lockBox(feature) + `<section class="panel sec">${planTable()}</section>`;
+}
+function planTable() {
+  const P = PLANS || { plans: {}, order: [] }, ks = P.order || Object.keys(P.plans);
+  const feats = [...new Set(ks.flatMap((k) => P.plans[k].features))];
+  return `<div class="ph"><h2>Quyền lợi theo gói</h2></div><div class="tw"><table><thead><tr><th class="l">Tính năng</th>${ks.map((k) => `<th class="${ME?.eff_plan === k ? "brand" : ""}">${esc(P.plans[k].name)}${ME?.eff_plan === k ? " ✓" : ""}</th>`).join("")}</tr></thead><tbody>
+    ${feats.map((f) => `<tr><td class="l">${esc(featName(f))}</td>${ks.map((k) => `<td>${P.plans[k].features.includes(f) ? '<b class="up">✓</b>' : '<span class="faint">—</span>'}</td>`).join("")}</tr>`).join("")}
+    <tr><td class="l">Số mã trong danh mục / theo dõi / cảnh báo đang bật</td>${ks.map((k) => { const L = P.plans[k].limits || {}; return `<td>${L.holdings} / ${L.watch} / ${L.alerts}</td>`; }).join("")}</tr>
+  </tbody></table></div>`;
+}
+const ROUTE_FEATURE = { swing: (a) => (a === "live" ? "live" : a === "flow" || a === "mood" ? "flow" : a === "pairs" ? "pairs" : "swing"), backtest: () => "backtest" };
+
+// ---- chuông thông báo
+const NK = { act: "📌", near: "⏳", exit: "🚨", alert: "🔔", pick_new: "🛒", pick_out: "🛒", pick_in: "🛒", pick_chase: "🛒", flow: "🐋", rel: "🔗", flag: "👀",
+  light: "🚦", warn: "⚠️", digest: "📰", system: "ℹ️", admin: "🛠️" };
+const NKIND = { act: "Khuyến nghị cho mã đang nắm", near: "Sắp chạm mức thoát", exit: "Đã chạm mức thoát (trong phiên)", alert: "Cảnh báo giá", pick_new: "Mã mới vào danh sách MUA",
+  pick_out: "Mã ra khỏi danh sách MUA", pick_in: "Mã trong danh sách MUA vào vùng mua (trong phiên)", flow: "Dòng tiền lớn với mã của anh/chị", rel: "Mã liên quan / rủi ro tập trung",
+  flag: "Biến động bất thường mã của anh/chị (trong phiên)", light: "Đèn thị trường đổi màu", warn: "Cảnh báo tỷ trọng danh mục", digest: "Bản tin thị trường mỗi phiên" };
+const agoShort = (iso) => { const m = (Date.now() - new Date(iso)) / 60000; return m < 1 ? "vừa xong" : m < 60 ? `${Math.round(m)} phút` : m < 1440 ? `${Math.round(m / 60)} giờ` : new Date(iso).toLocaleDateString("vi-VN"); };
+function ntfRow(n) {
+  return `<a class="ntf ${n.read_at ? "" : "new"} sev${n.sev || 0}" href="${esc(n.url || "#/notifications")}" data-nid="${n.id}"><span class="ni">${NK[n.kind] || "•"}</span>
+    <span class="nb"><b>${esc(n.title)}</b>${n.body ? `<small>${esc(n.body)}</small>` : ""}</span><time>${agoShort(n.created_at)}</time></a>`;
+}
+let __bellN = 0;
+async function bellCount() {
+  if (!multiUser() || document.hidden) return;
+  try { const j = await api("notifications/count"); __bellN = j.unread || 0; const b = $("#bellN"); if (b) { b.textContent = __bellN > 99 ? "99+" : __bellN; b.hidden = !__bellN; } } catch (e) { /* bỏ qua */ }
+}
+async function bellOpen() {
+  let box = $("#bellBox");
+  if (box) { box.remove(); return; }
+  box = document.createElement("div"); box.id = "bellBox"; box.className = "menu bellbox";
+  box.style.top = Math.round(($("#bell")?.getBoundingClientRect().bottom || 40) + 6) + "px";
+  box.innerHTML = `<div class="ph"><h3>Thông báo</h3><button class="chip" id="bellAll">Đánh dấu đã đọc</button></div><div class="ntfs"><p class="muted">Đang tải…</p></div><a class="more" href="#/notifications">Xem tất cả</a>`;
+  document.body.appendChild(box);
+  const j = await api("notifications?limit=15").catch(() => ({ items: [] }));
+  box.querySelector(".ntfs").innerHTML = (j.items || []).map(ntfRow).join("") || `<p class="muted" style="padding:10px">Chưa có thông báo nào. Hệ thống báo khi mã của anh/chị chạm mức thoát, cảnh báo giá, có tín hiệu mới…</p>`;
+  bindNtf(box);
+  $("#bellAll").onclick = async () => { await api("notifications/read", "POST", { all: true }); box.remove(); bellCount(); };
+  setTimeout(() => document.addEventListener("click", function off(e) { if (!box.contains(e.target) && e.target.closest("#bell") == null) { box.remove(); document.removeEventListener("click", off); } }), 0);
+}
+function bindNtf(root) {
+  $$("[data-nid]", root).forEach((a) => a.addEventListener("click", () => { if (a.classList.contains("new")) api("notifications/read", "POST", { ids: [Number(a.dataset.nid)] }).then(bellCount).catch(() => {}); $("#bellBox")?.remove(); }));
+}
+async function viewNotifications() {
+  if (!multiUser()) { app().innerHTML = `<div class="empty">Thông báo trên web có khi trang chạy chế độ nhiều người dùng. Hiện thông báo gửi qua Telegram.</div>`; return; }
+  let items = [], more = true;
+  const draw = () => {
+    const by = {};
+    items.forEach((n) => { const d = new Date(n.created_at).toLocaleDateString("vi-VN", { weekday: "long", day: "2-digit", month: "2-digit" }); (by[d] = by[d] || []).push(n); });
+    app().innerHTML = `<div class="ph"><h1>Thông báo</h1><span class="meta"><button class="btn" id="nAll">Đánh dấu tất cả đã đọc</button> <button class="btn" id="nDel">Xoá thông báo đã đọc</button> <a class="btn" href="#/account">Cài đặt nhận thông báo</a></span></div>
+      ${Object.entries(by).map(([d, L]) => `<section class="panel sec"><div class="ph"><h3>${esc(d)}</h3></div><div class="ntfs">${L.map(ntfRow).join("")}</div></section>`).join("") || '<div class="empty">Chưa có thông báo nào.</div>'}
+      ${more ? '<button class="btn" id="nMore" style="margin-top:10px">Xem thêm</button>' : ""}`;
+    bindNtf(app());
+    $("#nAll").onclick = async () => { await api("notifications/read", "POST", { all: true }); items.forEach((n) => (n.read_at = n.read_at || "x")); draw(); bellCount(); };
+    $("#nDel").onclick = async () => { await api("notifications", "DELETE"); items = items.filter((n) => !n.read_at); draw(); };
+    if ($("#nMore")) $("#nMore").onclick = load_;
+  };
+  const load_ = async () => { const j = await api(`notifications?limit=50${items.length ? "&before=" + items[items.length - 1].id : ""}`); items = items.concat(j.items || []); more = (j.items || []).length === 50; draw(); };
+  await load_();
+}
+
+// ---- thông báo đẩy
+const u8 = (b64) => { const s = atob((b64 + "=".repeat((4 - (b64.length % 4)) % 4)).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(s, (c) => c.charCodeAt(0)); };
+async function pushState() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return { ok: false, why: /iPhone|iPad/.test(navigator.userAgent) ? "Trên iPhone/iPad: bấm Chia sẻ → Thêm vào Màn hình chính, mở trang từ biểu tượng đó rồi bật lại." : "Trình duyệt này không hỗ trợ thông báo đẩy." };
+  const reg = await navigator.serviceWorker.getRegistration("/");
+  const sub = reg ? await reg.pushManager.getSubscription() : null;
+  return { ok: true, on: !!sub && Notification.permission === "granted", perm: Notification.permission, sub };
+}
+async function pushEnable() {
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") throw new Error("Chưa cho phép thông báo trên trình duyệt này");
+  const reg = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+  await navigator.serviceWorker.ready;
+  const { key } = await api("push/key");
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: u8(key) });
+  await api("push/subscribe", "POST", sub.toJSON());
+}
+async function pushDisable() {
+  const st = await pushState();
+  if (st.sub) { await api("push/unsubscribe", "POST", { endpoint: st.sub.endpoint }).catch(() => {}); await st.sub.unsubscribe(); }
+}
+
+// ---- trang tài khoản
+async function viewAccount() {
+  await plansData();
+  if (!multiUser()) { app().innerHTML = `<div class="ph"><h1>Tài khoản</h1></div><div class="panel"><p>Trang đang chạy chế độ một chủ sở hữu (đăng nhập qua Cloudflare Access). Khi bật chế độ nhiều người dùng (gắn cơ sở dữ liệu D1), mỗi người có tài khoản, danh mục và thông báo riêng.</p></div><section class="panel sec">${planTable()}</section>`; return; }
+  const [np, ps, subs] = await Promise.all([api("notify").catch(() => ({})), pushState(), api("push/list").catch(() => ({ subs: [] }))]);
+  const N = { push: np.push || "normal", email: np.email || "important", email_to: np.email_to || "", kinds: np.kinds || {} };
+  const lv = (k, v) => `<select id="${k}">${[["all", "Tất cả"], ["normal", "Bình thường (bỏ tin nhỏ)"], ["important", "Chỉ việc quan trọng"], ["off", "Tắt"]].map(([a, b]) => `<option value="${a}" ${v === a ? "selected" : ""}>${b}</option>`).join("")}</select>`;
+  app().innerHTML = `<div class="ph"><h1>Tài khoản</h1><span class="meta">${esc(ME.email)}</span></div>
+  <div class="g g2">
+    <section class="panel"><div class="ph"><h2>Thông tin</h2><span class="pill ${ME.eff_plan === "pro" ? "buy" : ""}">Gói ${esc(ME.plan_name || ME.eff_plan)}</span></div>
+      ${kpis([["Email", esc(ME.email)], ["Gói", esc(ME.plan_name || ME.eff_plan) + (ME.plan_until ? ` <small>đến ${esc(ME.plan_until)}</small>` : "")], ["Vai trò", ME.role === "admin" ? "Quản trị" : "Thành viên"],
+        ["Đăng nhập", [ME.has_pw ? "mật khẩu" : "", ME.google ? "Google" : ""].filter(Boolean).join(" + ") || "—"]], false, "c2")}
+      <div class="filters" style="margin-top:8px"><div class="field"><label for="acName">Tên hiển thị</label><input id="acName" value="${esc(ME.name || "")}"></div><button class="btn" id="acSave">Lưu tên</button></div></section>
+    <section class="panel"><div class="ph"><h2>Bảo mật</h2></div>
+      <div class="filters">${ME.has_pw ? `<div class="field"><label for="pwOld">Mật khẩu hiện tại</label><input id="pwOld" type="password" autocomplete="current-password"></div>` : ""}
+        <div class="field"><label for="pwNew">Mật khẩu mới (≥ 8 ký tự)</label><input id="pwNew" type="password" autocomplete="new-password"></div><button class="btn" id="pwSave">${ME.has_pw ? "Đổi mật khẩu" : "Đặt mật khẩu"}</button></div>
+      <p style="margin-top:10px"><button class="btn" id="acOut">Đăng xuất</button> <button class="btn" id="acOutAll">Đăng xuất mọi thiết bị</button></p></section>
+  </div>
+  <section class="panel sec"><div class="ph"><h2>Nhận thông báo</h2><span class="meta">chuông trên web luôn bật</span></div>
+    <div class="g g2">
+      <div><h3>Thông báo đẩy (điện thoại / máy tính)</h3>
+        ${!can("notify_push") ? `<p class="muted">🔒 Thông báo đẩy dành cho gói Pro.</p>` : !ps.ok ? `<p class="note">${esc(ps.why)}</p>`
+          : `<p>Trên thiết bị này: <b class="${ps.on ? "up" : "muted"}">${ps.on ? "đang bật" : ps.perm === "denied" ? "bị chặn trong cài đặt trình duyệt" : "chưa bật"}</b> ${ps.on ? '<button class="btn" id="puOff">Tắt</button> <button class="btn" id="puTest">Gửi thử</button>' : '<button class="btn primary" id="puOn">Bật trên thiết bị này</button>'}</p>
+          <p class="faint" style="font-size:.74rem">Đang bật trên ${nf((subs.subs || []).length, 0)} thiết bị. Thông báo đẩy được gửi ngay sau các lượt 11:35, 14:35, 15:35.</p>`}
+        <div class="field"><label for="nPush">Mức gửi đẩy</label>${lv("nPush", N.push)}</div></div>
+      <div><h3>Email</h3>${!can("notify_email") ? `<p class="muted">🔒 Thông báo qua email dành cho gói Pro.</p>` : ""}
+        <div class="field"><label for="nEmail">Mức gửi email</label>${lv("nEmail", N.email)}</div>
+        <div class="field"><label for="nTo">Gửi tới</label><input id="nTo" type="email" placeholder="${esc(ME.email)}" value="${esc(N.email_to)}"></div></div>
+    </div>
+    <h3 style="margin-top:10px">Loại thông báo</h3>
+    <div class="nkinds">${Object.entries(NKIND).map(([k, t]) => `<label><input type="checkbox" data-nk="${k}" ${N.kinds[k] === false ? "" : "checked"}> ${NK[k] || ""} ${esc(t)}</label>`).join("")}</div>
+    <p style="margin-top:8px"><button class="btn primary" id="nSave">Lưu cài đặt thông báo</button></p>
+    <p class="faint" style="font-size:.72rem">“Quan trọng” = chạm/sắp chạm mức thoát, khuyến nghị bán/cắt lỗ, cảnh báo giá. “Bình thường” thêm mã mới vào danh sách MUA, dòng tiền lớn, đèn thị trường.</p></section>
+  <section class="panel sec">${planTable()}<p class="muted" style="margin-top:6px">Muốn nâng cấp hoặc gia hạn gói, liên hệ quản trị viên.</p></section>`;
+  $("#acSave").onclick = async () => { try { const j = await api("auth/profile", "POST", { name: $("#acName").value }); ME = { ...ME, ...j.me }; toast("Đã lưu"); } catch (e) { toast(e.message); } };
+  $("#pwSave").onclick = async () => { try { await api("auth/password", "POST", { old: $("#pwOld")?.value || "", new: $("#pwNew").value }); toast("Đã đổi mật khẩu"); viewAccount(); } catch (e) { toast(e.message); } };
+  $("#acOut").onclick = logout;
+  $("#acOutAll").onclick = async () => { await api("auth/logout_all", "POST").catch(() => {}); clearLocal(); location.href = "/login"; };
+  if ($("#puOn")) $("#puOn").onclick = async () => { try { await pushEnable(); toast("Đã bật thông báo đẩy"); viewAccount(); } catch (e) { toast(e.message); } };
+  if ($("#puOff")) $("#puOff").onclick = async () => { await pushDisable(); toast("Đã tắt trên thiết bị này"); viewAccount(); };
+  if ($("#puTest")) $("#puTest").onclick = async () => { const reg = await navigator.serviceWorker.getRegistration("/"); reg?.showNotification("VN-Stock", { body: "Thông báo đẩy hoạt động trên thiết bị này.", icon: "/icon.svg" }); };
+  $("#nSave").onclick = async () => {
+    const kinds = Object.fromEntries($$("[data-nk]").map((x) => [x.dataset.nk, x.checked]));
+    try { await api("notify", "PUT", { push: $("#nPush").value, email: $("#nEmail").value, email_to: $("#nTo").value.trim(), kinds, updated: new Date().toISOString() }); toast("Đã lưu cài đặt thông báo"); } catch (e) { toast(e.message); }
+  };
+}
+function clearLocal() { ["portfolio", "assumptions", "groups", "profile", "journal", "watchlist", "views"].forEach((k) => { try { localStorage.removeItem("vnstock_" + k); } catch (e) { /* bỏ qua */ } }); }
+async function logout() { await api("auth/logout", "POST").catch(() => {}); clearLocal(); location.href = "/login"; }
+
+// ---- trang quản trị
+async function viewAdmin(sub = "users") {
+  if (!multiUser() || ME.role !== "admin") { app().innerHTML = `<div class="empty">Chỉ quản trị viên (chế độ nhiều người dùng).</div>`; return; }
+  const tabs = [["users", "Người dùng"], ["invites", "Mã mời"], ["config", "Cấu hình"], ["audit", "Nhật ký"]];
+  const st = await api("admin/stats").catch(() => ({}));
+  const head = `<div class="ph"><h1>Quản trị</h1><span class="meta">${nf(st.users, 0)} tài khoản · ${nf(st.active, 0)} hoạt động · <b class="${st.pending ? "ref" : ""}">${nf(st.pending, 0)} chờ duyệt</b> · ${nf(st.pro, 0)} Pro · ${nf(st.active7, 0)} vào web 7 ngày · ${nf(st.push, 0)} thiết bị nhận đẩy · ${nf(st.notif7, 0)} thông báo 7 ngày</span></div>
+    <div class="views" style="margin-top:0">${tabs.map(([k, n]) => `<a class="btn ${k === sub ? "primary" : ""}" href="#/admin/${k}">${n}</a>`).join("")}</div>`;
+  if (sub === "users") {
+    const j = await api("admin/users");
+    const P = j.plans || {};
+    const sel = (id, k, v, opts) => `<select data-u="${id}" data-k="${k}">${opts.map(([a, b]) => `<option value="${a}" ${v === a ? "selected" : ""}>${esc(b)}</option>`).join("")}</select>`;
+    app().innerHTML = head + `<section class="panel sec"><div class="tw"><table class="admt"><thead><tr><th class="l">Email / tên</th><th>Trạng thái</th><th>Gói</th><th>Hết hạn</th><th>Vai trò</th><th class="l">Ghi chú</th><th>Tạo</th><th>Vào gần nhất</th><th>Đẩy</th><th></th></tr></thead><tbody>
+      ${j.users.map((u) => `<tr class="${u.status === "pending" ? "pend" : ""}"><td class="l"><b>${esc(u.email)}</b><br><small class="muted">${esc(u.name || "")}${u.google ? " · Google" : ""}${u.invite ? " · mã " + esc(u.invite) : ""}</small></td>
+        <td>${sel(u.id, "status", u.status, [["active", "Hoạt động"], ["pending", "Chờ duyệt"], ["disabled", "Khoá"]])}</td>
+        <td>${sel(u.id, "plan", u.plan, Object.entries(P))}</td><td><input type="date" data-u="${u.id}" data-k="plan_until" value="${esc(u.plan_until || "")}"></td>
+        <td>${sel(u.id, "role", u.role, [["user", "Thành viên"], ["admin", "Quản trị"]])}</td><td class="l"><input data-u="${u.id}" data-k="note" value="${esc(u.note || "")}" style="width:140px"></td>
+        <td><small>${esc((u.created_at || "").slice(0, 10))}</small></td><td><small>${u.last_seen ? agoShort(u.last_seen) : "—"}</small></td><td>${nf(u.push, 0)}</td>
+        <td><button class="btn" data-save="${u.id}">Lưu</button> <button class="chip" data-rst="${u.id}" title="Tạo liên kết đặt lại mật khẩu (72 giờ)">Link đặt MK</button></td></tr>`).join("")}</tbody></table></div>
+      <p class="faint" style="font-size:.72rem;margin-top:4px">Khoá tài khoản hoặc đổi vai trò sẽ đăng xuất người đó khỏi mọi thiết bị. Gói hết hạn tự về Miễn phí.</p><div id="rstOut"></div></section>`;
+    $$("[data-save]").forEach((b) => (b.onclick = async () => {
+      const id = b.dataset.save, body = { id: Number(id) };
+      $$(`[data-u="${id}"]`).forEach((x) => (body[x.dataset.k] = x.value));
+      try { await api("admin/user", "POST", body); toast("Đã lưu"); } catch (e) { toast(e.message); }
+    }));
+    $$("[data-rst]").forEach((b) => (b.onclick = async () => { const r = await api("admin/reset_link", "POST", { id: Number(b.dataset.rst) }); $("#rstOut").innerHTML = `<p class="note">Gửi liên kết này cho người dùng (hết hạn sau ${r.hours} giờ):<br><input readonly value="${esc(r.link)}" style="width:100%" onclick="this.select()"></p>`; }));
+    return;
+  }
+  if (sub === "invites") {
+    const [j, p] = await Promise.all([api("admin/invites"), plansData()]);
+    const base = location.origin + "/login#invite=";
+    app().innerHTML = head + `<section class="panel sec"><div class="ph"><h2>Tạo mã mời</h2></div>
+      <div class="filters"><div class="field"><label>Mã (để trống = tự tạo)</label><input id="ivCode" placeholder="VD: BETA2026"></div>
+        <div class="field"><label>Gói</label><select id="ivPlan">${Object.entries(p.plans).map(([k, v]) => `<option value="${k}" ${k === "pro" ? "selected" : ""}>${esc(v.name)}</option>`).join("")}</select></div>
+        <div class="field"><label>Số ngày dùng gói (trống = không hạn)</label><input id="ivDays" type="number" value="30" style="width:90px"></div>
+        <div class="field"><label>Số lượt dùng mã</label><input id="ivMax" type="number" value="5" style="width:80px"></div>
+        <div class="field"><label>Mã hết hạn ngày</label><input id="ivExp" type="date"></div>
+        <div class="field"><label>Ghi chú</label><input id="ivNote" placeholder="nhóm thử nghiệm…"></div><button class="btn primary" id="ivAdd">Tạo</button></div></section>
+      <section class="panel sec"><div class="tw"><table><thead><tr><th class="l">Mã</th><th>Gói</th><th>Ngày dùng</th><th>Đã dùng</th><th>Hết hạn</th><th class="l">Ghi chú</th><th class="l">Liên kết mời</th><th></th></tr></thead><tbody>
+        ${j.invites.map((v) => `<tr><td class="l"><b>${esc(v.code)}</b></td><td>${esc((p.plans[v.plan] || {}).name || v.plan)}</td><td>${v.days ? nf(v.days, 0) : "∞"}</td><td>${v.uses}/${v.max_uses}</td><td>${esc(v.expires_at || "—")}</td>
+          <td class="l">${esc(v.note || "")}</td><td class="l"><input readonly value="${esc(base + v.code)}" onclick="this.select()" style="width:260px"></td><td><button class="chip" data-ivdel="${esc(v.code)}">Xoá</button></td></tr>`).join("") || '<tr><td colspan="8" class="muted">Chưa có mã mời.</td></tr>'}</tbody></table></div></section>`;
+    $("#ivAdd").onclick = async () => { try { const r = await api("admin/invites", "POST", { code: $("#ivCode").value, plan: $("#ivPlan").value, days: $("#ivDays").value, max_uses: $("#ivMax").value, expires_at: $("#ivExp").value, note: $("#ivNote").value }); toast("Đã tạo mã " + r.code); viewAdmin("invites"); } catch (e) { toast(e.message); } };
+    $$("[data-ivdel]").forEach((b) => (b.onclick = async () => { await api("admin/invites?code=" + enc(b.dataset.ivdel), "DELETE"); viewAdmin("invites"); }));
+    return;
+  }
+  if (sub === "config") {
+    const j = await api("admin/config"), C = j.config;
+    const f = (k, label, hint = "", type = "text") => `<div class="field"><label for="cf_${k}">${label}</label><input id="cf_${k}" type="${type}" value="${esc(C[k] || "")}" placeholder="${esc(hint)}"></div>`;
+    app().innerHTML = head + `<section class="panel sec"><div class="ph"><h2>Đăng ký & đăng nhập</h2></div>
+      <div class="filters"><div class="field"><label for="cf_signup_mode">Đăng ký</label><select id="cf_signup_mode"><option value="invite" ${C.signup_mode !== "open" ? "selected" : ""}>Cần mã mời / chờ duyệt</option><option value="open" ${C.signup_mode === "open" ? "selected" : ""}>Mở tự do (gói Miễn phí)</option></select></div>
+        ${f("google_client_id", "Google OAuth Client ID", "xxxx.apps.googleusercontent.com")}${f("site_url", "Địa chỉ trang", "https://vn-stock.pages.dev")}</div>
+      <p class="faint" style="font-size:.72rem">Google Client ID: Google Cloud Console → APIs & Services → Credentials → Create OAuth client ID (Web), thêm “Authorized JavaScript origins” = địa chỉ trang. ${j.env.GOOGLE_CLIENT_ID ? "Đang dùng biến môi trường GOOGLE_CLIENT_ID." : ""}</p></section>
+      <section class="panel sec"><div class="ph"><h2>Email gửi thông báo</h2></div>
+      <div class="filters">${f("mail_from", "Người gửi", "VN-Stock <ban@gmail.com>")}${f("smtp_host", "Máy chủ SMTP", "smtp.gmail.com")}${f("smtp_port", "Cổng", "465")}${f("smtp_user", "Tài khoản SMTP", "ban@gmail.com")}${f("smtp_pass", "Mật khẩu ứng dụng", "16 ký tự", "password")}${f("resend_key", "Resend API key (tuỳ chọn)", "re_…", "password")}</div>
+      <p class="faint" style="font-size:.72rem">Gmail: bật xác minh 2 bước → myaccount.google.com/apppasswords → tạo “Mật khẩu ứng dụng”, dán vào ô trên (không dùng mật khẩu Gmail thường). Email thông báo gửi từ các lượt chạy; email đặt lại mật khẩu tức thì cần Resend (có tên miền riêng) – nếu chưa có, người dùng bấm “Quên mật khẩu” sẽ tạo yêu cầu để anh gửi liên kết từ trang Người dùng.</p>
+      <p><button class="btn primary" id="cfSave">Lưu cấu hình</button></p></section>`;
+    $("#cfSave").onclick = async () => { const b = {}; $$("[id^=cf_]").forEach((x) => (b[x.id.slice(3)] = x.value)); try { await api("admin/config", "POST", b); toast("Đã lưu cấu hình"); } catch (e) { toast(e.message); } };
+    return;
+  }
+  const j = await api("admin/audit");
+  app().innerHTML = head + `<section class="panel sec"><div class="tw"><table><thead><tr><th>Lúc</th><th class="l">Người</th><th>Việc</th><th class="l">Chi tiết</th></tr></thead><tbody>
+    ${j.audit.map((a) => `<tr><td><small>${esc(new Date(a.at).toLocaleString("vi-VN"))}</small></td><td class="l">${esc(a.email || "—")}</td><td>${esc(a.action)}</td><td class="l wrap"><small>${esc(a.detail || "")}</small></td></tr>`).join("")}</tbody></table></div></section>`;
+}
+
+// ---- bản tin thị trường
+async function viewDigest(date, home = false) {
+  const idx = await tryLoad("data/digest/index.json");
+  const dates = idx?.dates || [];
+  if (!dates.length) { app().innerHTML = `<div class="empty">Chưa có bản tin – bản tin đầu tiên có sau lượt chạy đóng cửa kế tiếp.</div>`; return; }
+  const d = date && dates.find((x) => x.date === date) ? date : dates[0].date;
+  const D = await load(`data/digest/${d}.json`);
+  const i = dates.findIndex((x) => x.date === d);
+  const IX = D.indices || {}, B = D.breadth || {}, V = D.value || {}, S = D.sentiment || {}, F = D.flow || {}, W = D.swing || {};
+  const sym = (s) => `<a href="#/s/${s}"><b>${s}</b></a>`;
+  const rowsT = (L, extra) => `<div class="tw"><table><thead><tr><th class="l">Mã</th><th>Giá</th><th>%</th>${extra ? "<th>KL × TB</th>" : ""}<th class="l">Ngành</th></tr></thead><tbody>
+    ${(L || []).map((x) => `<tr><td class="l">${sym(x.s)}</td><td>${nf(x.price)}</td><td class="${cls(x.chg)}">${pct(x.chg)}</td>${extra ? `<td>${nf(x.vx, 1)}×</td>` : ""}<td class="l"><small class="muted">${esc((x.sector || "").slice(0, 22))}</small></td></tr>`).join("") || '<tr><td colspan="5" class="muted">—</td></tr>'}</tbody></table></div>`;
+  const lightC = { green: "up", yellow: "ref", red: "down" }[D.regime?.light] || "";
+  app().innerHTML = `${home ? `<div class="note" style="margin-bottom:10px">Trang chủ gói Miễn phí là bản tin thị trường mỗi phiên. <b>Danh sách MUA, kế hoạch theo phong cách, phân tích đầy đủ từng mã</b> dành cho gói Pro – <a href="#/account">xem quyền lợi</a>. Tư vấn mức thoát cho danh mục của anh/chị ở tab <a href="#/portfolio">Danh mục</a>.</div>` : ""}
+  <div class="ph"><h1>Bản tin thị trường</h1><span class="meta">
+    ${i < dates.length - 1 ? `<a class="btn" href="#/digest/${dates[i + 1].date}">← ${esc(dates[i + 1].date.slice(5))}</a>` : ""}
+    <select id="dgSel">${dates.map((x) => `<option value="${x.date}" ${x.date === d ? "selected" : ""}>${new Date(x.date).toLocaleDateString("vi-VN", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" })}</option>`).join("")}</select>
+    ${i > 0 ? `<a class="btn" href="#/digest/${dates[i - 1].date}">${esc(dates[i - 1].date.slice(5))} →</a>` : ""}</span></div>
+  <section class="panel hero dg"><div class="ph"><h2>Phiên ${new Date(d).toLocaleDateString("vi-VN", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" })}</h2><span class="pill ${lightC === "up" ? "buy" : lightC === "down" ? "sell" : ""}">Đèn ${esc(LIGHT_VI[D.regime?.light] || "—")}</span></div>
+    <ul class="dgl">${(D.lines || []).map((l) => `<li>${esc(l)}</li>`).join("")}</ul>
+    ${D.regime?.text ? `<p class="muted" style="font-size:.8rem;margin-top:4px">${esc(D.regime.text)}</p>` : ""}</section>
+  <div class="snap sec">
+    <section class="panel sg"><div class="ph"><h3>Chỉ số</h3></div>${kpis([["VN-Index", `${nf(IX.VNINDEX?.close)} <small class="${cls(IX.VNINDEX?.chg)}">${pct(IX.VNINDEX?.chg, 2)}</small>`], ["VN30", `${nf(IX.VN30?.close)} <small class="${cls(IX.VN30?.chg)}">${pct(IX.VN30?.chg, 2)}</small>`],
+      ["HNX", `${nf(IX.HNXINDEX?.close)} <small class="${cls(IX.HNXINDEX?.chg)}">${pct(IX.HNXINDEX?.chg, 2)}</small>`], ["UPCOM", `${nf(IX.UPCOMINDEX?.close)} <small class="${cls(IX.UPCOMINDEX?.chg)}">${pct(IX.UPCOMINDEX?.chg, 2)}</small>`]], false, "c2")}</section>
+    <section class="panel sg"><div class="ph"><h3>Độ rộng & thanh khoản</h3></div>${kpis([["Tăng / giảm / đứng", `<b class="up">${B.adv}</b> / <b class="down">${B.dec}</b> / ${B.unch}`], ["Trần / sàn", `<b class="ceil">${B.ceil}</b> / <b class="floor">${B.floor}</b>`],
+      ["GTGD", V.today ? `${nf(V.today, 1)} nghìn tỷ <small>TB20 ${nf(V.avg20, 1)}</small>` : "—"], ["Trên MA50", pct(B.above50, 0, false)], ["Đỉnh mới / đáy mới 52T", `${nf(B.new_hi, 0)} / ${nf(B.new_lo, 0)}`]], false, "c2")}</section>
+    <section class="panel sg"><div class="ph"><h3>Tâm lý & dòng tiền</h3></div>${kpis([["Tâm lý", `${nf(S.now, 0)}/100 <small>${esc(S.label || "")}</small>`, "", "", ""], ["So với 5 phiên", isNum(S.chg5) ? (S.chg5 > 0 ? "+" : "") + nf(S.chg5, 0) : "—"],
+      ["Gom âm thầm", nf(F.count?.acc, 0), "up"], ["Xả âm thầm", nf(F.count?.dist, 0), "down"], ["Bứt phá có KL", nf(F.count?.brk, 0), "up"], ["Phiên bất thường", `${nf(W.n, 0)} <small>${nf(W.neg, 0)} xấu · ${nf(W.pos, 0)} tốt</small>`]], false, "c2")}</section>
+  </div>
+  <div class="g g3 sec">
+    <section class="panel"><div class="ph"><h2>Ngành</h2><span class="meta">bình quân theo vốn hoá, mã GTGD ≥ 5 tỷ</span></div><div class="tw"><table><thead><tr><th class="l">Ngành</th><th>%</th><th>Tăng/giảm</th><th class="l">Mạnh nhất</th></tr></thead><tbody>
+      ${(D.sectors || []).map((x) => `<tr><td class="l">${esc(x.name)}</td><td class="${cls(x.chg)}">${pct(x.chg)}</td><td><small>${x.up}/${x.down}</small></td><td class="l"><small>${(x.best || []).map(([s, c]) => `${sym(s)} <span class="${cls(c)}">${pct(c, 1)}</span>`).join(" ")}</small></td></tr>`).join("")}</tbody></table></div></section>
+    <section class="panel"><div class="ph"><h2>Kéo / đè VN-Index</h2><span class="meta">ước tính điểm đóng góp</span></div>
+      <div class="rows">${(D.pull_up || []).map(([s, p, c]) => `<div class="row"><span>${sym(s)}</span><span class="${cls(c)}">${pct(c)}</span><b class="up">+${nf(p, 1)} điểm</b></div>`).join("")}</div>
+      <div class="rows" style="margin-top:6px">${(D.pull_dn || []).map(([s, p, c]) => `<div class="row"><span>${sym(s)}</span><span class="${cls(c)}">${pct(c)}</span><b class="down">${nf(p, 1)} điểm</b></div>`).join("")}</div></section>
+    <section class="panel"><div class="ph"><h2>Dòng tiền lớn</h2><a class="meta" href="#/swing/flow">chi tiết</a></div>
+      <p><b class="up">Gom âm thầm:</b> ${(F.acc || []).map(sym).join(", ") || "—"}</p><p><b class="down">Xả âm thầm:</b> ${(F.dist || []).map(sym).join(", ") || "—"}</p><p><b class="up">Bứt phá có KL:</b> ${(F.brk || []).map(sym).join(", ") || "—"}</p>
+      <p class="faint" style="font-size:.72rem">Kiểm chứng VN: xả âm thầm thường kém VN-Index 20 phiên sau; gom đơn thuần không đủ để mua; bứt phá có KL tăng xác suất có nhịp +20%.</p></section>
+  </div>
+  <div class="g g3 sec">
+    <section class="panel"><div class="ph"><h2>Tăng mạnh</h2></div>${rowsT(D.gainers)}</section>
+    <section class="panel"><div class="ph"><h2>Giảm mạnh</h2></div>${rowsT(D.losers)}</section>
+    <section class="panel"><div class="ph"><h2>Khối lượng đột biến</h2><span class="meta">≥ 2,2 lần TB 20 phiên</span></div>${rowsT(D.unusual, true)}</section>
+  </div>
+  <div class="g g3 sec">
+    <section class="panel"><div class="ph"><h2>Phiên bất thường đáng chú ý</h2><a class="meta" href="#/swing/today">chi tiết</a></div>
+      ${(W.top || []).map((x) => `<div class="ev"><span><b class="${x.dir < 0 ? "down" : x.dir > 0 ? "up" : ""}">${sym(x.s)} ${pct(x.ret)}</b> <small class="muted">${esc(x.meaning)}</small></span></div>`).join("") || '<p class="muted">Không có.</p>'}</section>
+    <section class="panel"><div class="ph"><h2>Sự kiện 7 ngày tới</h2><a class="meta" href="#/watch/calendar">lịch</a></div>
+      ${(D.events || []).map((e) => `<div class="ev"><time>${esc(e.date.slice(5))}</time><span>${e.symbol ? sym(e.symbol) + " " : ""}${esc(e.title)}${isNum(e.yield) ? ` <small class="up">${nf(e.yield, 1)}%</small>` : ""}</span></div>`).join("") || '<p class="muted">Không có sự kiện.</p>'}</section>
+    <section class="panel"><div class="ph"><h2>Tin tức</h2></div>
+      ${(D.news || []).map((n) => `<div class="ev"><time>${esc(n.t.slice(11))}</time><span>${n.s ? sym(n.s) + " " : ""}<a href="${esc(n.link)}" target="_blank" rel="noopener">${esc(n.title)}</a> <small class="faint">${esc(n.src)}</small></span></div>`).join("") || '<p class="muted">Không có tin mới gắn với mã thanh khoản.</p>'}</section>
+  </div>
+  <p class="faint" style="font-size:.72rem;margin-top:8px">Bản tin tự động tạo từ số liệu sau phiên – thông tin tham khảo, không phải khuyến nghị đầu tư.</p>`;
+  $("#dgSel").onchange = (e) => (location.hash = "#/digest/" + e.target.value);
+}
+
+// ---- thanh đầu trang: chuông + tài khoản
+function initAccountUI() {
+  if (!multiUser()) return;
+  const th = $("#theme");
+  const bell = document.createElement("button");
+  bell.className = "iconbtn bell"; bell.id = "bell"; bell.title = "Thông báo"; bell.setAttribute("aria-label", "Thông báo");
+  bell.innerHTML = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><span id="bellN" hidden></span>`;
+  const meb = document.createElement("button");
+  meb.className = "iconbtn mebtn"; meb.id = "meBtn"; meb.title = ME.email; meb.setAttribute("aria-label", "Tài khoản");
+  meb.textContent = ((ME.name || ME.email || "?").trim()[0] || "?").toUpperCase();
+  th.parentNode.insertBefore(bell, th); th.parentNode.insertBefore(meb, th);
+  bell.onclick = (e) => { e.stopPropagation(); bellOpen(); };
+  meb.onclick = (e) => {
+    e.stopPropagation();
+    let m = $("#meMenu"); if (m) { m.remove(); return; }
+    m = document.createElement("div"); m.id = "meMenu"; m.className = "menu memenu";
+    m.style.top = Math.round(meb.getBoundingClientRect().bottom + 6) + "px";
+    m.innerHTML = `<div class="mh"><b>${esc(ME.name || ME.email)}</b><small>${esc(ME.email)}</small><span class="pill ${ME.eff_plan === "pro" ? "buy" : ""}">Gói ${esc(ME.plan_name || ME.eff_plan)}${ME.plan_until ? " · đến " + esc(ME.plan_until) : ""}</span></div>
+      <a href="#/digest">📰 Bản tin thị trường</a><a href="#/notifications">🔔 Thông báo</a><a href="#/account">⚙️ Tài khoản & cài đặt</a>${ME.role === "admin" ? '<a href="#/admin">🛠️ Quản trị</a>' : ""}<button id="meOut">↩ Đăng xuất</button>`;
+    document.body.appendChild(m);
+    $("#meOut").onclick = logout;
+    m.querySelectorAll("a").forEach((a) => a.addEventListener("click", () => m.remove()));
+    setTimeout(() => document.addEventListener("click", function off(ev) { if (!m.contains(ev.target)) { m.remove(); document.removeEventListener("click", off); } }), 0);
+  };
+  // khoá tab theo gói
+  const tabF = { swing: "swing", backtest: "backtest" };
+  $$("#tabs a").forEach((a) => { const f = tabF[a.dataset.r]; if (f && !can(f)) a.classList.add("locked"); });
+  if (!can("pdf")) $("#pdfBtn")?.remove();
+  bellCount(); setInterval(bellCount, 120000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) bellCount(); });
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
+}
+
 (async function main() {
-  initTheme(); initSearch(); initGlobal(); GL.init();
+  ME = await fetchMe();
+  if (!ME) { location.replace("/login?next=" + encodeURIComponent("/" + location.hash)); return; }
+  initTheme(); initSearch(); initGlobal(); GL.init(); initAccountUI(); plansData();
   $("#pdfBtn")?.addEventListener("click", () => PDFX.dialog());
   paintUpd(); setInterval(paintUpd, 60000);
   WL.load().catch(() => {});
@@ -4242,7 +4600,7 @@ const PDFX = {
     const meta = await load("data/meta.json");
     window.__ver = meta.generated;
     if (meta.demo) $("#demo").innerHTML = `<div class="demo-banner">DỮ LIỆU GIẢ LẬP để xem thử giao diện – không dùng để đầu tư</div>`;
-    const [t, m, meth] = await Promise.all([load("data/today.json"), tryLoad("data/market.json"), tryLoad("data/methods.json"), secsData()]);
+    const [t, m, meth] = await Promise.all([loadToday(), tryLoad("data/market.json"), tryLoad("data/methods.json"), secsData()]);
     PSTATS = meth?.pattern_stats?.stats || {};
     if (m) drawBoard(t, m, meta);
   } catch (e) { /* chưa có dữ liệu */ }

@@ -90,14 +90,24 @@ def run(notify: bool = True, slot: str | None = None) -> dict:
         return {"ok": False}
     ctx = json.loads(cp.read_text(encoding="utf-8"))
     S = ctx.get("syms") or {}
+    from . import personal as per_
+    from . import users as users_
     from .portfolio_store import load_holdings, load_watchlist
-    holdings, _, _ = load_holdings()
-    watch = load_watchlist()
+    be = users_.backend()
+    U = users_.load(be) if be else None
+    act = ctx.get("active_style") or "position"
+    allpicks = ctx.get("picks") or []
+    if U is not None:
+        owner = next((x for x in U if x["role"] == "admin"), None)
+        holdings = per_.holdings_of(owner["data"])[0] if owner else []
+        watch = per_.watch_of(owner["data"]) if owner else []
+        extra = [h["symbol"].upper() for x in U for h in per_.holdings_of(x["data"])[0]] + [str(w["symbol"]).upper() for x in U for w in per_.watch_of(x["data"])]
+    else:
+        owner, holdings, watch, extra = None, load_holdings()[0], load_watchlist(), []
     held = {h["symbol"].upper(): h for h in holdings}
     wl = {w["symbol"].upper(): w for w in watch}
-    act = ctx.get("active_style") or "position"
-    picks = {p["symbol"]: p for p in ctx.get("picks") or [] if p.get("style") == act}
-    universe = list(dict.fromkeys(list(held) + list(wl) + list(picks) + list(S)))
+    picks = {p["symbol"]: p for p in allpicks if p.get("style") == act}
+    universe = list(dict.fromkeys(list(held) + list(wl) + extra + [p["symbol"] for p in allpicks] + list(S)))
     try:
         bd = itd.board(universe)
     except FetchError as e:
@@ -169,7 +179,7 @@ def run(notify: bool = True, slot: str | None = None) -> dict:
     # ---- nến phút cho nhóm cần xem kỹ: sáng / chiều, đường đi trong phiên
     lb = int(config.get("intraday.live_bars", 90))
     movers = sorted([s for s in rows if s in S], key=lambda s: -(len(rows[s]["flags"]) * 10 + abs(rows[s]["chg"] or 0) + (rows[s]["pace"] or 0)))
-    want = list(dict.fromkeys([s for s in list(held) + list(wl) + list(picks) if s in rows] + movers))[:lb]
+    want = list(dict.fromkeys([s for s in list(held) + list(wl) + extra + list(picks) if s in rows] + movers))[:lb]
 
     def one(s):
         try:
@@ -205,13 +215,72 @@ def run(notify: bool = True, slot: str | None = None) -> dict:
             if slot == "noon" and r.get("m_ret") is not None and "pump_am" not in r["flags"] and r["m_ret"] >= 1.5 and (c.get("p_fade") or 0) >= 55 and (c.get("n_up") or 0) >= 10:
                 r["flags"].append("pump_am")
 
-    # ---- việc của anh
+    # ---- việc của anh (chủ sở hữu) và của từng người dùng
+    personal = items_for(rows, held, (ctx.get("holdings") or {}), wl, picks)
+    if U is not None:
+        personal = []
+        cfgD = users_.config(be)
+        nstat = {"users": 0, "new": 0, "push": 0}
+        for x in U:
+            try:
+                hx = {h["symbol"].upper(): h for h in per_.holdings_of(x["data"])[0]}
+                wx = {str(w["symbol"]).upper(): w for w in per_.watch_of(x["data"])}
+                ux = (ctx.get("users") or {}).get(str(x["id"])) or {}
+                st_ = ux.get("style") or act
+                px_ = {p["symbol"]: p for p in allpicks if p.get("style") == st_}
+                its = items_for(rows, hx, ux.get("holdings") or {}, wx, px_)
+                users_.save(be, x["id"], "_live", {"date": today, "at": now.isoformat(timespec="minutes"), "slot": slot, "items": its})
+                notes = live_notes(its, rows, S, today, x["features"])
+                r_ = users_.deliver(be, cfgD, x, notes, f"VN-Stock trong phiên {now.strftime('%H:%M')}: " + (notes[0]["title"] if len(notes) == 1 else f"{len(notes)} việc mới"))
+                nstat["users"] += 1
+                nstat["new"] += r_.get("new", 0)
+                nstat["push"] += r_.get("push", 0)
+                if owner and x["id"] == owner["id"]:
+                    personal = its
+            except Exception as e:  # noqa: BLE001
+                log.exception("Trong phiên – người dùng %s lỗi: %s", x.get("email"), e)
+        log.info("Trong phiên – người dùng: %s", nstat)
+
+    # ---- cảnh báo hành vi bất thường toàn thị trường (mã thanh khoản)
+    sev = {"leave_c": 3, "fade_pm": 3, "fade_hi": 2, "pump_am": 2, "vol": 2, "f_sell": 1, "rec_f": 2, "bounce_pm": 2, "bounce_lo": 1,
+           "dump_am": 1, "f_buy": 1, "at_ceil": 0, "at_floor": 0}
+    mkt = []
+    for s, r in rows.items():
+        c = S.get(s)
+        if not c or (c.get("val") or 0) < 5:
+            continue
+        sc = max([sev.get(f, 0) for f in r["flags"]] or [0])
+        if sc >= 2:
+            mkt.append({"s": s, "sev": sc, "flags": r["flags"], "score": c.get("score"), "tags": c.get("tags")})
+    mkt.sort(key=lambda x: (-x["sev"], -(x.get("score") or 0)))
+
+    out = {"ok": True, "at": now.isoformat(timespec="minutes"), "date": today, "slot": slot, "minute": minute, "index": idx,
+           "rows": [rows[s] for s in sorted(rows)], "personal": personal, "market": mkt[:40],
+           "ctx_date": ctx.get("date"), "n": len(rows)}
+    # nhiều người dùng: phần riêng nằm trong D1 của từng người, bản chung trong KV không chứa danh mục ai
+    ok_kv = _kv_put("intraday", {**out, "personal": []} if U is not None else out)
+    log.info("Trong phiên %s: %d mã, %d việc của anh, %d mã bất thường, KV=%s", slot, len(rows), len(personal), len(mkt), ok_kv)
+    try:
+        snap = pd.DataFrame([{"symbol": r["s"], "date": pd.Timestamp(today), "slot": slot, "px": r["px"], "chg": r["chg"], "hi": r["hi"], "lo": r["lo"],
+                              "pace": r["pace"], "val": r["val"], "fn": r["fn"], "m_ret": r.get("m_ret"), "a_ret": r.get("a_ret"),
+                              "flags": ",".join(r["flags"])} for r in rows.values()])
+        store.upsert("live_snap", snap, ["symbol", "date", "slot"])
+    except Exception as e:  # noqa: BLE001
+        log.warning("Không lưu được ảnh chụp trong phiên: %s", e)
+    store.path("live_last.json").write_text(json.dumps(out, ensure_ascii=False, default=str), encoding="utf-8")
+    if notify:
+        send(out, ctx, held)
+    return out
+
+
+def items_for(rows: dict, held: dict, hlevels: dict, wl: dict, picks: dict) -> list[dict]:
+    """Việc riêng của một người trong phiên: mức thoát của mã đang nắm, cảnh báo giá, biến động mã của họ, danh sách mua."""
     personal = []
     for s, h in held.items():
         r = rows.get(s)
         if not r:
             continue
-        hx = (ctx.get("holdings") or {}).get(s) or {}
+        hx = hlevels.get(s) or {}
         hi_px, lo_px, px = r["ref"] * (1 + (r["hi"] or 0) / 100), r["ref"] * (1 + (r["lo"] or 0) / 100), r["px"]
         for L in hx.get("levels") or []:
             p = L.get("price")
@@ -264,35 +333,42 @@ def run(notify: bool = True, slot: str | None = None) -> dict:
             personal.append({"kind": "pick_in", "symbol": s, "key": f"{s}:pick_in", "px": r["px"], "zone": [z0, z1], "stop": p.get("stop"), "style": p.get("style")})
         elif r["px"] > chase:
             personal.append({"kind": "pick_chase", "symbol": s, "key": f"{s}:pick_chase", "px": r["px"], "zone": [z0, z1], "chase": chase})
+    return personal
 
-    # ---- cảnh báo hành vi bất thường toàn thị trường (mã thanh khoản)
-    sev = {"leave_c": 3, "fade_pm": 3, "fade_hi": 2, "pump_am": 2, "vol": 2, "f_sell": 1, "rec_f": 2, "bounce_pm": 2, "bounce_lo": 1,
-           "dump_am": 1, "f_buy": 1, "at_ceil": 0, "at_floor": 0}
-    mkt = []
-    for s, r in rows.items():
-        c = S.get(s)
-        if not c or (c.get("val") or 0) < 5:
+
+LIVE_FEATURE = {"flag": "live", "pick_in": "today", "pick_chase": "today"}
+
+
+def live_notes(items: list[dict], rows: dict, S: dict, today: str, feats: set) -> list[dict]:
+    """Chuyển việc trong phiên thành thông báo (key trùng định dạng với lượt đóng cửa để không báo hai lần)."""
+    out = []
+    for p in items:
+        f = LIVE_FEATURE.get(p["kind"])
+        if f and f not in feats:
             continue
-        sc = max([sev.get(f, 0) for f in r["flags"]] or [0])
-        if sc >= 2:
-            mkt.append({"s": s, "sev": sc, "flags": r["flags"], "score": c.get("score"), "tags": c.get("tags")})
-    mkt.sort(key=lambda x: (-x["sev"], -(x.get("score") or 0)))
-
-    out = {"ok": True, "at": now.isoformat(timespec="minutes"), "date": today, "slot": slot, "minute": minute, "index": idx,
-           "rows": [rows[s] for s in sorted(rows)], "personal": personal, "market": mkt[:40],
-           "ctx_date": ctx.get("date"), "n": len(rows)}
-    ok_kv = _kv_put("intraday", out)
-    log.info("Trong phiên %s: %d mã, %d việc của anh, %d mã bất thường, KV=%s", slot, len(rows), len(personal), len(mkt), ok_kv)
-    try:
-        snap = pd.DataFrame([{"symbol": r["s"], "date": pd.Timestamp(today), "slot": slot, "px": r["px"], "chg": r["chg"], "hi": r["hi"], "lo": r["lo"],
-                              "pace": r["pace"], "val": r["val"], "fn": r["fn"], "m_ret": r.get("m_ret"), "a_ret": r.get("a_ret"),
-                              "flags": ",".join(r["flags"])} for r in rows.values()])
-        store.upsert("live_snap", snap, ["symbol", "date", "slot"])
-    except Exception as e:  # noqa: BLE001
-        log.warning("Không lưu được ảnh chụp trong phiên: %s", e)
-    store.path("live_last.json").write_text(json.dumps(out, ensure_ascii=False, default=str), encoding="utf-8")
-    if notify:
-        send(out, ctx, held)
+        s, r = p["symbol"], rows.get(p["symbol"], {})
+        if p["kind"] == "exit":
+            act = "bán hết" if (p.get("sell") or 0) >= 0.999 else ("xem lại luận điểm" if not p.get("sell") else f"bán {round(p['sell'] * 100)}% (≈ {_v(p['qty'], 0)} cp)")
+            if p["hit"]:
+                out.append({"kind": "exit", "key": f"{today}:hit:{p['key']}", "sev": 3, "sym": s, "url": "#/portfolio",
+                            "title": f"{s} ĐÃ CHẠM {p.get('label') or ''} {_v(p['price'])}", "body": f"Giá {_v(p['px'])} → {act}"})
+            else:
+                out.append({"kind": "near", "key": f"{today}:near:{p['key']}", "sev": 2, "sym": s, "url": "#/portfolio",
+                            "title": f"{s} sắp chạm {p.get('label') or ''} {_v(p['price'])}", "body": f"Còn {_v(p['dist'], 1)}% · giá {_v(p['px'])} · {act}"})
+        elif p["kind"] == "alert":
+            out.append({"kind": "alert", "key": f"{today}:{p['key']}", "sev": 2, "sym": s, "url": f"#/s/{s}",
+                        "title": f"Cảnh báo giá {s}", "body": p["text"] + (f" · {p['note']}" if p.get("note") else "")})
+        elif p["kind"] == "flag":
+            adv = "; ".join(dict.fromkeys(ADVICE[f_] for f_ in p["flags"] if f_ in ADVICE))
+            out.append({"kind": "flag", "key": f"{today}:{p['key']}", "sev": 1 if p.get("held") else 0, "sym": s, "url": "#/swing/live",
+                        "title": f"{s}{'' if p.get('held') else ' (theo dõi)'} {_v(r.get('chg'), 1)}%: biến động bất thường",
+                        "body": flag_text(s, r, S.get(s) or {}) + (f". {adv}" if adv else "")})
+        elif p["kind"] == "pick_in":
+            out.append({"kind": "pick_in", "key": f"{today}:{p['key']}", "sev": 1, "sym": s, "url": f"#/s/{s}",
+                        "title": f"{s} vào vùng mua {_v(p['zone'][0])}–{_v(p['zone'][1])}", "body": f"Giá {_v(p['px'])}, dừng lỗ {_v(p.get('stop'))}"})
+        elif p["kind"] == "pick_chase":
+            out.append({"kind": "pick_chase", "key": f"{today}:{p['key']}", "sev": 0, "sym": s, "url": f"#/s/{s}",
+                        "title": f"{s} đã vượt {_v(p['chase'])} – không mua đuổi", "body": f"Chờ về vùng {_v(p['zone'][0])}–{_v(p['zone'][1])}"})
     return out
 
 

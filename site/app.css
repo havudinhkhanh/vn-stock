@@ -902,3 +902,34 @@ table.flt tr.mine td:first-child{box-shadow:inset 3px 0 0 var(--brand)}
 .rels li b{display:block}
 @media (max-width:640px){.relg{grid-template-columns:1fr}}
 .rels.grp{margin:0 0 8px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));font-size:.82rem}
+/* ---- tài khoản, chuông thông báo, khoá theo gói */
+.bell{position:relative}
+.bell #bellN{position:absolute;top:-5px;right:-6px;min-width:16px;height:16px;padding:0 4px;border-radius:9px;background:var(--down);color:#fff;font-size:.62rem;font-weight:700;display:grid;place-items:center;line-height:1}
+.bell #bellN[hidden]{display:none}
+.mebtn{font-weight:700;font-size:.8rem;background:var(--brand-2);color:var(--brand);border-color:transparent;border-radius:50%}
+.menu{position:fixed;top:46px;right:12px;z-index:60;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.18);min-width:240px;max-width:min(420px,calc(100vw - 24px))}
+.memenu{display:grid;padding:6px}
+.memenu .mh{display:grid;gap:2px;padding:6px 8px 8px;border-bottom:1px solid var(--line-2);margin-bottom:4px}
+.memenu .mh small{color:var(--ink-3)}.memenu .mh .pill{justify-self:start;margin-top:4px}
+.memenu a,.memenu button{padding:7px 8px;border-radius:6px;color:var(--ink);text-align:left;background:none;border:0;font:inherit;cursor:pointer}
+.memenu a:hover,.memenu button:hover{background:var(--sunk);text-decoration:none}
+.bellbox{width:400px;max-height:70vh;display:flex;flex-direction:column}
+.bellbox .ph{padding:8px 10px 4px}.bellbox .ntfs{overflow:auto}
+.bellbox .more{display:block;text-align:center;padding:8px;border-top:1px solid var(--line-2)}
+.ntf{display:grid;grid-template-columns:22px 1fr auto;gap:8px;padding:8px 10px;border-bottom:1px solid var(--line-2);color:var(--ink);align-items:start}
+.ntf:hover{background:var(--sunk);text-decoration:none}
+.ntf.new{background:color-mix(in srgb,var(--brand) 7%,transparent)}
+.ntf.new .nb b::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--brand);margin-right:6px;vertical-align:1px}
+.ntf .nb{display:grid;gap:2px;min-width:0}.ntf .nb small{color:var(--ink-2);font-size:.76rem;line-height:1.35}
+.ntf time{font-size:.7rem;color:var(--ink-3);white-space:nowrap}
+.ntf.sev3 .nb b{color:var(--down)}
+.nkinds{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:4px 14px;font-size:.82rem}
+.lockp{border-style:dashed;background:color-mix(in srgb,var(--brand) 4%,var(--surface))}
+.lockp.sm{margin-top:10px}
+#tabs a.locked{opacity:.55}#tabs a.locked::after{content:"🔒";font-size:.6rem;margin-left:2px}
+.admt input,.admt select{font-size:.78rem;padding:2px 4px}
+.admt tr.pend td{background:color-mix(in srgb,var(--ref) 10%,transparent)}
+th.brand{color:var(--brand)}
+.dg .dgl{margin:0;padding-left:18px;display:grid;gap:4px;font-size:.92rem;line-height:1.45}
+@media (max-width:640px){.bellbox{width:auto;left:12px}.menu{top:44px}}
+@media (max-width:480px){.pdfbtn{display:none}.top-in{gap:6px;padding:6px 10px}.upd small,.upd .ago{display:none}}

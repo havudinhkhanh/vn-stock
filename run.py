@@ -64,7 +64,7 @@ def main() -> None:
         res = build.run(skip_backtest=a.no_backtest or bool(only), force_backtest=a.backtest and not only, only=only)
         if a.notify or a.cmd == "all":
             from app import notify
-            notify.send(res["today"], dry=not a.notify)
+            notify.send(res["today"], dry=not a.notify, watch_syms=res.get("watch"))
     if a.cmd == "notify":
         import json
         from app import config, notify

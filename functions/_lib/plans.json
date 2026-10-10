@@ -1,0 +1,33 @@
+{
+  "order": ["free", "pro"],
+  "plans": {
+    "free": {
+      "name": "Miễn phí",
+      "features": ["digest", "market", "sector", "screener", "calendar", "portfolio", "watch", "notify_web"],
+      "limits": {"holdings": 10, "watch": 15, "alerts": 5}
+    },
+    "pro": {
+      "name": "Pro",
+      "features": ["digest", "market", "sector", "screener", "calendar", "portfolio", "watch", "notify_web",
+                   "today", "stock_full", "swing", "live", "flow", "pairs", "backtest", "pdf", "notify_push", "notify_email"],
+      "limits": {"holdings": 100, "watch": 300, "alerts": 200}
+    }
+  },
+  "feature_names": {
+    "digest": "Bản tin thị trường hằng ngày", "market": "Thị trường", "sector": "Toàn cảnh ngành", "screener": "Bộ lọc cổ phiếu",
+    "calendar": "Lịch sự kiện", "portfolio": "Danh mục & tư vấn mức thoát", "watch": "Danh sách theo dõi & cảnh báo giá",
+    "notify_web": "Thông báo trên web", "today": "Danh sách MUA & kế hoạch theo phong cách", "stock_full": "Phân tích đầy đủ từng mã (vùng mua, sóng, SMC, mã liên quan…)",
+    "swing": "Biến động & đảo chiều", "live": "Bảng trong phiên", "flow": "Dòng tiền lớn & tâm lý", "pairs": "Mã liên quan",
+    "backtest": "Kiểm chứng & tối ưu khẩu vị", "pdf": "Xuất báo cáo PDF", "notify_push": "Thông báo đẩy", "notify_email": "Thông báo qua email"
+  },
+  "paths": [
+    {"re": "^/data/swing\\.json$", "feature": "swing"},
+    {"re": "^/data/flow\\.json$", "feature": "flow"},
+    {"re": "^/data/pairs\\.json$", "feature": "pairs"},
+    {"re": "^/data/(fwd|fb|backtest|styles_bt|profile_grid)\\.json$", "feature": "backtest"}
+  ],
+  "strip": [
+    {"re": "^/data/today\\.json$", "feature": "today", "keys": ["plan", "styles"]},
+    {"re": "^/data/stocks/[^/]+\\.json$", "feature": "stock_full", "keys": ["levels", "style_levels", "rel", "swing", "fb", "mos", "season", "season_support", "mtf", "waves", "timing", "in_plan"]}
+  ]
+}

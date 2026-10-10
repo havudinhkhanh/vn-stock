@@ -35,6 +35,9 @@ from .analysis import valuation as va
 from .analysis import forecast as fc
 from . import swing_build as swb
 from . import pairs_build as pab
+from . import personal as per_
+from . import users as users_
+import copy
 from .data import store
 from .portfolio_store import apply_profile, load_holdings, load_overrides, load_profile, load_watchlist
 
@@ -107,7 +110,15 @@ def _ohlc_payload(df: pd.DataFrame, n: int = 750) -> dict:
 
 def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[str] | None = None) -> dict:
     cfg = config.load()
-    profile = load_profile()
+    cfg0 = copy.deepcopy(cfg)
+    # nhiều người dùng (D1): khẩu vị / giả định của quản trị viên là "cấu hình nhà"; mỗi người có tư vấn riêng
+    be = users_.backend()
+    U = users_.load(be) if be else None
+    multi = U is not None
+    owner = next((x for x in (U or []) if x["role"] == "admin"), None)
+    if multi:
+        log.info("Nhiều người dùng: %d tài khoản đang hoạt động (quản trị: %s)", len(U), owner["email"] if owner else "—")
+    profile = ((owner or {}).get("data", {}).get("profile") or {}) if multi else load_profile()
     prof_changed = apply_profile(cfg, profile)
     if prof_changed:
         log.info("Dùng khẩu vị anh chỉnh trên web: %s", ", ".join(prof_changed))
@@ -155,12 +166,19 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     min_val = float(ucfg.get("min_avg_value_bn", 3))
     liquid = sorted(avg_val[avg_val >= min_val].index)
     deep_val = float(ucfg.get("deep_min_avg_value_bn", 0.5))
-    holdings, cash_vnd, capital = load_holdings()
+    if multi:
+        holdings, cash_vnd, capital = per_.holdings_of((owner or {}).get("data") or {})
+        held_all = {h["symbol"].upper() for x in U for h in per_.holdings_of(x["data"])[0]}
+        watch_all = {str(w["symbol"]).upper() for x in U for w in per_.watch_of(x["data"])}
+    else:
+        holdings, cash_vnd, capital = load_holdings()
     held = {h["symbol"].upper() for h in holdings}
+    if not multi:
+        held_all, watch_all = held, {str(w.get("symbol", "")).upper() for w in load_watchlist()}
     symbols = [s for s in lst.index if lst.loc[s, "exchange"] in exch and s in g]
     if only:
         symbols = [s for s in symbols if s in only]
-    deep = {s for s in symbols if avg_val.get(s, 0) >= deep_val} | (held & set(symbols))
+    deep = {s for s in symbols if avg_val.get(s, 0) >= deep_val} | (held_all & set(symbols))
 
     fq = fu.add_ttm(fin_q) if not fin_q.empty else pd.DataFrame()
     of_all = store.read("orderflow")
@@ -341,7 +359,8 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     # ------------------------------------------------------------ định giá (cần trung vị ngành)
     vcfg = cfg.get("valuation") or {}
     mos = float((cfg.get("risk") or {}).get("margin_of_safety", 20))
-    overrides = load_overrides()
+    overrides = ({k.upper(): v for k, v in (((owner or {}).get("data", {}).get("assumptions")) or {}).items() if isinstance(v, dict)}
+                 if multi else load_overrides())
     for s in u.index:
         r = u.loc[s]
         d = details.get(s)
@@ -501,37 +520,10 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             iw[key]["reliability"] = pstats_map.get(key2)
     # ------------------------------------------------------------ cảnh báo giá (danh sách theo dõi)
     alerts = []
-    f2 = lambda x: f"{x:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")  # noqa: E731
+    plan_syms = {k: {p["symbol"] for p in sp["picks"]} for k, sp in style_plans.items()}
     try:
-        plan_syms = {k: {p["symbol"] for p in sp["picks"]} for k, sp in style_plans.items()}
-        for it in load_watchlist():
-            s = str(it["symbol"]).upper()
-            if s not in g or g[s].empty:
-                continue
-            bar = g[s].iloc[-1]
-            if pd.Timestamp(g[s].index[-1]).normalize() != pd.Timestamp(last_date).normalize():
-                continue
-            prev_c = float(g[s]["close"].iloc[-2]) if len(g[s]) > 1 else float(bar["close"])
-            for a in it.get("alerts") or []:
-                if not a.get("active", True):
-                    continue
-                typ, val = a.get("type"), a.get("value")
-                hit, txt = False, ""
-                try:
-                    v = float(val) if val not in (None, "") else None
-                except (TypeError, ValueError):
-                    v = None
-                if typ == "below" and v and float(bar["low"]) <= v:
-                    hit, txt = True, f"giá chạm/giảm dưới {f2(v)} (thấp nhất {f2(float(bar['low']))}, đóng cửa {f2(float(bar['close']))})"
-                elif typ == "above" and v and float(bar["high"]) >= v:
-                    hit, txt = True, f"giá chạm/vượt {f2(v)} (cao nhất {f2(float(bar['high']))}, đóng cửa {f2(float(bar['close']))})"
-                elif typ == "pct" and v and prev_c and abs(float(bar["close"]) / prev_c - 1) * 100 >= v:
-                    hit, txt = True, f"biến động {100 * (float(bar['close']) / prev_c - 1):+.1f}% trong phiên"
-                elif typ == "plan" and s in plan_syms.get(a.get("style") or active_style, set()):
-                    hit, txt = True, f"vào danh sách MUA ({sty.STYLES.get(a.get('style') or active_style, {}).get('name', '')})"
-                if hit:
-                    alerts.append({"id": a.get("id") or f"{s}-{typ}-{val}", "symbol": s, "type": typ, "value": v, "text": txt,
-                                   "note": a.get("note") or it.get("note") or "", "close": round(float(bar["close"]), 2), "date": str(last_date.date())})
+        if not multi:
+            alerts = per_.alerts_for(load_watchlist(), g, last_date, plan_syms, active_style)
     except Exception as e:  # noqa: BLE001
         log.exception("Kiểm tra cảnh báo giá lỗi: %s", e)
     # ------------------------------------------------------------ lịch sự kiện (cổ tức đã công bố + hạn nộp BCTC)
@@ -568,6 +560,9 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
              "profile": {"applied": prof_changed, "updated": (profile or {}).get("updated"),
                          "exclude_sectors": cfg.get("exclude_sectors") or [], "exclude_symbols": cfg.get("exclude_symbols") or []},
              "portfolio": advice}
+    if multi:          # phần riêng (danh mục, cảnh báo, khẩu vị) không nằm trong tệp chung – mỗi người đọc qua /api/personal
+        for k in ("portfolio", "alerts", "capital", "profile"):
+            today.pop(k, None)
     dump(out_dir / "today.json", today)
     dump(out_dir / "market.json", market)
     dump(out_dir / "backtest.json", backtest)
@@ -673,18 +668,49 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
                                     "backtest_range": [backtest.get("start"), backtest.get("end")] if backtest.get("ok") else None})
 
     sw_per = {}
-    wl_syms = {str(w.get("symbol", "")).upper() for w in load_watchlist()}
+    wl_syms = watch_all
     try:
         log.info("Hành vi giá: biên độ, đảo chiều, kiểu tay chơi…")
-        sw_per = swb.run(prices[~prices["symbol"].isin(INDEX_SYMS)], listing, u, idx["close"], last_date, out_dir, advice, style_plans, held, wl_syms, active_style)
+        sw_per = swb.run(prices[~prices["symbol"].isin(INDEX_SYMS)], listing, u, idx["close"], last_date, out_dir, advice, style_plans, held_all, wl_syms, active_style)
     except Exception as e:  # noqa: BLE001
         log.exception("Hành vi giá lỗi: %s", e)
     rel_by = {}
     try:
         log.info("Mã liên quan: đồng pha, dẫn dắt, chiến thuật…")
-        rel_by = pab.run(prices[~prices["symbol"].isin(INDEX_SYMS)], listing, u, idx["close"], out_dir, held, wl_syms, pick_syms, cfg, sw_per)
+        rel_by = pab.run(prices[~prices["symbol"].isin(INDEX_SYMS)], listing, u, idx["close"], out_dir, held_all, wl_syms, pick_syms, cfg, sw_per)
     except Exception as e:  # noqa: BLE001
         log.exception("Mã liên quan lỗi: %s", e)
+    # ------------------------------------------------------------ bản tin thị trường (chung)
+    try:
+        from . import digest as dg_
+        dline = dg_.build(out_dir, u, today, market, idx, last_date, sw_per, store, g)
+        today["digest_line"] = dline
+    except Exception as e:  # noqa: BLE001
+        log.exception("Bản tin thị trường lỗi: %s", e)
+    # ------------------------------------------------------------ phần riêng từng người dùng
+    owner_today, owner_watch = today, None
+    pctx = {"u": u, "g": g, "cfg0": cfg0, "regime": regime, "last_date": last_date, "plan_syms": plan_syms, "active_style": active_style,
+            "co": pab.LAST_CO, "rel_by": rel_by}
+    if multi:
+        try:
+            pers = per_.run_all(be, U, pctx, today, out_dir)
+            cp = store.path("live_ctx.json")
+            if cp.exists():
+                lc = json.loads(cp.read_text(encoding="utf-8"))
+                lc["users"] = {str(uid): {"holdings": per_.holdings_levels(p_.get("portfolio")), "style": p_.get("style")} for uid, p_ in pers.items()}
+                lc["owner"] = owner["id"] if owner else None
+                cp.write_text(json.dumps(lc, ensure_ascii=False, default=str), encoding="utf-8")
+            if owner and owner["id"] in pers:
+                owner_today = {**today, **pers[owner["id"]]}
+                owner_watch = {str(w["symbol"]).upper() for w in per_.watch_of(owner["data"])}
+        except Exception as e:  # noqa: BLE001
+            log.exception("Phần riêng người dùng lỗi: %s", e)
+    else:
+        try:
+            today["rel"] = per_.rel_for(pab.LAST_CO, rel_by, held, watch_all)
+            dump(out_dir / "today.json", today)
+        except Exception as e:  # noqa: BLE001
+            log.exception("Mã liên quan trong danh mục lỗi: %s", e)
     for s, d in details.items():
         r = u.loc[s]
         peers = u[(u["industry"] == r["industry"]) & u["has_fin"]].sort_values("mcap_bn", ascending=False)
@@ -758,7 +784,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     check["pattern_stats"] = pstats.get("stats", {})
     dump(store.path("check.json"), check)
     log.info("Xuất xong %d mã, %d trang chi tiết trong %ss", len(u), len(details), meta["seconds"])
-    return {"today": today, "meta": meta}
+    return {"today": owner_today, "meta": meta, "watch": owner_watch}
 
 
 def _why(r: pd.Series, basket: str) -> str:

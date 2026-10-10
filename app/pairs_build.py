@@ -12,6 +12,7 @@ from .analysis import strategy as st
 from .data import store
 
 log = logging.getLogger("pairs")
+LAST_CO: dict = {}
 MIN_VAL = 3.0      # tỷ đồng/phiên (trung bình 60 phiên gần nhất)
 
 
@@ -73,15 +74,15 @@ def run(prices: pd.DataFrame, listing: pd.DataFrame, u: pd.DataFrame, idx_close:
             if y not in S:
                 continue
             ys = S[y]
-            strat = pr.strategy(x, y, c, S[x], ys, V_, lead_by.get((x, y)), lead_by.get((y, x)), held)
+            strat = pr.strategy(x, y, c, S[x], ys, V_, lead_by.get((x, y)), lead_by.get((y, x)), set())
             co.append({**c, **{k: ys.get(k) for k in ("name", "industry", "price", "chg1m", "trend", "ta_label", "verdict", "upside", "composite",
-                                                      "flow_st", "es_k", "es_t", "es_c", "lv", "rsi")}, "held": y in held, "strat": strat})
+                                                      "flow_st", "es_k", "es_t", "es_c", "lv", "rsi")}, "strat": strat})
         leads = [p for p in A["pairs"] if p["lead"] == x]
         follows = [p for p in A["pairs"] if p["follow"] == x]
         if not co and not leads and not follows:
             continue
-        grp = pr.group(x, co, S[x], V_, held)
-        rel[x] = {"co": co, "group": grp, "leads": leads, "follows": follows, "held_x": x in held, "ccf_lags": A["ccf_lags"], "ccf_band": A["ccf_band"]}
+        grp = pr.group(x, co, S[x], V_, set())
+        rel[x] = {"co": co, "group": grp, "leads": leads, "follows": follows, "ccf_lags": A["ccf_lags"], "ccf_band": A["ccf_band"]}
     # cặp đồng pha mạnh nhất toàn thị trường + rủi ro tập trung trong danh mục
     top, seen = [], set()
     for x, lst in A["co"].items():
@@ -93,22 +94,15 @@ def run(prices: pd.DataFrame, listing: pd.DataFrame, u: pd.DataFrame, idx_close:
             top.append({"a": k[0], "b": k[1], "rc": c["rc"], "rc_l": c["rc_l"], "p_dd": c["p_dd"], "p_base": c["p_base"], "same": c["same"],
                         "ind_a": (S.get(k[0]) or {}).get("industry"), "ind_b": (S.get(k[1]) or {}).get("industry")})
     top.sort(key=lambda z: -(z["rc"] or 0))
-    conc = []
-    hl = sorted(s for s in held if s in A["co"])
-    for i, a in enumerate(hl):
-        for c in A["co"][a]:
-            if c["s"] in held and c["s"] > a and (c["rc"] or 0) >= 0.4:
-                conc.append({"a": a, "b": c["s"], "rc": c["rc"], "p_dd": c["p_dd"], "p_base": c["p_base"]})
-    mine = {s: rel[s] for s in sorted((held | watch) & set(rel))}
     out = {"date": A["date"], "n_syms": A["n_syms"], "weeks": A["weeks"], "n_tests": A["n_tests"], "exp_false": A["exp_false"], "n_found": n_found,
            "fdr": _f(fdr, 2), "stats": A["stats"], "pairs": [{**p, "ind_l": (S.get(p["lead"]) or {}).get("industry"), "ind_f": (S.get(p["follow"]) or {}).get("industry"),
                                                                "es_f": (S.get(p["follow"]) or {}).get("es_t")} for p in A["pairs"]],
-           "tests": tests_small, "top": top[:60], "conc": conc,
-           "mine": {s: [{k: c.get(k) for k in ("s", "rc", "p_dd", "p_base", "es_t", "es_c", "held")} for c in r_["co"][:5]] for s, r_ in mine.items()},
+           "tests": tests_small, "top": top[:60],
            "split": A["split"], "min_val": MIN_VAL}
     (out_dir / "pairs.json").write_text(json.dumps(_clean(out), ensure_ascii=False), encoding="utf-8")
-    log.info("Mã liên quan: %d mã có danh sách đồng pha, %d cặp dẫn dắt qua kiểm chứng (kỳ vọng sai %.1f), %d cặp tập trung trong danh mục",
-             len(rel), n_found, A["exp_false"] or 0, len(conc))
+    log.info("Mã liên quan: %d mã có danh sách đồng pha, %d cặp dẫn dắt qua kiểm chứng (kỳ vọng sai %.1f)", len(rel), n_found, A["exp_false"] or 0)
+    global LAST_CO
+    LAST_CO = A["co"]
     return {s: _clean({**r_, "tests": tests_small, "n_tests": A["n_tests"], "exp_false": A["exp_false"], "n_found": n_found, "fdr": _f(fdr, 2)}) for s, r_ in rel.items()}
 
 

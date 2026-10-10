@@ -91,6 +91,42 @@ Chưa làm bước này thì nút trên web sẽ dẫn anh sang trang GitHub Act
 
 ---
 
+## Nhiều người dùng & gói hội viên
+
+Khi gắn cơ sở dữ liệu Cloudflare D1, trang chuyển sang chế độ nhiều người dùng. Chưa gắn D1 thì trang chạy như cũ: một chủ sở hữu, đăng nhập qua Cloudflare Access.
+
+**Bật lần đầu (làm một lần):**
+1. Cloudflare → My Profile → API Tokens → sửa token đang dùng cho GitHub (`CF_API_TOKEN`) → thêm quyền **Account · D1 · Edit** → Save. Lượt chạy kế tiếp tự tạo D1 `vnstock`, gắn vào trang, tự tạo bảng, khoá phiên và khoá thông báo đẩy.
+2. Mở trang → bị chuyển sang `/login` → **Đăng ký** bằng email trong `OWNER_EMAIL` (nếu chưa đặt `OWNER_EMAIL` thì người đăng ký đầu tiên). Người này thành quản trị viên, không cần mã mời. Danh mục, theo dõi, khẩu vị đang có trong KV được chép sang tài khoản này.
+3. Kiểm tra mọi thứ chạy đúng (đăng nhập, Danh mục, chuông thông báo), rồi Cloudflare Zero Trust → Access → Applications → **xoá ứng dụng bảo vệ vn-stock.pages.dev**, để người khác vào được trang đăng nhập.
+4. (Tuỳ chọn) Quản trị → Cấu hình:
+   - Google Client ID: Google Cloud Console → Credentials → OAuth client ID (Web), thêm địa chỉ trang vào *Authorized JavaScript origins*.
+   - SMTP Gmail để gửi email: mật khẩu ứng dụng tạo ở myaccount.google.com/apppasswords.
+
+**Hằng ngày:**
+- **Mời người dùng**: Quản trị → Mã mời → tạo mã, chọn gói và số ngày dùng gói → gửi liên kết `…/login#invite=MÃ`. Ai đăng ký không có mã sẽ ở trạng thái *chờ duyệt*; anh nhận thông báo và duyệt ở Quản trị → Người dùng. Ở đó anh cũng đổi gói, ngày hết hạn, khoá tài khoản và tạo liên kết đặt lại mật khẩu.
+- **Gói Miễn phí / Pro**: bảng quyền lợi nằm ở `functions/_lib/plans.json`. Server tự chặn dữ liệu theo gói:
+  - tệp `swing`, `flow`, `pairs`, kiểm chứng: trả lỗi 402 với gói Miễn phí;
+  - trang mã và danh sách MUA: lược bỏ các phần chuyên sâu.
+
+  Gói hết hạn tự về Miễn phí. Chưa có thanh toán tự động: anh bật gói bằng tay.
+- **Mỗi người có dữ liệu riêng**: danh mục, theo dõi, cảnh báo, khẩu vị, nhật ký. Các lượt 11:35 / 14:35 / 15:35 tính tư vấn mức thoát, cảnh báo giá và mã đồng pha cho từng người (`app/personal.py`, `app/users.py`), rồi tạo thông báo:
+  - **chuông trên web**: mọi gói;
+  - **thông báo đẩy** điện thoại / máy tính: Pro (`app/webpush.py`, iPhone cần "Thêm vào Màn hình chính");
+  - **email**: Pro.
+
+  Mỗi người tự chọn mức gửi ở trang Tài khoản. Telegram vẫn chỉ gửi cho chủ sở hữu.
+- **Bản tin thị trường** (`#/digest`, trang chủ của gói Miễn phí): chỉ số, độ rộng, thanh khoản, ngành, mã kéo / đè chỉ số, tăng / giảm mạnh, khối lượng đột biến, dòng tiền lớn, tâm lý, phiên bất thường, sự kiện 7 ngày tới, tin tức. Mỗi phiên một bản, có lưu trữ (`app/digest.py`).
+- **Bảo mật**:
+  - mật khẩu băm PBKDF2;
+  - cookie phiên HttpOnly ký HMAC, tự kiểm tra lại tài khoản 10 phút / lần;
+  - chặn dò mật khẩu: 8 lần sai thì khoá 15 phút;
+  - chặn gửi yêu cầu từ trang khác;
+  - "Đăng xuất mọi thiết bị";
+  - nhật ký quản trị.
+
+⚖️ Trước khi thu phí: dịch vụ tư vấn đầu tư chứng khoán ở Việt Nam là ngành nghề kinh doanh có điều kiện (Luật Chứng khoán 2019). Ngoài ra cần xem lại điều khoản dùng lại dữ liệu giá của nguồn và quy định bảo vệ dữ liệu cá nhân. Nên hỏi luật sư.
+
 ## Dùng hằng ngày
 
 - **Mở web trên điện thoại.** Trên iPhone: Safari → nút Chia sẻ → **Thêm vào MH chính**, web sẽ hiện như một ứng dụng.
