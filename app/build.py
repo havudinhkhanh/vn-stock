@@ -40,6 +40,7 @@ from . import swing_build as swb
 from . import pairs_build as pab
 from . import personal as per_
 from . import notify
+from .analysis import corpact as ca_
 from . import users as users_
 import copy
 from .data import store
@@ -138,12 +139,29 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     sh_now = store.read("shares_now")
     if not sh_now.empty:
         sh_now = sh_now[pd.to_datetime(sh_now["date"]) >= pd.Timestamp.now() - pd.Timedelta(days=45)]
+    sh_date = dict(zip(sh_now["symbol"], pd.to_datetime(sh_now["date"]))) if not sh_now.empty else {}
     sh_now = dict(zip(sh_now["symbol"], sh_now["shares_now"])) if not sh_now.empty else {}
     if prices.empty or listing.empty:
         raise SystemExit("Chưa có dữ liệu. Chạy: python run.py update")
     prices["date"] = pd.to_datetime(prices["date"])
     if not divs.empty:
         divs["ex_date"] = pd.to_datetime(divs["ex_date"])
+        # cổ tức tiền quy về số cổ phiếu hiện tại (sau các lần chia cổ phiếu) – cùng gốc với giá đã điều chỉnh
+        divs = ca_.cash_per_current_share(divs, prices["date"].max())
+    # số CP ghi lại trước ngày GDKHQ chia cổ phiếu (để biết nguồn đã cộng cổ phiếu mới chưa)
+    pre_log = {}
+    try:
+        sp_ = store.read("share_pre")
+        pre_log = {(r.symbol, str(pd.Timestamp(r.ex_date).date())): float(r.pre) for r in sp_.itertuples()} if not sp_.empty else {}
+        if not divs.empty and sh_now:
+            st_ = divs[~divs["method"].astype(str).str.contains("cash", na=False) & (divs["ex_date"] > prices["date"].max())]
+            add_ = [{"symbol": r.symbol, "ex_date": r.ex_date, "pre": sh_now[r.symbol]} for r in st_.itertuples()
+                    if r.symbol in sh_now and (r.symbol, str(r.ex_date.date())) not in pre_log]
+            if add_:
+                store.upsert("share_pre", pd.DataFrame(add_), ["symbol", "ex_date"])
+                pre_log.update({(a["symbol"], str(a["ex_date"].date())): float(a["pre"]) for a in add_})
+    except Exception as e:  # noqa: BLE001
+        log.warning("Ghi số CP trước chia cổ phiếu lỗi: %s", e)
     listing = listing.copy()
     for c in ("sector", "industry", "subindustry"):
         if c not in listing:
@@ -197,7 +215,10 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         2) suy ra từ giá: vốn hoá/số CP tại cuối quý (giá thật lúc đó) so với giá đã điều chỉnh cùng ngày;
         3) None -> dùng số CP trong báo cáo."""
         if sym in sh_now:
-            return sh_now[sym]
+            v, info = ca_.shares_after_splits(sym, sh_now[sym], sh_date.get(sym), dv_by.get(sym), close.index[-1] if close is not None and len(close) else None, pre_log)
+            if info:
+                split_info[sym] = info
+            return v
         L = fu.latest_row(qs) if qs is not None and not qs.empty else None
         if L is None:
             return None
@@ -213,6 +234,30 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         if 0.2 < f < 0.93:       # giá quá khứ đã bị điều chỉnh giảm -> có chia thưởng/phát hành sau kỳ báo cáo
             return sh / f
         return None
+    split_info: dict = {}
+
+    def corp_view(sym: str, fa: dict, price: float, d_last) -> dict | None:
+        """P/E quanh các đợt chia cổ tức: P/E đúng (số CP sau chia), P/E nếu tính theo số CP cũ, P/E trừ cổ tức tiền sắp nhận."""
+        eps, pe = fa.get("eps"), fa.get("pe")
+        up = ca_.upcoming(dv_by.get(sym), d_last)
+        sp = split_info.get(sym)
+        out = {}
+        if sp and eps and eps > 0:
+            out["split"] = {**sp, "pe_listed": round(pe / sp["factor"], 1) if pe else None, "eps_listed": round(eps * sp["factor"])}
+        if up["stock"] and eps and eps > 0:
+            f_ = float(np.prod([1 + x["ratio"] for x in up["stock"]]))
+            out["stock_next"] = [{**x, "ref_price": round(price / (1 + x["ratio"]), 2)} for x in up["stock"]]
+            out["eps_after"] = round(eps / f_)
+        if up["cash"] and eps and eps > 0 and pe:
+            dps = sum(x["dps"] for x in up["cash"])
+            out["cash_next"] = up["cash"]
+            out["pe_xd"] = round((price * 1000 - dps) / eps, 1) if price * 1000 > dps else None
+            out["yield_next"] = round(100 * dps / (price * 1000), 2)
+        dv = (fa.get("dividend") or {})
+        if dv.get("split_adj"):
+            out["dps_adj"] = dv["split_adj"]
+        return out or None
+
     fq_by = {s: d for s, d in fq.groupby("symbol")} if not fq.empty else {}
     fy_by = {s: d.sort_values("year") for s, d in fin_y.groupby("symbol")} if not fin_y.empty else {}
     dv_by = {s: d for s, d in divs.groupby("symbol")} if not divs.empty else {}
@@ -273,6 +318,8 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         ctype = lst.loc[s, "com_type"] if "com_type" in lst.columns and isinstance(lst.loc[s, "com_type"], str) else "CT"
         fa = fu.analyze_symbol(s, fq_by.get(s), fy_by.get(s), price, dv_by.get(s), ctype,
                                effective_shares(s, fq_by.get(s), df["close"]))
+        if fa.get("ok"):
+            fa["corp"] = corp_view(s, fa, price, df.index[-1])
         c = df["close"]
         r = {
             "symbol": s, "name": lst.loc[s, "name"], "exchange": lst.loc[s, "exchange"],

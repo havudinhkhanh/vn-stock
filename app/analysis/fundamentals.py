@@ -129,7 +129,18 @@ def dividend_profile(divs: pd.DataFrame, price: float, eps_ttm: float | None) ->
              "stock_pct": _r(100 * stock[stock["year"] == y]["cash_pct"].sum(), 1)}
             for y in sorted(set(d["year"]))[-10:]]
     dps_avg3 = float(np.mean([cash_by_year.get(y, 0) for y in range(now.year - 3, now.year)]))
+    split_adj = None
+    if "cash_raw" in cash.columns:
+        ttm_raw = cash[cash["ex_date"] > now - pd.Timedelta(days=365)]["cash_raw"].sum() * 10000
+        raw3 = float(np.mean([(cash[cash["year"] == y]["cash_raw"].sum() * 10000) for y in range(now.year - 3, now.year)]))
+        if abs(raw3 - dps_avg3) > 1 or abs(ttm_raw - ttm) > 1:
+            split_adj = {"dps_ttm_raw": _r(ttm_raw, 0), "dps_avg3_raw": _r(raw3, 0),
+                         "yield_raw": _r(100 * ttm_raw / (price * 1000), 2) if price else None,
+                         "yield_avg3_raw": _r(100 * raw3 / (price * 1000), 2) if price else None}
+            for h in hist:
+                h["cash_dps_raw"] = float((cash[cash["year"] == h["year"]]["cash_raw"].sum() * 10000).round(0))
     return {
+        "split_adj": split_adj,
         "has_data": True,
         "dps_ttm": _r(ttm, 0),
         "dps_avg3": _r(dps_avg3, 0),

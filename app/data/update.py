@@ -271,11 +271,23 @@ def update_dividends(symbols: list[str], workers: int = 2, mark: bool = True) ->
 
 
 def update_shares(symbols: list[str], workers: int = 2) -> None:
-    """Số cổ phiếu hiện tại (trang thông tin DN của Vietcap – máy chủ chậm nên tải luân phiên theo lô)."""
+    """Số cổ phiếu hiện tại (trang thông tin DN của Vietcap – máy chủ chậm nên tải luân phiên theo lô).
+    Ưu tiên mã vừa / sắp GDKHQ chia cổ phiếu (−60 … +10 ngày): cần biết sớm khi cổ phiếu mới lên sàn để P/E không lệch."""
     per_run = int(config.get("data.shares_per_run", 120))
     cur = store.read("shares_now")
     last = dict(zip(cur["symbol"], pd.to_datetime(cur["date"]))) if not cur.empty else {}
-    symbols = sorted(symbols, key=lambda s: (s in last, last.get(s, pd.Timestamp(0))))[:per_run]
+    hot = set()
+    try:
+        dv = store.read("dividends")
+        if not dv.empty:
+            ex = pd.to_datetime(dv["ex_date"])
+            now = pd.Timestamp.now().normalize()
+            hot = set(dv[~dv["method"].astype(str).str.contains("cash", na=False) & (ex >= now - pd.Timedelta(days=60))
+                         & (ex <= now + pd.Timedelta(days=10))]["symbol"])
+    except Exception:  # noqa: BLE001
+        hot = set()
+    today = pd.Timestamp.now().normalize()
+    symbols = sorted(symbols, key=lambda s: (not (s in hot and last.get(s, pd.Timestamp(0)) < today), s in last, last.get(s, pd.Timestamp(0))))[:per_run]
     rows, used = [], Counter()
 
     def one(s):

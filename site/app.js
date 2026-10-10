@@ -2382,7 +2382,7 @@ function tabVal(d) {
   if (!v.ok || !v.model) return `<div class="empty">${esc(v.reason || "Không đủ số liệu để dự phóng (doanh nghiệp lỗ, vốn chủ âm hoặc thiếu BCTC).")}</div>`;
   const a = v.model.assumptions;
   return `<div class="g g-main"><div class="stack">
-    ${panel("Giá trị hợp lý", `<div id="vOut"></div>`)}
+    ${panel("Giá trị hợp lý", `${corpBox(d.fa)}<div id="vOut"></div>`)}
     ${panel("Bảng dự phóng (kịch bản cơ sở)", `<div id="pOut"></div><p class="faint" style="margin-top:6px;font-size:.74rem">Doanh thu tăng theo giả định, giảm dần về mức dài hạn; biên lợi nhuận và chi phí theo tỷ lệ doanh thu; lợi nhuận khác giảm 20%/năm.
       Lãi vay = lãi suất × dư nợ bình quân (dư nợ = nợ/vốn × vốn chủ + vay cho dự án mới); FCFE = LN + khấu hao − đầu tư TSCĐ − tăng vốn lưu động + vay ròng.
       Ngân hàng/CTCK/bảo hiểm dự phóng thẳng lợi nhuận. Kịch bản Xấu/Tốt điều chỉnh tăng trưởng và biên lợi nhuận.</p>`, "tỷ đồng")}</div>
@@ -2544,6 +2544,7 @@ const HELP_FAQ = [
   ["Khuyến nghị", "Giá đã giảm sàn nhiều phiên, P/E chỉ 4x – có phải cơ hội vàng?", "Kiểm chứng 560 đợt 2016–2026: mua ngay khi sập hoặc bắt nhịp hồi sớm thường thua thị trường và còn sụt thêm ~30%. Cơ hội có thật nhưng đến muộn hơn: khi đủ 120 phiên từ lúc có cờ và 60 phiên liền không giảm sàn, nhất là DN còn lãi, nợ thấp. Trang mã đếm ngược số phiên còn phải chờ; thêm mã vào Theo dõi để được báo đúng lúc."],
   ["Khuyến nghị", "Giá trị hợp lý tính thế nào? Tôi muốn dùng giả định của mình.", "P/E và P/B mục tiêu theo trung vị ngành (điều chỉnh theo ROE của mã), DCF dòng tiền cho cổ đông và DDM khi phù hợp; lợi nhuận đỉnh/đáy chu kỳ được chuẩn hoá. Trong trang mã → tab Dự phóng & định giá, sửa tăng trưởng, biên lợi nhuận… giá trị hợp lý tính lại ngay và có thể lưu."],
   ["Khuyến nghị", "DCF có tính lãi vay, nợ vay và kế hoạch đầu tư (mua tàu, xây nhà máy) không?", "Có. Mô hình dự phóng rõ từng dòng: EBIT − lãi vay (lãi suất thực tế = chi phí lãi 12 tháng ÷ dư nợ vay bình quân) → lợi nhuận; dòng tiền cho cổ đông = lợi nhuận + khấu hao − đầu tư TSCĐ − tăng vốn lưu động + vay ròng (dư nợ đi theo tỷ lệ nợ/vốn chủ). Đầu tư TSCĐ đi từ nhịp 2 năm gần nhất về mức duy trì. Kế hoạch chưa có trong BCTC (vd. PVT đóng tàu mới, DN vay xây nhà máy) nhập ở mục Kế hoạch đầu tư mới: tổng vốn, số năm, % vay, doanh thu và biên khi chạy đủ – giá trị tính lại ngay. Có thêm kiểm tra chéo FCFF/WACC; DN đang đầu tư lớn có cảnh báo riêng."],
+  ["Khuyến nghị", "P/E trước và sau chia cổ tức khác nhau thế nào? Dùng số nào?", "Chia cổ tức bằng cổ phiếu / thưởng r% không tạo thêm giá trị: sau ngày GDKHQ giá giảm còn giá ÷ (1 + r), số cổ phiếu tăng (1 + r) lần, EPS giảm theo – P/E đúng thì KHÔNG đổi. Sai lệch xảy ra trong 2–6 tuần cổ phiếu mới chưa lên sàn: giá đã giảm nhưng số cổ phiếu (EPS) vẫn cũ, P/E trông rẻ hơn thật (chia 50% → rẻ giả 33%). Hệ thống luôn tính P/E, P/B, EPS, giá trị hợp lý theo số cổ phiếu SAU chia và ghi rõ P/E nếu tính theo số cũ. Cổ tức tiền các năm trước cũng được quy về số cổ phiếu hiện tại để lợi suất, tỷ lệ chi trả, DDM không cao giả. Trước ngày GDKHQ cổ tức tiền, giá còn gồm quyền nhận tiền – trang mã hiện thêm P/E sau khi trừ cổ tức để so với mã đã trả xong."],
   ["Danh mục", "Bảng “Nếu làm theo hệ thống” tính thế nào?", "Lãi/lỗ của anh/chị dựng lại từ nhật ký giao dịch + danh mục theo giá đóng cửa từng ngày (gồm phí). “Theo hệ thống” = cùng tổng vốn đi theo danh mục mẫu của phong cách đang chọn – gồm cả phần tiền mặt theo đèn: các tháng trước khi có theo dõi thực tế dùng kết quả mô phỏng (đánh dấu mp), từ khi có theo dõi thực tế dùng số thật (tt). Cần ≥ 6 tháng mới nên kết luận."],
   ["Danh mục", "Báo cáo tuần gửi lúc nào?", "Sáng thứ Bảy sau tuần giao dịch, cho người có danh mục hoặc nhật ký. Xem ở Danh mục → Báo cáo tuần (in hoặc lưu PDF); gói Pro nhận thêm email (tắt được trong Tài khoản)."],
   ["Khuyến nghị", "Mã này chạy rồi thì mã cùng ngành có chạy theo không?", "Kiểm chứng trên dữ liệu VN: các mã đồng pha đi CÙNG LÚC, không đi trước nhau vài tuần; mã tụt lại cũng không có xu hướng bắt kịp. Xem phần Mã liên quan trong trang mã để biết nên né cả nhóm khi nào và mã nào trong nhóm đang vào được."],
@@ -2669,6 +2670,18 @@ function spark(vals, o = {}) {
 }
 
 // Bảng so sánh định giá của 1 mã: mã / lịch sử mã / nhóm ngành / ngành / thị trường
+// P/E quanh các đợt chia cổ tức (cổ phiếu / tiền) – cùng gốc số cổ phiếu với giá
+function corpBox(fa) {
+  const c = fa?.corp; if (!c) return "";
+  const dm = (x) => `${x.slice(8, 10)}/${x.slice(5, 7)}`;
+  const L = [];
+  if (c.split) { const e = c.split.events.map((x) => `${nf(x.ratio * 100, 0)}% (GDKHQ ${dm(x.ex_date)})`).join(", ");
+    L.push(`⚙️ <b>P/E đã tính theo số cổ phiếu SAU chia ${e}</b>: ${nf(c.split.shares, 1)} triệu cp thay vì ${nf(c.split.listed, 1)} triệu đang niêm yết (cổ phiếu mới chưa lên sàn nhưng giá đã giảm theo tỷ lệ chia). Tính theo số cổ phiếu cũ – như nhiều bảng giá đang hiện – P/E chỉ <b>${nf(c.split.pe_listed, 1)}</b>, thấp giả; EPS đúng ${nf(fa.eps, 0)}đ (theo CP cũ ${nf(c.split.eps_listed, 0)}đ).`); }
+  (c.stock_next || []).forEach((x) => L.push(`📅 <b>Sắp chia cổ phiếu ${nf(x.ratio * 100, 0)}% – GDKHQ ${dm(x.ex_date)}</b>: giá tham chiếu hôm đó ≈ <b>${nf(x.ref_price)}</b>, EPS ≈ ${nf(c.eps_after, 0)}đ, P/E giữ nguyên ≈ ${nf(fa.pe, 1)}. Giá "giảm" sau ngày này không làm mã rẻ hay đắt hơn; giá trị hợp lý, vùng mua, cắt lỗ cũng chia theo tỷ lệ này.`));
+  if (c.cash_next?.length) L.push(`💵 <b>Sắp GDKHQ cổ tức tiền ${c.cash_next.map((x) => `${nf(x.dps, 0)}đ (${dm(x.ex_date)})`).join(" + ")}</b> – lợi suất ${nf(c.yield_next, 1)}%. Giá hiện tại còn gồm quyền nhận tiền: <b>P/E sau khi trừ cổ tức ${nf(c.pe_xd, 1)}</b> (đang ${nf(fa.pe, 1)}) – dùng số này khi so với mã đã trả cổ tức xong.`);
+  const a = c.dps_adj, dy_ = fa.dividend || {}; if (a && (Math.abs((a.yield_raw ?? 0) - (dy_.yield ?? 0)) >= 0.2 || Math.abs((a.yield_avg3_raw ?? 0) - (dy_.yield_avg3 ?? 0)) >= 0.2)) L.push(`🔁 Cổ tức tiền các năm trước đã quy về số cổ phiếu hiện tại (sau các lần chia cổ phiếu): lợi suất 12 tháng <b>${nf(fa.dividend?.yield, 1)}%</b>, TB 3 năm ${nf(fa.dividend?.yield_avg3, 1)}%. Lấy nguyên số đồng/cp đã công bố chia cho giá hiện tại sẽ ra ${nf(a.yield_raw, 1)}% / ${nf(a.yield_avg3_raw, 1)}% – cao giả.`);
+  return L.length ? `<div class="corpb">${L.map((x) => `<p>${x}</p>`).join("")}</div>` : "";
+}
 function valCtx(d, S, opts = {}) {
   const r = d.row || d, fa = d.fa || {};
   const pe = fa.pe ?? r.pe, pb = fa.pb ?? r.pb, roe = fa.roe ?? r.roe, dy = fa.dividend?.yield ?? r.div_yield, g = fa.ni_yoy ?? r.ni_yoy;
@@ -2697,6 +2710,7 @@ function valCtx(d, S, opts = {}) {
       <td>${nf(b)}</td><td>${isNum(c) ? nf(c, 0) + "%" : "—"}</td></tr>`).join("")}</tbody></table>
     <p class="faint" style="font-size:.72rem;margin-top:4px">${esc(d.symbol || r.symbol)}: cổ tức ${pct(dy, 1, false)} · LN 12 tháng ${pct(g, 0)}${ind || sec ? ` · ngành: cổ tức ${pct((ind || sec).div_med, 1, false)}, LN ${pct((ind || sec).ni_yoy_med, 0)}` : ""}</p>
     <p style="font-size:.8rem;margin-top:6px">P/E <b>${nf(pe, 1)}</b>${say.length ? " – " + say.join("") : ""}.</p>
+    ${corpBox(fa)}
     <p class="faint" style="font-size:.7rem">Số nhỏ cạnh P/E: P/E của mã đắt hơn (đỏ) hoặc rẻ hơn (xanh) dòng đó bao nhiêu %. Rẻ chưa chắc tốt – xem cùng ROE.</p></section>`;
 }
 function peHistChart(d, S) {
