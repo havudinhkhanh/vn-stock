@@ -970,3 +970,12 @@ th.brand{color:var(--brand)}
 @media (max-width:860px){.dgrid{grid-template-columns:1fr}.dhead{font-size:1.05rem}}
 .szl{margin:0 0 8px;font-size:.8rem;padding:6px 8px;background:var(--sunk);border-radius:6px;line-height:1.45}
 .agrp{font-size:.8rem;margin:12px 0 2px;color:var(--ink-2);font-weight:600}
+/* kiểm tra lệnh */
+.ptc{margin-top:10px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--bg-2,transparent)}
+.ptc-h{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.ptc-h b{font-size:.92rem}.ptc-h small{color:var(--ink-3);font-size:.74rem}.ptc-h .chip{margin-left:auto}
+.ptc ul{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:5px}
+.ptc li{display:flex;gap:8px;align-items:flex-start;font-size:.78rem;line-height:1.35}
+.ptc li i{flex:0 0 18px;height:18px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-size:.7rem;font-weight:700;color:#fff;margin-top:1px}
+.ptc li.p-ok i{background:var(--up)}.ptc li.p-warn i{background:var(--ref)}.ptc li.p-bad i{background:var(--down)}
+.ptc li small{display:block;color:var(--ink-3);font-size:.72rem}
+.tbox .tb-in{max-height:92vh;overflow:auto}

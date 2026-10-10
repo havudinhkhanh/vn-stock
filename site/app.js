@@ -211,6 +211,7 @@ function disposeCharts() { while (charts.length) { try { charts.pop().remove(); 
 
 async function route() {
   disposeCharts();
+  $("#tbox")?.remove();
   const h = location.hash.replace(/^#\/?/, "");
   const parts = h.split("/");
   const r = parts[0], arg = parts.slice(1).map((x) => decodeURIComponent(x));
@@ -1333,6 +1334,97 @@ async function applyTrade(tr, pf, J) {
   const [a, b] = await Promise.all([Store.put("portfolio", pf), Store.put("journal", J)]);
   return a && b;
 }
+// ================================================================ KIỂM TRA LỆNH TRƯỚC KHI ĐẶT (tỷ trọng, ngành, đèn, rủi ro, điểm vào, thanh khoản, đồng pha)
+function preTradeCheck(c) {
+  // c: { sym, qty, px, t (today.json), pf, R (screener theo mã), d (trang mã, có thể null) }
+  const { sym, qty, px, t = {}, pf = {}, R = {}, d } = c;
+  if (!sym || !qty || !px) return null;
+  const rk = t.risk || {}, reg = t.regime || {}, SP = (t.styles || {})[t.style || "position"] || {};
+  const r = R[sym] || d?.row || {};
+  const H = (pf.holdings || []).map((h) => ({ s: String(h.symbol).toUpperCase(), q: Number(h.qty) || 0, px: R[String(h.symbol).toUpperCase()]?.price ?? (Number(h.cost) || 0) }))
+    .map((h) => ({ ...h, mv: h.q * h.px * 1000, sec: R[h.s]?.sector || "" }));
+  const mv = H.reduce((s, h) => s + h.mv, 0), cash = isNum(Number(pf.cash)) && pf.cash !== "" && pf.cash != null ? Number(pf.cash) : null;
+  const total = capitalOf(pf) || (cash !== null ? cash + mv : null) || t.portfolio?.total_vnd || null;
+  const val = qty * px * 1000 * (1 + FEE_BUY / 100);
+  const out = [], caps = [];
+  const add = (lvl, k, title, text) => out.push({ lvl, k, title, text });
+  const maxQ = (v) => lot(v / (px * 1000 * (1 + FEE_BUY / 100)));
+  if (!total) add("warn", "cap", "Chưa biết tổng vốn", `Nhập tổng vốn hoặc tiền mặt ở <a href="#/portfolio">Danh mục</a> – lệnh này ${big(val)} đ; không có vốn thì không kiểm được tỷ trọng và rủi ro.`);
+  // 1) tiền mặt
+  if (cash !== null) {
+    if (val > cash * 1.001) { add("bad", "cash", "Không đủ tiền mặt", `Cần ${big(val)} đ, tiền mặt ${big(cash)} đ${rk.use_margin ? " – sẽ dùng margin" : ""}.`); if (!rk.use_margin) caps.push(["tiền mặt", maxQ(cash)]); }
+    else add("ok", "cash", "Đủ tiền mặt", `Cần ${big(val)} đ, còn lại ${big(cash - val)} đ.`);
+  }
+  if (total) {
+    // 2) tỷ trọng mã
+    const wMax = Number(rk.max_weight_per_stock ?? 20), cur = H.filter((h) => h.s === sym).reduce((s, h) => s + h.mv, 0), w = (cur + val) / total * 100;
+    caps.push([`tối đa ${nf(wMax, 0)}%/mã`, maxQ(Math.max(0, wMax / 100 * total - cur))]);
+    add(w > wMax * 1.5 ? "bad" : w > wMax + 0.5 ? "warn" : "ok", "w", `Tỷ trọng ${sym} sau lệnh: ${nf(w, 1)}%`, `Giới hạn ${nf(wMax, 0)}%/mã theo khẩu vị${cur ? ` (đang có ${nf(cur / total * 100, 1)}%)` : ""}.`);
+    // 3) tỷ trọng ngành
+    const sec = r.sector, sMax = Number(rk.max_weight_per_sector ?? 30);
+    if (sec) {
+      const sc = H.filter((h) => h.sec === sec).reduce((s, h) => s + h.mv, 0), ws = (sc + val) / total * 100, mates = H.filter((h) => h.sec === sec && h.s !== sym).map((h) => h.s);
+      caps.push([`tối đa ${nf(sMax, 0)}%/ngành`, maxQ(Math.max(0, sMax / 100 * total - sc))]);
+      add(ws > sMax * 1.3 ? "bad" : ws > sMax + 0.5 ? "warn" : "ok", "sec", `Ngành ${sec} sau lệnh: ${nf(ws, 1)}%`, `Giới hạn ${nf(sMax, 0)}%/ngành${mates.length ? ` · cùng ngành đang nắm: ${mates.join(", ")}` : ""}.`);
+    }
+    // 4) tổng cổ phiếu so với đèn
+    const tgt = Math.min(reg.exposure ?? 100, isNum(SP.exposure_cap) ? SP.exposure_cap : 100), e = (mv + val) / total * 100;
+    caps.push([`đèn ${LIGHT_VI[reg.light] || ""} ${tgt}%`, maxQ(Math.max(0, tgt / 100 * total - mv))]);
+    add(e > tgt + 15 ? "bad" : e > tgt + 5 ? "warn" : "ok", "exp", `Tổng cổ phiếu sau lệnh: ${nf(e, 0)}% tài sản`, `Đèn ${LIGHT_VI[reg.light] || "—"} cho phép ≈ ${tgt}%${e > tgt + 5 ? " – vượt mức: lịch sử đèn này có xác suất sụt sâu cao hơn, nên giải ngân ít hơn" : ""}.`);
+  }
+  // 5) rủi ro nếu chạm cắt lỗ
+  const pk = (SP.picks || []).find((p) => p.symbol === sym) || (SP.watch || []).find((p) => p.symbol === sym);
+  const lv = d?.levels || {}, stop = pk?.stop ?? lv.stop;
+  if (isNum(stop) && stop < px) {
+    const loss = qty * (px - stop) * 1000, rp = Number(rk.risk_per_trade ?? 1.5);
+    if (total) {
+      caps.push([`rủi ro ${nf(rp, 1)}%/lệnh`, lot(rp / 100 * total / ((px - stop) * 1000))]);
+      add(loss / total * 100 > rp * 1.5 ? "bad" : loss / total * 100 > rp + 0.05 ? "warn" : "ok", "risk", `Nếu chạm cắt lỗ ${nf(stop)} (${pct((stop / px - 1) * 100, 1)}): mất ${big(loss)} đ = ${nf(loss / total * 100, 2)}% tài sản`, `Giới hạn ${nf(rp, 1)}%/lệnh.`);
+    } else add("warn", "risk", `Cắt lỗ ${nf(stop)}: lệnh này có thể mất ${big(loss)} đ`, "");
+  } else add("warn", "risk", "Chưa có mức cắt lỗ", "Hệ thống chưa có mức dừng lỗ cho mã này – tự đặt trước khi mua (thường −7 … −10%).");
+  // 6) điểm vào / kế hoạch
+  const flag = d?.valuation?.flag, evA = (t.event_active || []).some((x) => (x.symbol || x) === sym), pe = (t.post_event || []).find((x) => x.symbol === sym);
+  if (flag === "event" || evA) add("bad", "ev", "Mã đang có sự kiện", "Giá sụt mạnh kèm nhiều phiên giảm sàn – lịch sử VN: mua ngay hoặc mua nhịp hồi sớm đều thua thị trường. Chờ sự kiện 'nguội' (≥ 120 phiên, 60 phiên không giảm sàn).");
+  else if (pe) add(pe.quality ? "ok" : "warn", "ev", "Sau sự kiện – đã nguội", pe.quality ? `Vùng vào ${nf(pe.zone[0])}–${nf(pe.zone[1])}, cắt lỗ ${nf(pe.stop)} – chỉ tỷ trọng nhỏ.` : "DN lỗ hoặc nợ cao – lịch sử không có lợi thế sau sự kiện.");
+  if (flag === "det") add("warn", "det", "Lợi nhuận đang xấu đi", esc(d?.valuation?.warning || "2 quý gần nhất thấp hơn nhiều so với cùng kỳ."));
+  if (SP.picks?.some((p) => p.symbol === sym)) {
+    const z = pk.zone; const inZ = z && px <= z[1] * 1.005 && px >= z[0] * 0.98;
+    add(inZ ? "ok" : px > z[1] * 1.02 ? "warn" : "ok", "plan", `Trong danh sách MUA (${BASKET_SHORT[pk.basket] || pk.basket || ""})`, `Vùng mua ${nf(z[0])}–${nf(z[1])}${px > z[1] * 1.02 ? ` – giá ${nf(px)} đang cao hơn vùng ${pct((px / z[1] - 1) * 100, 1)}: đừng mua đuổi, đặt LO trong vùng` : ""}.`);
+  } else if (pe) { /* đã có mục sau sự kiện */ } else if (pk) add("warn", "plan", "Trong danh sách CHỜ – chưa đến điểm mua", esc(pk.reason || `Chờ giá về ${nf(pk.zone?.[0])}–${nf(pk.zone?.[1])}`));
+  else {
+    const tm = d?.timing;
+    add(tm && tm.ok === false ? "warn" : "warn", "plan", "Không có trong danh sách MUA hôm nay", tm && tm.ok === false ? esc(tm.reason || "") : (lv.state === "now" ? `Mức kỹ thuật: vùng ${nf(lv.zone?.[0])}–${nf(lv.zone?.[1])}` : lv.zone ? `Vùng mua kỹ thuật ${nf(lv.zone[0])}–${nf(lv.zone[1])} – chưa đến` : "Lệnh tự quyết – ghi rõ lý do để sau này tự kiểm lại."));
+  }
+  const ps = (t.portfolio?.positions || []).find((x) => x.symbol === sym);
+  if (ps && ps.severity >= 2) add("bad", "adv", `Hệ thống đang khuyên: ${esc(ps.action || "bán")}`, `Mua thêm mã đang có tín hiệu thoát là làm ngược hệ thống${(ps.reasons || []).length ? ` – ${esc(ps.reasons.slice(0, 2).join("; "))}` : ""}.`);
+  const vd = r.verdict || d?.valuation?.verdict;
+  if (vd && /Đắt/.test(vd) && flag !== "event") add("warn", "val", `Định giá: ${vd}`, isNum(r.fair) ? `Giá hợp lý ≈ ${nf(r.fair)} (giá ${nf(px)}).` : "");
+  // 7) thanh khoản
+  const adv = r.avg_value_bn;
+  if (isNum(adv) && adv > 0) {
+    const sh = val / (adv * 1e9) * 100;
+    caps.push(["5% GTGD/phiên", maxQ(adv * 1e9 * 0.05)]);
+    add(sh > 10 ? "bad" : sh > 5 ? "warn" : "ok", "liq", `Lệnh = ${nf(sh, sh < 1 ? 2 : 1)}% giá trị giao dịch 1 phiên`, `GTGD TB 20 phiên ${nf(adv, 1)} tỷ${sh > 5 ? " – lệnh lớn so với thanh khoản: chia nhiều phiên, khó thoát nhanh khi cần" : ""}.`);
+  }
+  // 8) đồng pha với mã đang nắm
+  const held = new Set(H.map((h) => h.s));
+  const co = (d?.rel?.co || []).filter((x) => held.has(x.s) && x.rc >= 0.5);
+  if (co.length) add(co.some((x) => x.rc >= 0.7) ? "warn" : "ok", "co", `Đồng pha với ${co.map((x) => `${x.s} (${nf(x.rc, 2)})`).join(", ")}`,
+    `Các mã này hay lên xuống cùng nhau – danh mục ít đa dạng hơn số mã cho thấy${co[0].p_dd ? `; khi ${co[0].s} sụt mạnh, ${sym} cũng sụt ${nf(co[0].p_dd, 0)}% số lần` : ""}.`);
+  else if (d?.rel?.co && held.size) add("ok", "co", "Không đồng pha mạnh với mã đang nắm", "Giúp danh mục đa dạng hơn.");
+  const nb = out.filter((x) => x.lvl === "bad").length, nw = out.filter((x) => x.lvl === "warn").length;
+  const okQ = caps.filter(([, q]) => isNum(q)).sort((a, b) => a[1] - b[1])[0];
+  return { items: out, nb, nw, val, total, maxq: okQ ? okQ[1] : null, maxBy: okQ ? okQ[0] : null,
+    verdict: nb ? ["Không nên đặt lệnh này", "down"] : nw >= 3 ? ["Cân nhắc kỹ", "ref"] : nw ? ["Được – lưu ý", "ref"] : ["Đạt mọi kiểm tra", "up"] };
+}
+function preTradeHtml(C, qty) {
+  if (!C) return "";
+  const ic = { ok: "✓", warn: "!", bad: "✕" };
+  return `<div class="ptc"><div class="ptc-h"><b class="${C.verdict[1]}">${C.verdict[0]}</b>${C.nb || C.nw ? `<small>${C.nb ? `${C.nb} lỗi` : ""}${C.nb && C.nw ? " · " : ""}${C.nw ? `${C.nw} lưu ý` : ""}</small>` : ""}
+    ${isNum(C.maxq) && C.maxq >= 100 && qty > C.maxq ? `<button class="chip" data-ptq="${C.maxq}">Dùng KL hợp lệ ${nf(C.maxq, 0)} cp</button>` : ""}</div>
+    <ul>${C.items.map((x) => `<li class="p-${x.lvl}"><i>${ic[x.lvl]}</i><div><b>${x.title}</b>${x.text ? `<small>${x.text}</small>` : ""}</div></li>`).join("")}</ul>
+    ${isNum(C.maxq) ? `<p class="faint" style="font-size:.72rem;margin-top:4px">${C.maxq >= 100 ? `Khối lượng lớn nhất thoả mọi giới hạn: <b>${nf(C.maxq, 0)} cp</b> (chặn bởi ${esc(C.maxBy)}).` : `<b>Không còn chỗ cho lệnh mua mới</b> – đã chạm giới hạn ${esc(C.maxBy)}; muốn mua mã này thì bán bớt mã khác trước.`} Giới hạn lấy từ <a href="#/portfolio/profile">Khẩu vị đầu tư</a>.</p>` : ""}</div>`;
+}
 function tradeBox(o, onDone) {
   // hộp ghi lệnh nổi (mua thêm / bán một phần / bán hết)
   const old = $("#tbox"); if (old) old.remove();
@@ -1351,13 +1443,15 @@ function tradeBox(o, onDone) {
     <div class="field sec"><label for="tbDec">Quyết định này là</label><select id="tbDec">${Object.entries(DECISION).map(([k, n]) => `<option value="${k}" ${k === o.decision ? "selected" : ""}>${n}</option>`).join("")}</select></div>
     <div class="field sec"><label for="tbR">Lý do</label><input id="tbR" value="${esc(o.reason || "")}" placeholder="ví dụ: chốt lời một phần vì định giá đã đắt"></div>
     <p id="tbPrev" class="muted" style="font-size:.78rem;margin-top:8px"></p>
+    ${o.side === "buy" && o.ctx ? `<div id="tbChk"></div>` : ""}
     <p style="margin-top:8px"><button class="btn primary" id="tbOk">${o.side === "buy" ? "Ghi lệnh mua" : "Ghi lệnh bán"}</button></p></div>`;
   document.body.appendChild(el);
   const prev = () => {
     const q = Number(String($("#tbQ").value).replace(/\D/g, "")), p = Number(String($("#tbP").value).replace(",", ".")), f = Number(String($("#tbF").value).replace(",", ".")) || 0;
-    if (!q || !p) { $("#tbPrev").textContent = ""; return; }
+    if (!q || !p) { $("#tbPrev").textContent = ""; if ($("#tbChk")) $("#tbChk").innerHTML = `<p class="faint" style="font-size:.76rem">Nhập khối lượng để kiểm tra lệnh: tỷ trọng, ngành, đèn, rủi ro, điểm vào, thanh khoản, đồng pha.</p>`; return; }
     if (o.side === "buy") { const nq = (o.held || 0) + q, nc = o.held ? (o.held * o.cost + q * p * (1 + f / 100)) / nq : p * (1 + f / 100);
-      $("#tbPrev").innerHTML = `Tiền cần: <b>${vnd(q * p * (1 + f / 100) * 1000)}</b> · sau lệnh nắm <b>${nf(nq, 0)}</b> cp, giá vốn bình quân <b>${nf(nc)}</b>${o.held ? ` (từ ${nf(o.cost)})` : ""} · bán được từ ${addTradingDays($("#tbD").value || today, 2)} (T+2)`; }
+      $("#tbPrev").innerHTML = `Tiền cần: <b>${vnd(q * p * (1 + f / 100) * 1000)}</b> · sau lệnh nắm <b>${nf(nq, 0)}</b> cp, giá vốn bình quân <b>${nf(nc)}</b>${o.held ? ` (từ ${nf(o.cost)})` : ""} · bán được từ ${addTradingDays($("#tbD").value || today, 2)} (T+2)`;
+      if ($("#tbChk")) { $("#tbChk").innerHTML = preTradeHtml(preTradeCheck({ ...o.ctx, sym: o.symbol, qty: q, px: p }), q); $$("#tbChk [data-ptq]").forEach((b) => (b.onclick = () => { $("#tbQ").value = b.dataset.ptq; prev(); })); } }
     else { const qq = Math.min(q, o.held || q), r = isNum(o.cost) ? (p * (1 - f / 100) - o.cost) * qq * 1000 : null;
       $("#tbPrev").innerHTML = `Tiền về: <b>${vnd(q * p * (1 - f / 100) * 1000)}</b>${isNum(r) ? ` · lãi/lỗ chốt <b class="${cls(r)}">${vnd(r)}</b> (${pct((p * (1 - f / 100) / o.cost - 1) * 100, 1)})` : ""} · còn lại <b>${nf(Math.max(0, (o.held || 0) - q), 0)}</b> cp`; }
   };
@@ -1375,6 +1469,7 @@ function tradeBox(o, onDone) {
     await onDone(tr);
   };
   prev();
+  if (o.ctx && !o.ctx.d) tryLoad(`data/stocks/${o.symbol}.json`).then((d) => { if (d && $("#tbox") === el) { o.ctx.d = d; prev(); } });
 }
 
 async function viewPortfolio() {
@@ -3855,6 +3950,7 @@ async function viewJournal() {
           </div>
           <div class="field sec"><label for="jdec">Quyết định này là</label><select id="jdec">${Object.entries(DECISION).map(([k, n]) => `<option value="${k}">${n}</option>`).join("")}</select></div>
           <p id="jsys" class="note" style="margin-top:6px;font-size:.76rem" hidden></p>
+          <div id="jchk"></div>
           <div class="field sec"><label for="jr">Lý do (ngắn gọn – để sau này tự kiểm lại)</label><input id="jr" placeholder="ví dụ: KQKD quý 3 vượt kỳ vọng, P/E thấp hơn ngành"></div>
           <label style="display:flex;gap:6px;align-items:center;font-size:.8rem;margin-top:8px"><input type="checkbox" id="jupd" checked> Cập nhật luôn danh mục đang nắm (và tiền mặt nếu đã nhập)</label>
           <p style="margin-top:8px"><button class="btn primary" id="jadd">Ghi lệnh</button></p></section>
@@ -3873,7 +3969,16 @@ async function viewJournal() {
       if (!$("#jp").value && r.price) $("#jp").placeholder = nf(r.price);
       return txt;
     };
-    $("#js").oninput = sysInfo; $("#jside").onchange = () => { $("#jf").value = $("#jside").value === "buy" ? "0.15" : "0.25"; sysInfo(); };
+    let jd = null;
+    const chk = () => {
+      const s = $("#js").value.trim().toUpperCase(), q = Number(String($("#jq").value).replace(/\D/g, "")), p = Number(String($("#jp").value || R[s]?.price || "").replace(",", "."));
+      if ($("#jside").value !== "buy" || !R[s] || !q || !p) { $("#jchk").innerHTML = ""; return; }
+      if (!jd || jd.symbol !== s) { jd = { symbol: s }; tryLoad(`data/stocks/${s}.json`).then((d) => { if (d && jd.symbol === s) { jd = d; chk(); } }); }
+      $("#jchk").innerHTML = preTradeHtml(preTradeCheck({ sym: s, qty: q, px: p, t, pf, R, d: jd.row ? jd : null }), q);
+      $$("#jchk [data-ptq]").forEach((b) => (b.onclick = () => { $("#jq").value = b.dataset.ptq; chk(); }));
+    };
+    $("#js").oninput = () => { sysInfo(); chk(); }; $("#jq").oninput = chk; $("#jp").oninput = chk;
+    $("#jside").onchange = () => { $("#jf").value = $("#jside").value === "buy" ? "0.15" : "0.25"; sysInfo(); chk(); };
     $("#jadd").onclick = async () => {
       const s = $("#js").value.trim().toUpperCase(), q = Number(String($("#jq").value).replace(/\D/g, "")), side = $("#jside").value;
       const p = Number(String($("#jp").value || R[s]?.price || "").replace(",", "."));
@@ -4013,7 +4118,8 @@ async function quickTrade(sym, side) {
     qty: side === "sell" ? h.qty : pk && capitalOf(pf) ? sharesFor(capitalOf(pf), pk.weight, pk.zone[1]) : null,
     decision: side === "buy" ? (pk ? "sys" : "self") : "self",
     note: side === "buy" ? (pk ? `Trong kế hoạch ${BASKET_SHORT[pk.basket] || ""}: vùng mua ${nf(pk.zone[0])}–${nf(pk.zone[1])}, dừng ${nf(pk.stop)}, tỷ trọng ${nf(pk.weight, 1)}%` : "Mã không có trong danh sách MUA hôm nay.") : "",
-    snap: `điểm ${nf(r.composite, 0)} · KT ${r.ta_label || "—"} · P/E ${nf(r.pe, 1)} vs ngành ${nf(r.pe_ind, 1)} · đèn ${LIGHT_VI[t.regime.light]}` },
+    snap: `điểm ${nf(r.composite, 0)} · KT ${r.ta_label || "—"} · P/E ${nf(r.pe, 1)} vs ngành ${nf(r.pe_ind, 1)} · đèn ${LIGHT_VI[t.regime.light]}`,
+    ctx: { t, pf, R: Object.fromEntries((SCREENER || []).map((x) => [x.symbol, x])), d: null } },
   async (tr) => { const ok = await applyTrade(tr, pf, J); toast((tr.side === "sell" && isNum(tr.realized) ? `Đã ghi – lãi/lỗ chốt ${vnd(tr.realized)}` : "Đã ghi lệnh") + (ok ? "" : " (lưu trên trình duyệt này)")); if (location.hash.startsWith("#/portfolio")) route(); });
 }
 const recentAdd = (s) => { const r = lsGet("recent", []).filter((x) => x !== s); r.unshift(s); lsSet("recent", r.slice(0, 12)); };
