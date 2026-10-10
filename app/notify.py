@@ -24,8 +24,8 @@ LIGHT_TXT = {"green": "XANH", "yellow": "VÀNG", "red": "ĐỎ"}
 BASKET_VI = {"swing": "Lướt sóng", "long": "Dài hạn", "income": "Cổ tức", "garp": "GARP", "dividend": "Cổ tức", "value": "Giá trị", "defensive": "Phòng thủ",
              "growth": "Tăng trưởng"}
 GROUPS = {"light": None, "pick_new": "🛒 MUA MỚI", "pick_out": None, "act": "📌 DANH MỤC CỦA ANH", "near": "⏳ SẮP CHẠM MỨC THOÁT", "warn": None,
-          "alert": "🔔 CẢNH BÁO GIÁ", "flow": "🐋 DÒNG TIỀN LỚN (mã của anh)", "rel": "🔗 MÃ LIÊN QUAN (mã của anh)"}
-FEATURE_OF = {"pick_new": "today", "pick_out": "today", "flow": "flow", "rel": "pairs"}
+          "alert": "🔔 CẢNH BÁO GIÁ", "event": "⚡ CÓ SỰ KIỆN (mã của anh)", "event_ok": "🎯 SAU SỰ KIỆN – ĐIỂM VÀO (mã của anh)", "event_new": "🎯 CƠ HỘI SAU SỰ KIỆN", "flow": "🐋 DÒNG TIỀN LỚN (mã của anh)", "rel": "🔗 MÃ LIÊN QUAN (mã của anh)"}
+FEATURE_OF = {"pick_new": "today", "pick_out": "today", "flow": "flow", "rel": "pairs", "event_new": "today"}
 VI_FLOW = {"dist": "XẢ âm thầm", "acc": "GOM âm thầm", "brk": "BỨT PHÁ có KL", "acc_brk": "GOM rồi BỨT PHÁ"}
 
 
@@ -147,17 +147,37 @@ def collect(today: dict, prev: dict, *, live_sent: set | None = None, mine: set 
                    f"→ dự báo {p['follow']} {_fmt(f8, 1)}% trong 8 tuần")
             add("rel", key, 1, f"• <b>{p['lead']}</b> → <b>{p['follow']}</b>: {html.escape(txt)}",
                 f"{p['lead']} đi trước {p['follow']}", txt, sym=p["follow"])
+    # mã có sự kiện / đã qua giai đoạn nguội (vùng vào sau sự kiện)
+    ev_prev, pe_prev = set(prev.get("ev_sent", [])), set(prev.get("pe_sent", []))
+    ev_now = [x["symbol"] for x in today.get("event_active") or []]
+    pe_now = [x["symbol"] for x in today.get("post_event") or []]
+    for x in today.get("event_active") or []:
+        if x["symbol"] in mine and x["symbol"] not in ev_prev:
+            txt = (f"Giá thấp hơn đỉnh trước sự kiện {abs(x.get('dd_now') or 0):.0f}%, {x.get('n_down')} phiên giảm sàn từ {x['start']}. "
+                   "Lịch sử VN: mua ngay hoặc mua nhịp hồi sớm thường thua thị trường; chờ đủ 120 phiên và 60 phiên không giảm sàn.")
+            add("event", f"event:{x['symbol']}:{x['start']}", 2, f"• <b>{x['symbol']}</b>: CÓ SỰ KIỆN – {html.escape(txt)}", f"{x['symbol']}: có sự kiện – chưa vào", txt, sym=x["symbol"])
+    for x in today.get("post_event") or []:
+        if x["symbol"] in pe_prev:
+            continue
+        mine_x = x["symbol"] in mine
+        if not mine_x and not x.get("quality"):
+            continue
+        txt = (f"Sự kiện từ {x['start']} đã nguội ({x['since']} phiên, {x['quiet']} phiên không giảm sàn). Vùng vào {_fmt(x['zone'][0])}–{_fmt(x['zone'][1])}, "
+               f"cắt lỗ {_fmt(x['stop'])}, mục tiêu {_fmt(x['t1'])}. {x.get('edge', '')}")
+        kind = "event_ok" if mine_x else "event_new"
+        add(kind, f"pe:{x['symbol']}:{x['start']}", 2 if (mine_x and x.get("quality")) else 1,
+            f"• <b>{x['symbol']}</b>: SAU SỰ KIỆN – {html.escape(txt)}", f"{x['symbol']}: điểm vào sau sự kiện", txt, sym=x["symbol"])
     sent_ids = list(sent | {a["id"] for a in today.get("alerts") or []})[-500:]
     state = {"light": reg["light"], "picks": cur_syms if (feats is None or "today" in feats) else prev.get("picks", []),
              "acts": {p["symbol"]: p["action"] for p in acts}, "warnings": pfo.get("warnings", []), "alerts_sent": sent_ids,
-             "near_sent": list(near_now), "flow_sent": flow_now, "rel_sent": rel_now}
+             "near_sent": list(near_now), "flow_sent": flow_now, "rel_sent": rel_now, "ev_sent": ev_now, "pe_sent": pe_now}
     return items, state
 
 
 def format_telegram(today: dict, items: list[dict]) -> str | None:
     reg = today["regime"]
     lines, seen = [], set()
-    order = ["light", "pick_new", "pick_out", "act", "near", "warn", "alert", "flow", "rel"]
+    order = ["light", "pick_new", "pick_out", "act", "near", "warn", "alert", "event", "event_ok", "event_new", "flow", "rel"]
     for k in order:
         grp = [x for x in items if x["kind"] == k]
         if not grp:

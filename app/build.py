@@ -32,6 +32,7 @@ from .analysis import strategy as st
 from .analysis import styles as sty
 from .analysis import technical as tech
 from .analysis import valuation as va
+from .analysis import events as evx
 from .analysis import forecast as fc
 from . import swing_build as swb
 from . import pairs_build as pab
@@ -359,6 +360,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     # ------------------------------------------------------------ định giá (cần trung vị ngành)
     vcfg = cfg.get("valuation") or {}
     mos = float((cfg.get("risk") or {}).get("margin_of_safety", 20))
+    post_events, ev_active = [], []
     overrides = ({k.upper(): v for k, v in (((owner or {}).get("data", {}).get("assumptions")) or {}).items() if isinstance(v, dict)}
                  if multi else load_overrides())
     for s in u.index:
@@ -379,7 +381,16 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             model["overridden"] = sorted(ov)
         hist = va.hist_multiples(qs, d["df"]["close"], fa.get("shares_mn"))
         peers = {"pe_ind_med": r.get("pe_ind_med"), "pb_ind_med": r.get("pb_ind_med"), "roe_ind_med": r.get("roe_ind_med")}
-        val = va.value(fa, model, peers, hist, r["beta"], vcfg, mos, event=va.event_flag(d["df"]["close"]))
+        ep = evx.episode(d["df"]["close"])
+        val = va.value(fa, model, peers, hist, r["beta"], vcfg, mos, event=ep if ep and ep["phase"] == "active" else None)
+        if ep and ep["phase"] == "window":
+            qual = bool((fa.get("ni_ttm") or 0) > 0 and (fa.get("de") if fa.get("de") is not None else 0) < 1.5)
+            ep["plan"] = evx.entry_plan(ep, qual, val.get("fair") if val.get("reliable") else None)
+            val["post_event"] = ep
+            post_events.append({"symbol": s, "sector": r.get("sector"), **{k: ep[k] for k in ("start", "since", "quiet", "pre_hi", "low", "price", "dd_now", "from_low")},
+                                "quality": qual, **ep["plan"], "fair": val.get("fair"), "verdict": val.get("verdict")})
+        elif ep:
+            ev_active.append({"symbol": s, "sector": r.get("sector"), **{k: ep[k] for k in ("start", "since", "quiet", "dd_now", "n_down", "wait_since", "wait_quiet", "price", "low")}})
         d["val"] = val
         if val.get("ok"):
             u.at[s, "verdict"] = val["verdict"]
@@ -562,7 +573,8 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
              "style": active_style, "styles": {k: {**sp, **{x: sty.STYLES[k][x] for x in ("name", "horizon", "desc", "rules")}} for k, sp in style_plans.items()},
              "profile": {"applied": prof_changed, "updated": (profile or {}).get("updated"),
                          "exclude_sectors": cfg.get("exclude_sectors") or [], "exclude_symbols": cfg.get("exclude_symbols") or []},
-             "portfolio": advice}
+             "portfolio": advice,
+             "post_event": sorted(post_events, key=lambda x: (not x["quality"], x["since"])), "event_active": sorted(ev_active, key=lambda x: x["since"])}
     if multi:          # phần riêng (danh mục, cảnh báo, khẩu vị) không nằm trong tệp chung – mỗi người đọc qua /api/personal
         for k in ("portfolio", "alerts", "capital", "profile"):
             today.pop(k, None)

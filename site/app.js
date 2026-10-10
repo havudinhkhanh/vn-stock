@@ -548,6 +548,7 @@ async function viewToday() {
   </section>
   ${liveBanner(LV)}
   ${moodStrip(FJ)}
+  ${eventsPanel(t)}
   ${seasonBanner(secs?.season)}
 
   <div class="g g-main sec">
@@ -1780,6 +1781,7 @@ async function viewStock(sym, tabArg) {
       ["DT 12T", pct(fa.rev_yoy ?? r.rev_yoy), cls(fa.rev_yoy ?? r.rev_yoy)], ["F-Score", `${r.fscore ?? "—"}/9`], ["Vay/Vốn", nf(fa.de ?? r.de)], ["Vốn hoá", mcapFmt(fa.mcap_bn ?? r.mcap_bn)]])}
     ${g("Giá & thanh khoản", "đà giá, sức mạnh, rủi ro", [["1 tháng", pct(r.chg1m), cls(r.chg1m)], ["1 năm", pct(r.chg1y), cls(r.chg1y)], ["Cách đỉnh 52T", pct(ta.from_hi52_pct), "down"],
       ["RS", `${sc.rs_rating ?? r.rs_rating ?? "—"}/100`], ["GTGD/ngày", bn(r.avg_value_bn)], ["Beta", nf(d.beta)]])}</div>`; })()}
+  ${eventBox(v, sym)}
   <div class="g g-dec sec fbrow">
     <div class="stack">${fbPanel(d, FJ).replace('panel sec fbp', 'panel fbp')}${stepsBlock.replace('panel sec steps', 'panel steps')}</div>
     <div class="stack">
@@ -2729,6 +2731,33 @@ function moodGauge(S, big = true) {
   const c = S.now >= 60 ? "up" : S.now < 40 ? "down" : "ref";
   return `<div class="mood ${big ? "big" : ""}"><b class="${c}">${nf(S.now, 0)}</b><span>/100 · <b>${esc(S.label)}</b>${isNum(S.chg5) ? ` · ${S.chg5 > 0 ? "+" : ""}${nf(S.chg5, 0)} so với tuần trước` : ""}</span>
     <div class="mbar"><i style="left:${Math.max(0, Math.min(100, S.now))}%"></i></div><small class="mlab"><span>Sợ hãi</span><span>Thận trọng</span><span>Trung tính</span><span>Lạc quan</span><span>Hưng phấn</span></small></div>`;
+}
+// ---- mã có sự kiện & điểm vào sau sự kiện (app/analysis/events.py)
+const EV_NOTE = "Kiểm chứng 560 đợt 2016–2026: mua ngay khi giá sập hoặc mua nhịp hồi sớm thường thua thị trường và còn sụt thêm ~30%. Vào khi sự kiện đã nguội (≥ 120 phiên từ lúc có cờ và ≥ 60 phiên liền không giảm sàn) thì thắng thị trường, rõ nhất ở DN có lãi, nợ thấp.";
+function eventsPanel(t) {
+  const P = t.post_event || [], A = t.event_active || [];
+  if (!P.length && !A.length) return "";
+  const row = (x) => `<tr><td class="l"><a href="#/s/${x.symbol}"><b>${x.symbol}</b></a> <small class="faint">${esc((x.sector || "").slice(0, 18))}</small>${x.quality ? "" : ' <span class="pill">lỗ / nợ cao</span>'}</td>
+    <td>${nf(x.price)}</td><td class="down">${pct(x.dd_now, 0)}</td><td class="up">${pct(x.from_low, 0)}</td><td>${nf(x.since, 0)} / ${nf(x.quiet, 0)}</td>
+    <td>${nf(x.zone?.[0])}–${nf(x.zone?.[1])}</td><td class="down">${nf(x.stop)}</td><td class="up">${nf(x.t1)} <small>${pct(x.t1_pct, 0)}</small></td></tr>`;
+  return `<section class="panel sec evp"><div class="ph"><h2 data-g="ev_post">🎯 Cơ hội sau sự kiện</h2><span class="meta">${P.filter((x) => x.quality).length} mã đủ điều kiện · ${A.length} mã đang có sự kiện (chờ nguội)</span></div>
+    ${P.length ? `<div class="tw"><table><thead><tr><th class="l">Mã</th><th>Giá</th><th>So với đỉnh trước sự kiện</th><th>Từ đáy</th><th>Phiên từ cờ / không giảm sàn</th><th>Vùng vào</th><th>Cắt lỗ</th><th>Mục tiêu</th></tr></thead><tbody>${P.map(row).join("")}</tbody></table></div>`
+      : `<p class="muted">Chưa có mã nào qua giai đoạn nguội.</p>`}
+    ${A.length ? `<details style="margin-top:6px"><summary>⚡ Đang có sự kiện – chưa vào (${A.length} mã)</summary><div class="tw"><table><thead><tr><th class="l">Mã</th><th>Từ</th><th>So với đỉnh trước</th><th>Phiên giảm sàn</th><th>Còn chờ</th></tr></thead><tbody>
+      ${A.map((x) => `<tr><td class="l"><a href="#/s/${x.symbol}"><b>${x.symbol}</b></a></td><td>${esc(x.start)}</td><td class="down">${pct(x.dd_now, 0)}</td><td>${x.n_down}</td><td><small>${x.wait_since ? `${x.wait_since} phiên nữa đủ 120` : ""}${x.wait_since && x.wait_quiet ? " · " : ""}${x.wait_quiet ? `${x.wait_quiet} phiên không giảm sàn` : ""}</small></td></tr>`).join("")}</tbody></table></div></details>` : ""}
+    <p class="faint" style="font-size:.72rem;margin-top:6px">${EV_NOTE} Mua 1/2 ngay, 1/2 khi chỉnh về vùng dưới; cắt lỗ −15%; nắm 6–12 tháng. Chỉ 23% số đợt quay lại được ≥ 90% đỉnh cũ trong 1 năm – mục tiêu lấy thận trọng.</p></section>`;
+}
+function eventBox(v, sym) {
+  const P = v?.post_event, E = v?.event;
+  if (P) { const p = P.plan || {};
+    return `<section class="panel sec evp"><div class="ph"><h2 data-g="ev_post">🎯 ${esc(sym)}: điểm vào sau sự kiện</h2><span class="pill ${p.quality ? "buy" : ""}">${p.quality ? "đủ điều kiện" : "chỉ theo dõi"}</span></div>
+      ${kpis([["Sự kiện từ", esc(P.start)], ["Phiên từ cờ / không giảm sàn", `${P.since} / ${P.quiet}`], ["So với đỉnh trước", pct(P.dd_now, 0), "down"], ["Từ đáy " + esc(P.low_date || ""), pct(P.from_low, 0), "up"],
+        ["Vùng vào", `${nf(p.zone?.[0])}–${nf(p.zone?.[1])}`], ["Cắt lỗ", nf(p.stop), "down"], ["Mục tiêu", `${nf(p.t1)} <small>${pct(p.t1_pct, 0)}</small>`, "up"]], false, "c4")}
+      <p class="note" style="margin-top:6px">${esc(p.split || "")}. ${esc(p.edge || "")}</p></section>`; }
+  if (E) return `<section class="panel sec evp"><div class="ph"><h2 data-g="ev_post">⚡ ${esc(sym)}: có sự kiện – chưa vào</h2><span class="meta">từ ${esc(E.start)}</span></div>
+      ${kpis([["So với đỉnh trước", pct(E.dd_now, 0), "down"], ["Phiên giảm sàn", nf(E.n_down, 0)], ["Phiên từ lúc có cờ", `${E.since} <small>cần 120</small>`], ["Phiên không giảm sàn", `${E.quiet} <small>cần 60</small>`]], false, "c4")}
+      <p class="note" style="margin-top:6px">${EV_NOTE} ${E.wait_since || E.wait_quiet ? `Còn chờ: ${[E.wait_since ? E.wait_since + " phiên nữa đủ 120" : "", E.wait_quiet ? E.wait_quiet + " phiên liền không giảm sàn" : ""].filter(Boolean).join(" · ")}. Hệ thống tự báo khi đến điểm vào nếu mã có trong danh sách theo dõi.` : ""}</p></section>`;
+  return "";
 }
 function moodStrip(FJ) {
   if (!FJ?.sentiment) return "";
@@ -4317,9 +4346,9 @@ function planTable() {
 const ROUTE_FEATURE = { swing: (a) => (a === "live" ? "live" : a === "flow" || a === "mood" ? "flow" : a === "pairs" ? "pairs" : "swing"), backtest: () => "backtest" };
 
 // ---- chuông thông báo
-const NK = { act: "📌", near: "⏳", exit: "🚨", alert: "🔔", pick_new: "🛒", pick_out: "🛒", pick_in: "🛒", pick_chase: "🛒", flow: "🐋", rel: "🔗", flag: "👀",
+const NK = { event: "⚡", event_ok: "🎯", event_new: "🎯", act: "📌", near: "⏳", exit: "🚨", alert: "🔔", pick_new: "🛒", pick_out: "🛒", pick_in: "🛒", pick_chase: "🛒", flow: "🐋", rel: "🔗", flag: "👀",
   light: "🚦", warn: "⚠️", digest: "📰", system: "ℹ️", admin: "🛠️" };
-const NKIND = { act: "Khuyến nghị cho mã đang nắm", near: "Sắp chạm mức thoát", exit: "Đã chạm mức thoát (trong phiên)", alert: "Cảnh báo giá", pick_new: "Mã mới vào danh sách MUA",
+const NKIND = { event: "Mã của anh/chị có sự kiện (giá sập)", event_ok: "Mã của anh/chị qua sự kiện – điểm vào", event_new: "Cơ hội sau sự kiện (mã mới)", act: "Khuyến nghị cho mã đang nắm", near: "Sắp chạm mức thoát", exit: "Đã chạm mức thoát (trong phiên)", alert: "Cảnh báo giá", pick_new: "Mã mới vào danh sách MUA",
   pick_out: "Mã ra khỏi danh sách MUA", pick_in: "Mã trong danh sách MUA vào vùng mua (trong phiên)", flow: "Dòng tiền lớn với mã của anh/chị", rel: "Mã liên quan / rủi ro tập trung",
   flag: "Biến động bất thường mã của anh/chị (trong phiên)", light: "Đèn thị trường đổi màu", warn: "Cảnh báo tỷ trọng danh mục", digest: "Bản tin thị trường mỗi phiên" };
 const agoShort = (iso) => { const m = (Date.now() - new Date(iso)) / 60000; return m < 1 ? "vừa xong" : m < 60 ? `${Math.round(m)} phút` : m < 1440 ? `${Math.round(m / 60)} giờ` : new Date(iso).toLocaleDateString("vi-VN"); };

@@ -27,7 +27,7 @@
     {"re": "^/data/(fwd|fb|backtest|styles_bt|profile_grid)\\.json$", "feature": "backtest"}
   ],
   "strip": [
-    {"re": "^/data/today\\.json$", "feature": "today", "keys": ["plan", "styles"]},
+    {"re": "^/data/today\\.json$", "feature": "today", "keys": ["plan", "styles", "post_event"]},
     {"re": "^/data/stocks/[^/]+\\.json$", "feature": "stock_full", "keys": ["levels", "style_levels", "rel", "swing", "fb", "mos", "season", "season_support", "mtf", "waves", "timing", "in_plan"]}
   ]
 }

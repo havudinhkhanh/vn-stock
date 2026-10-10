@@ -270,9 +270,15 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
     if event:
         reliable = False
         flag = "event"
-        w4 = (f"Giá sụt {abs(event['dd']):.0f}% từ đỉnh {event['hi']} ({event['hi_date']}), {event['n_down']} phiên giảm sàn trong 60 phiên – thị trường đang định giá "
-              f"một thông tin mà BCTC chưa phản ánh. Lịch sử VN 2019–2026: mã sụt kiểu này 6 tháng sau kém bình quân 15–17%, kể cả khi P/E trông rất rẻ. "
-              f"P/E thấp lúc này là rủi ro, không phải cơ hội – không định giá cho tới khi qua giai đoạn này.")
+        wait = []
+        if event.get("wait_since"):
+            wait.append(f"còn {event['wait_since']} phiên nữa mới đủ 120 phiên từ lúc có cờ")
+        if event.get("wait_quiet"):
+            wait.append(f"cần thêm {event['wait_quiet']} phiên liền không có phiên giảm sàn (đang {event.get('quiet', 0)}/60)")
+        w4 = (f"Có sự kiện từ {event.get('start', '–')}: giá thấp hơn đỉnh trước sự kiện {abs(event.get('dd_now') or 0):.0f}%, {event.get('n_down', 0)} phiên giảm sàn – "
+              "thị trường đang định giá thông tin mà BCTC chưa phản ánh. Kiểm chứng 560 đợt (2016–2026): mua ngay hoặc mua nhịp hồi sớm đều thua thị trường "
+              "và thường sụt thêm ~30%; điểm vào tốt hơn là khi sự kiện đã nguội (≥ 120 phiên và ≥ 60 phiên không giảm sàn), nhất là DN có lãi, nợ thấp. "
+              + ("Hiện: " + "; ".join(wait) + "." if wait else ""))
         warning = f"{w4} {warning}" if warning else w4
     if price is None:
         verdict = "n/a"
