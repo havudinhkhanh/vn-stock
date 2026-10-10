@@ -464,6 +464,119 @@ function ladder(p) {
   </div><div class="lleg"><span class="down">${p.stop_label || "cắt lỗ"} ${nf(p.stop)}</span><span class="up">mua ${nf(z0)}–${nf(z1)}</span>${isNum(p.t1) ? `<span>MT1 ${nf(p.t1)}</span>` : ""}${isNum(p.t2) ? `<span>MT2 ${nf(p.t2)}</span>` : ""}</div>`;
 }
 
+// ================================================================ QUYẾT ĐỊNH HÔM NAY: đứng ngoài hay vào, vào bao nhiêu, lệnh cụ thể
+function decisionPlan(t, pf) {
+  const reg = t.regime || {}, style = t.style || "position", SP = (t.styles || {})[style] || {};
+  const pos = (t.portfolio?.positions) || [];
+  const stockMV = pos.reduce((s, p) => s + (p.mv_vnd || 0), 0);
+  const capital = capitalOf(pf);
+  const total = t.portfolio?.total_vnd || capital || (pf.cash ? Number(pf.cash) + stockMV : null);
+  const known = !!(capital || Number(pf.cash) > 0);
+  const target = Math.min(reg.exposure ?? 100, isNum(SP.exposure_cap) ? SP.exposure_cap : 100);
+  const riskPct = Number(t.risk?.risk_per_trade ?? 1.5);
+  const orders = [];
+  // 1) bán theo khuyến nghị (mức thoát đã chạm, cắt lỗ, luận điểm gãy)
+  let sold = 0;
+  pos.filter((p) => p.severity >= 2).forEach((p) => {
+    const hits = (p.exit?.levels || []).filter((x) => x.status === "hit" && (x.sell || 0) > 0);
+    const frac = /BÁN HẾT|CẮT LỖ|GÃY/i.test(p.action || "") ? 1 : Math.max(0, ...hits.map((x) => x.sell)) || 1;
+    const q = frac >= 0.999 ? p.qty : lotPart(p.qty, frac);
+    if (!q) return;
+    const v = q * p.price * 1000; sold += v;
+    orders.push({ side: "sell", s: p.symbol, qty: q, px: p.price, v, why: `${p.action}${frac < 0.999 ? ` (${Math.round(frac * 100)}%)` : ""}`, sev: p.severity });
+  });
+  // 2) giảm tỷ trọng nếu vẫn cao hơn mức đèn cho phép
+  let stock2 = stockMV - sold;
+  if (total && known && stock2 / total * 100 > target + 5) {
+    let need = stock2 - target / 100 * total;
+    const soldSet = new Set(orders.map((o) => o.s));
+    pos.filter((p) => !soldSet.has(p.symbol)).sort((a, b) => (b.severity - a.severity) || ((a.pnl_pct ?? 0) - (b.pnl_pct ?? 0))).forEach((p) => {
+      if (need <= 0) return;
+      const q = Math.min(p.qty, Math.ceil(need / (p.price * 1000) / 100) * 100);
+      if (q < 100) return;
+      const v = q * p.price * 1000; need -= v; stock2 -= v;
+      orders.push({ side: "trim", s: p.symbol, qty: q, px: p.price, v, why: `giảm tỷ trọng về ${target}% theo đèn ${LIGHT_VI[reg.light] || ""}${p.severity ? " · " + p.action : ""}`, sev: 1 });
+    });
+  }
+  const trimmingNow = () => orders.some((o) => o.side === "trim");
+  // 3) mua theo danh sách MUA của phong cách đang chọn, trong phần vốn còn được phép
+  const held = new Set(pos.map((p) => p.symbol));
+  let gap = total && known ? target / 100 * total - stock2 : null;
+  const picks = (SP.picks || []).filter((p) => !held.has(p.symbol));
+  const inZone = picks.filter((p) => p.state === "now" || (isNum(p.price) && p.zone && p.price <= p.zone[1] * 1.005));
+  const waiting = picks.filter((p) => !inZone.includes(p));
+  inZone.forEach((p) => {
+    const entry = Math.min(p.zone[1], p.price || p.zone[1]);
+    if (trimmingNow()) { orders.push({ side: "skip", s: p.symbol, why: "đang phải giảm tỷ trọng – chưa mua mới", px: entry }); return; }
+    let amt = total ? (p.weight || 0) / 100 * total : null;
+    if (gap !== null) amt = Math.min(amt ?? gap, gap);
+    if (!amt || amt <= 0) { orders.push({ side: "skip", s: p.symbol, why: "đã dùng hết phần vốn được phép theo đèn", px: entry }); return; }
+    const riskCap = total ? riskPct / 100 * total : null;
+    let q = amt / (entry * 1000);
+    if (riskCap && isNum(p.stop) && entry > p.stop) q = Math.min(q, riskCap / ((entry - p.stop) * 1000));
+    q = lot(q);
+    if (q < 100) { orders.push({ side: "skip", s: p.symbol, why: "số tiền còn lại không đủ 100 cp", px: entry }); return; }
+    const half = p.ext && p.split;
+    const v = q * entry * 1000; if (gap !== null) gap -= v;
+    orders.push({ side: "buy", s: p.symbol, qty: q, px: entry, zone: p.zone, stop: p.stop, t1: p.t1, v, risk: isNum(p.stop) ? q * (entry - p.stop) * 1000 : null,
+      why: `${BASKET_SHORT[p.basket] || p.basket || ""}${half ? " · kéo giãn: 1/2 ngay, 1/2 đặt LO " + nf(p.split.lo) : ""}`, half });
+  });
+  // 4) cơ hội sau sự kiện (DN có lãi, nợ thấp) – tỷ trọng nhỏ, tuỳ chọn
+  const trimming = orders.some((o) => o.side === "trim");
+  const ev = trimming ? [] : (t.post_event || []).filter((x) => x.quality && !held.has(x.symbol)).slice(0, 3);
+  ev.forEach((x) => {
+    const w = Math.min(5, (t.risk?.max_weight_per_stock ?? 20) / 2);
+    const amt = total ? Math.min(w / 100 * total, gap !== null ? Math.max(0, gap) : Infinity) : null;
+    const q = amt ? lot(amt / (x.zone[1] * 1000)) : 0;
+    orders.push({ side: q >= 100 ? "event" : "skip", s: x.symbol, qty: q, px: x.zone[1], zone: x.zone, stop: x.stop, t1: x.t1, v: q * x.zone[1] * 1000,
+      risk: q >= 100 && isNum(x.stop) ? q * (x.zone[1] - x.stop) * 1000 : null,
+      why: q >= 100 ? "sau sự kiện – tuỳ chọn, tỷ trọng nhỏ" : "sau sự kiện – không còn phần vốn được phép", opt: true });
+    if (q >= 100 && gap !== null) gap -= q * x.zone[1] * 1000;
+  });
+  const curPct = total && known ? stockMV / total * 100 : null;
+  const sells = orders.filter((o) => o.side === "sell"), trims = orders.filter((o) => o.side === "trim"), buys = orders.filter((o) => o.side === "buy");
+  let head, tone;
+  if (sells.length) { head = `XỬ LÝ DANH MỤC TRƯỚC: bán ${sells.length} mã`; tone = "down"; }
+  else if (trims.length) { head = `GIẢM TỶ TRỌNG: bán bớt ≈ ${big(trims.reduce((s, o) => s + o.v, 0))} đ`; tone = "down"; }
+  else if (buys.length) { head = `GIẢI NGÂN TỪNG PHẦN: mua ${buys.length} mã ≈ ${big(buys.reduce((s, o) => s + o.v, 0))} đ`; tone = "up"; }
+  else if (curPct !== null && curPct < target - 5) { head = waiting.length ? `GIỮ TIỀN – chờ ${waiting.length} mã về vùng mua` : "GIỮ TIỀN – chưa có mã đạt điều kiện"; tone = "ref"; }
+  else { head = "GIỮ NGUYÊN – không cần làm gì"; tone = ""; }
+  return { head, tone, target, curPct, total, known, stockMV, cash: total && known ? total - stockMV : null, orders, waiting, style, styleName: SP.name || STYLE_SHORT[style] };
+}
+function decisionCard(t, pf, opts = {}) {
+  const D = decisionPlan(t, pf), reg = t.regime || {}, S = t.stance || {}, L = (S.lights || {})[reg.light] || {}, G = (S.lights || {}).green || {}, A = S.all || {};
+  const sideTxt = { sell: ["BÁN", "down"], trim: ["BÁN BỚT", "down"], buy: ["MUA", "up"], event: ["MUA (tuỳ chọn)", "up"], skip: ["BỎ QUA", "muted"] };
+  const ords = D.orders.filter((o) => opts.noBuy ? ["sell", "trim"].includes(o.side) : true);
+  const bar = (v, c) => `<i style="width:${Math.max(0, Math.min(100, v || 0))}%;background:${c}"></i>`;
+  const after = D.total && D.known ? (D.stockMV - ords.filter((o) => o.side === "sell" || o.side === "trim").reduce((s, o) => s + o.v, 0) + ords.filter((o) => o.side === "buy" || o.side === "event").reduce((s, o) => s + o.v, 0)) / D.total * 100 : null;
+  const txt = ords.filter((o) => o.qty >= 100 && o.side !== "skip").map((o) => `${sideTxt[o.side][0]} ${o.s} ${nf(o.qty, 0)} cp giá LO ${nf(o.px)}${o.stop ? ` · cắt lỗ ${nf(o.stop)}` : ""}${o.t1 ? ` · mục tiêu ${nf(o.t1)}` : ""}`).join("\n");
+  return `<section class="panel sec decide t-${D.tone}"><div class="ph"><h2>🧭 Hôm nay nên làm gì</h2><span class="meta">phong cách ${esc(D.styleName || "")} · tính từ giá đóng cửa ${esc(t.date)}</span></div>
+    <div class="dhead"><b class="${D.tone}">${esc(D.head)}</b></div>
+    <div class="dgrid">
+      <div class="dexp"><div class="dlab"><span>Đang nắm cổ phiếu</span><b>${isNum(D.curPct) ? nf(D.curPct, 0) + "%" : "—"}</b></div><div class="dbar">${bar(D.curPct, "var(--brand)")}<em style="left:${D.target}%"></em></div>
+        <div class="dlab"><span>Mức nên nắm theo đèn ${esc(LIGHT_VI[reg.light] || "")}</span><b>${D.target}%</b></div>
+        ${isNum(after) ? `<div class="dlab"><span>Sau khi làm theo các lệnh dưới</span><b>${nf(after, 0)}%</b></div>` : ""}
+        ${D.total && D.known ? `<small class="faint">Tổng tài sản ${big(D.total)} đ · cổ phiếu ${big(D.stockMV)} đ · tiền mặt ${big(D.cash)} đ</small>` : `<p class="note">Nhập <b>tổng vốn</b> hoặc tiền mặt ở <a href="#/portfolio">Danh mục</a> để hệ thống tính số tiền và số cổ phiếu cụ thể.</p>`}</div>
+      <div class="dwhy">${L.n ? `<p><b>Đèn ${esc(LIGHT_VI[reg.light])}</b>${S.now?.days ? ` ${S.now.days} phiên liền` : ""} (${reg.score}/${reg.max_score} điều kiện). Lịch sử ${esc((S.from || "").slice(0, 4))}–nay sau đèn này: VN-Index 60 phiên TB <b class="${cls(L.vn60)}">${pct(L.vn60, 1)}</b> (mọi lúc ${pct(A.vn60, 1)}), đúng hướng tăng ${nf(L.hit60, 0)}%;
+          xác suất sụt ≥ 20% trong 60 phiên <b class="down">${nf(L.p_dd20, 0)}%</b> (đèn Xanh ${nf(G.p_dd20, 0)}%).</p>
+          <p class="faint" style="font-size:.74rem">→ Đèn <b>không đoán được</b> thị trường lên hay xuống; nó đo <b>rủi ro sụt sâu</b>. Vì vậy hệ thống không bảo “đứng ngoài hẳn” mà giữ tỷ trọng theo đèn – kiểm chứng 2020–2026: lợi nhuận/năm giảm từ 16,9% xuống 14,0% nhưng mức sụt lớn nhất của danh mục giảm từ −34,6% xuống −18,4%.</p>` : `<p>${esc(reg.text || "")}</p>`}</div>
+    </div>
+    ${ords.length ? `<div class="tw"><table class="dord"><thead><tr><th class="l">Lệnh</th><th class="l">Mã</th><th>Khối lượng</th><th>Giá LO</th><th>Giá trị</th><th>Cắt lỗ</th><th>Mục tiêu</th><th>Nếu chạm cắt lỗ</th><th class="l">Lý do</th></tr></thead><tbody>
+      ${ords.map((o) => `<tr class="${o.side === "skip" ? "faint" : ""}"><td class="l"><b class="${sideTxt[o.side][1]}">${sideTxt[o.side][0]}</b></td><td class="l"><a href="#/s/${o.s}"><b>${o.s}</b></a></td>
+        <td>${o.qty ? nf(o.qty, 0) + " cp" : "—"}</td><td>${nf(o.px)}${o.zone ? `<small class="faint"> vùng ${nf(o.zone[0])}–${nf(o.zone[1])}</small>` : ""}</td><td>${o.v ? big(o.v) : "—"}</td>
+        <td class="down">${o.stop ? nf(o.stop) : ""}</td><td class="up">${o.t1 ? nf(o.t1) : ""}</td><td class="down">${o.risk ? "−" + big(o.risk) : ""}</td><td class="l wrap"><small>${esc(o.why || "")}</small></td></tr>`).join("")}</tbody></table></div>`
+      : `<p class="muted">Không có lệnh nào cần đặt cho phiên tới.</p>`}
+    <p class="dfoot">${D.waiting.length && !opts.noBuy ? `<span>⏳ Chờ về vùng mua: ${D.waiting.slice(0, 6).map((p) => `<a href="#/s/${p.symbol}">${p.symbol}</a> ${nf(p.zone[0])}–${nf(p.zone[1])}`).join(" · ")} – đặt cảnh báo giá thay vì mua đuổi.</span>` : ""}
+      ${opts.noBuy ? `<span>🔒 Lệnh MUA cụ thể (danh sách MUA, khối lượng theo rủi ro) dành cho gói Pro – <a href="#/account">xem quyền lợi</a>.</span>` : ""}
+      ${txt ? `<button class="btn" id="dCopy">📋 Sao chép lệnh</button>` : ""}</p>
+    <p class="faint" style="font-size:.72rem">Khối lượng làm tròn lô 100 cp; mỗi lệnh mua giới hạn để nếu chạm cắt lỗ chỉ mất ≈ ${nf(t.risk?.risk_per_trade ?? 1.5, 1)}% tổng tài sản và không vượt ${nf(t.risk?.max_weight_per_stock ?? 20, 0)}%/mã. Đặt cắt lỗ trên app CTCK ngay sau khi khớp. Thông tin tham khảo, không phải khuyến nghị đầu tư cá nhân.</p>
+    <template id="dTxt">${esc(txt)}</template></section>`;
+}
+function bindDecision() {
+  const b = $("#dCopy"); if (!b) return;
+  b.onclick = async () => { const s = $("#dTxt").innerHTML.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">"); try { await navigator.clipboard.writeText(s); toast("Đã sao chép danh sách lệnh"); } catch (e) { toast("Không sao chép được – chọn và copy thủ công"); } };
+}
+
 async function viewToday() {
   const [t, meta, pfr, rows, secs, m, LV, FJ] = await Promise.all([loadToday(), load("data/meta.json"), Store.get("portfolio"), screenerRows(), secsData(), tryLoad("data/market.json"), liveData(), tryLoad("data/flow.json")]);
   const pf = pfr.data || {};
@@ -547,6 +660,7 @@ async function viewToday() {
       <button class="tdo" ${go("secWatch")}><b>${plan.watch.length}</b> mã chờ điểm mua</button>
       <small>Tiền mặt nên giữ <b>${nf(plan.cash, 0)}%</b></small></div>
   </section>
+  ${decisionCard(t, pf)}
   ${liveBanner(LV)}
   ${moodStrip(FJ)}
   ${eventsPanel(t)}
@@ -601,6 +715,7 @@ async function viewToday() {
   };
   const s0 = lsGet("todayStyle", null);
   drawPlan(ST[s0] ? s0 : t.style || "position");
+  bindDecision();
   runNow(meta);
 }
 
@@ -1750,6 +1865,7 @@ async function viewStock(sym, tabArg) {
   }
   const [pfS, tS, evS, FJ, LV, FLJ] = await Promise.all([Store.get("portfolio"), loadToday(), tryLoad("data/events.json"), fbData(), liveData(), tryLoad("data/flow.json")]);
   const held = (pfS.data?.holdings || []).some((h) => h.symbol === sym);
+  window.__pf = pfS.data || {}; window.__risk = tS.risk || {};
   const stepsBlock = d._locked ? lockBox("stock_full", "Kết luận & việc nên làm từng bước").replace("panel lockp", "panel sec steps lockp") : (() => { try { return stepsHtml(stepsFor(d, { t: tS, pf: pfS.data || {}, ev: evS })); } catch (e) { console.warn(e); return ""; } })();
   const r = d.row, v = d.valuation || {}, ta = d.ta, fa = d.fa || {}, w = d.waves || {};
   const o = d.ohlc;
@@ -1949,11 +2065,22 @@ function entryState(d, lv) {
   if (lv.ext) return { k: "split", t: "Mua được – chia 2 lệnh", c: "up", why: `Đang kéo giãn (giá cách EMA20 ${nf(lv.ext_atr, 1)} ATR, 1 tháng ${pct(lv.ret1m)}): mua 1/2 ngay, 1/2 đặt LO ${nf(lv.split?.lo)} trong 10 phiên` };
   return { k: "now", t: "Mua được", c: "up" };
 }
+// "Vào bao nhiêu?" – cùng công thức với bảng Quyết định hôm nay: giới hạn tỷ trọng / mã và rủi ro mỗi lệnh
+function sizeLine(entry, stop) {
+  const pf = window.__pf || {}, R = window.__risk || {}, cap = capitalOf(pf);
+  if (!cap || !isNum(entry)) return `<p class="faint" style="font-size:.74rem;margin:0 0 6px">Nhập tổng vốn ở <a href="#/portfolio">Danh mục</a> để biết nên mua bao nhiêu cổ phiếu.</p>`;
+  const wmax = Number(R.max_weight_per_stock ?? 20), rp = Number(R.risk_per_trade ?? 1.5);
+  let q = cap * wmax / 100 / (entry * 1000), by = `tối đa ${wmax}% vốn/mã`;
+  if (isNum(stop) && entry > stop) { const qr = cap * rp / 100 / ((entry - stop) * 1000); if (qr < q) { q = qr; by = `rủi ro ${rp}% vốn nếu chạm cắt lỗ`; } }
+  q = lot(q);
+  if (q < 100) return "";
+  return `<p class="szl"><b>Vào bao nhiêu?</b> Tối đa <b>${nf(q, 0)} cp</b> ≈ ${big(q * entry * 1000)} đ (${nf(q * entry * 1000 / cap * 100, 1)}% vốn, giới hạn theo ${by})${isNum(stop) ? ` · chạm cắt lỗ mất ≈ ${big(q * (entry - stop) * 1000)} đ` : ""}. Nên chia 2 lệnh.</p>`;
+}
 function styleLevels(d) {
   if (d._locked) return lockBox("stock_full", "Kế hoạch giao dịch theo phong cách", true);
   const L = d.style_levels || {}, lv = d.levels, sel0 = lsGet("stockStyle", "position");
   const body = (k) => {
-    if (k === "position") { const es = entryState(d, lv); return lv ? `${kpis([["Vùng mua", `${nf(lv.zone[0])}–${nf(lv.zone[1])}`], ["Cắt lỗ", `${nf(lv.stop)} <small>${pct(lv.stop_pct, 0)}</small>`, "down"], ["Mục tiêu 1", `${nf(lv.t1)} <small>${pct(lv.t1_pct, 0)}</small>`, "up"], ["Mục tiêu 2", nf(lv.t2), "up"], ["Lời / lỗ", nf(lv.rr, 1) + "x"], ["Trạng thái", es.t, es.c]], false, "c2")}
+    if (k === "position") { const es = entryState(d, lv); return lv ? `${sizeLine(lv.zone[1], lv.stop)}${kpis([["Vùng mua", `${nf(lv.zone[0])}–${nf(lv.zone[1])}`], ["Cắt lỗ", `${nf(lv.stop)} <small>${pct(lv.stop_pct, 0)}</small>`, "down"], ["Mục tiêu 1", `${nf(lv.t1)} <small>${pct(lv.t1_pct, 0)}</small>`, "up"], ["Mục tiêu 2", nf(lv.t2), "up"], ["Lời / lỗ", nf(lv.rr, 1) + "x"], ["Trạng thái", es.t, es.c]], false, "c2")}
       ${es.why ? `<p class="note" style="margin-top:6px">${esc(es.why)}</p>` : `<p class="faint" style="font-size:.74rem;margin-top:4px">Đủ điều kiện xu hướng, giá và nằm trong danh sách MUA. Nắm 1–6 tháng, cắt lỗ tối đa 20%.</p>`}` : `<p class="muted">Chưa có kế hoạch (thiếu định giá hoặc kỹ thuật).</p>`; }
     const x = L[k] || {};
     if (x.none) return `<p class="muted">${esc(x.reason)}</p>`;
@@ -2217,7 +2344,7 @@ function tabPeers(d) {
 // ================================================================ HƯỚNG DẪN
 // ================================================================ HƯỚNG DẪN SỬ DỤNG & FAQ
 const HELP_PAGES = [
-  ["Hôm nay", "#/", "Trang mở đầu mỗi ngày: đèn thị trường (được nắm tối đa bao nhiêu % cổ phiếu), việc cần làm với danh mục, danh sách MUA theo phong cách đang chọn, mã chờ điểm mua, tâm lý thị trường, cơ hội sau sự kiện, mùa vụ, ngành dẫn dắt.",
+  ["Hôm nay", "#/", "Trang mở đầu mỗi ngày: bảng “Hôm nay nên làm gì” (đang nắm bao nhiêu % cổ phiếu, nên nắm bao nhiêu, danh sách lệnh bán / mua với khối lượng, giá LO, cắt lỗ), đèn thị trường (được nắm tối đa bao nhiêu % cổ phiếu), việc cần làm với danh mục, danh sách MUA theo phong cách đang chọn, mã chờ điểm mua, tâm lý thị trường, cơ hội sau sự kiện, mùa vụ, ngành dẫn dắt.",
     ["Xem ô “Việc hôm nay” trước: số mã nên mua, cần xử lý, chờ điểm mua.", "Đổi phong cách (Lướt sóng / Trung hạn / Dài hạn / Cổ tức) bằng nút trên bảng kế hoạch – danh sách MUA đổi theo.", "Gói Miễn phí: trang này là Bản tin thị trường."]],
   ["Bản tin thị trường", "#/digest", "Tóm tắt mỗi phiên: chỉ số, độ rộng (tăng/giảm/trần/sàn), thanh khoản so với trung bình, ngành mạnh/yếu, mã kéo/đè VN-Index, tăng/giảm mạnh, khối lượng đột biến, dòng tiền lớn, phiên bất thường, sự kiện 7 ngày tới, tin tức.",
     ["Chọn ngày ở ô phía trên để xem lại các phiên trước.", "Bấm vào mã bất kỳ để mở trang phân tích mã."]],
@@ -2255,6 +2382,8 @@ const HELP_FAQ = [
   ["Bắt đầu", "Tôi nên dùng trang này mỗi ngày thế nào?", "Mở Hôm nay sau 15:35: xem đèn thị trường → việc với danh mục (bán/cắt lỗ/chốt lời) → danh sách MUA mới → mã chờ điểm mua. Trong ngày chỉ cần xem thông báo; không cần nhìn bảng điện."],
   ["Bắt đầu", "Vì sao tìm mã không thấy trang phân tích đầy đủ?", "Mã có giá trị giao dịch bình quân dưới 0,5 tỷ/phiên chỉ có số liệu tóm tắt – quá ít thanh khoản để phân tích sâu và để mua bán an toàn. Khuyến nghị MUA chỉ áp cho mã ≥ 3 tỷ/phiên."],
   ["Bắt đầu", "Giá trên trang có phải giá trực tiếp không?", "Không theo từng giây. Giá được chụp ở các lượt 11:35, 14:35 và 15:35. Khi đặt lệnh, luôn kiểm tra lại giá trên ứng dụng của công ty chứng khoán."],
+  ["Bắt đầu", "Bảng “Hôm nay nên làm gì” tính thế nào?", "Lấy tỷ trọng cổ phiếu đang nắm so với mức đèn thị trường cho phép (theo phong cách đang chọn). Thứ tự: (1) bán các mã đã chạm mức thoát / cắt lỗ / luận điểm gãy; (2) nếu vẫn nắm nhiều hơn mức cho phép thì bán bớt mã yếu nhất, khi đó không mua mới; (3) còn phần vốn được phép thì mua các mã trong danh sách MUA đang trong vùng mua – khối lượng bị giới hạn bởi tỷ trọng tối đa/mã và rủi ro ≈ 1,5% tổng tài sản nếu chạm cắt lỗ; (4) cơ hội sau sự kiện với tỷ trọng nhỏ, tuỳ chọn. Bấm “Sao chép lệnh” để dán sang app CTCK."],
+  ["Khuyến nghị", "Đèn Đỏ thì có nên đứng ngoài hoàn toàn?", "Không. Kiểm chứng 2015–2026: sau đèn Đỏ, VN-Index 60 phiên vẫn tăng trung bình như mọi lúc (~+2,8%) – đèn không đoán được hướng. Nhưng xác suất sụt ≥ 20% trong 60 phiên cao gấp đôi đèn Xanh. Vì vậy hệ thống giữ tỷ trọng thấp (mặc định 30%) chứ không bán sạch: danh mục kiểm chứng giảm mức sụt lớn nhất từ −34,6% xuống −18,4%, đổi lại lợi nhuận/năm thấp hơn khoảng 3 điểm %."],
   ["Khuyến nghị", "“Mua được” nghĩa là tôi nên mua ngay?", "Nghĩa là mã đạt đủ điều kiện của hệ thống tại giá đóng cửa gần nhất. Mua trong vùng mua, đặt cắt lỗ ngay sau khi mua, tỷ trọng theo gợi ý (mỗi lệnh sai chỉ mất khoảng 1,5% tổng vốn). Đây là thông tin tham khảo, không phải lời khuyên đầu tư cá nhân."],
   ["Khuyến nghị", "Mã định giá “Rẻ” sao lại “Chưa đến lúc”?", "Rẻ chưa đủ: hệ thống chỉ mua khi giá đã vào xu hướng tăng (giá > MA50 > MA200). Kiểm chứng 2020–2026: hàng rào này giảm mức sụt danh mục từ khoảng −50% xuống khoảng −26%. Mã rẻ mà đang giảm thường còn rẻ hơn nữa."],
   ["Khuyến nghị", "RSI gần 70, MACD sắp cắt xuống mà vẫn “Mua được”?", "Đo trên dữ liệu VN, mã quá mua trong xu hướng tăng không tệ hơn trung bình, nhưng dễ có nhịp chỉnh sâu. Vì vậy mã đang kéo giãn được chuyển sang “Mua được – chia 2 lệnh” thay vì cấm mua."],
@@ -4642,6 +4771,8 @@ async function viewDigest(date, home = false) {
   if (!dates.length) { app().innerHTML = `<div class="empty">Chưa có bản tin – bản tin đầu tiên có sau lượt chạy đóng cửa kế tiếp.</div>`; return; }
   const d = date && dates.find((x) => x.date === date) ? date : dates[0].date;
   const D = await load(`data/digest/${d}.json`);
+  let dec = "";
+  if (home) { try { const [tt, pr] = await Promise.all([loadToday(), Store.get("portfolio")]); if ((tt.portfolio?.positions || []).length || capitalOf(pr.data || {})) dec = decisionCard(tt, pr.data || {}, { noBuy: !can("today") }); } catch (e) { /* bỏ qua */ } }
   const i = dates.findIndex((x) => x.date === d);
   const IX = D.indices || {}, B = D.breadth || {}, V = D.value || {}, S = D.sentiment || {}, F = D.flow || {}, W = D.swing || {};
   const sym = (s) => `<a href="#/s/${s}"><b>${s}</b></a>`;
@@ -4649,6 +4780,7 @@ async function viewDigest(date, home = false) {
     ${(L || []).map((x) => `<tr><td class="l">${sym(x.s)}</td><td>${nf(x.price)}</td><td class="${cls(x.chg)}">${pct(x.chg)}</td>${extra ? `<td>${nf(x.vx, 1)}×</td>` : ""}<td class="l"><small class="muted">${esc((x.sector || "").slice(0, 22))}</small></td></tr>`).join("") || '<tr><td colspan="5" class="muted">—</td></tr>'}</tbody></table></div>`;
   const lightC = { green: "up", yellow: "ref", red: "down" }[D.regime?.light] || "";
   app().innerHTML = `${home ? `<div class="note" style="margin-bottom:10px">Trang chủ gói Miễn phí là bản tin thị trường mỗi phiên. <b>Danh sách MUA, kế hoạch theo phong cách, phân tích đầy đủ từng mã</b> dành cho gói Pro – <a href="#/account">xem quyền lợi</a>. Tư vấn mức thoát cho danh mục của anh/chị ở tab <a href="#/portfolio">Danh mục</a>.</div>` : ""}
+  ${dec}
   <div class="ph"><h1>Bản tin thị trường</h1><span class="meta">
     ${i < dates.length - 1 ? `<a class="btn" href="#/digest/${dates[i + 1].date}">← ${esc(dates[i + 1].date.slice(5))}</a>` : ""}
     <select id="dgSel">${dates.map((x) => `<option value="${x.date}" ${x.date === d ? "selected" : ""}>${new Date(x.date).toLocaleDateString("vi-VN", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" })}</option>`).join("")}</select>
@@ -4689,6 +4821,7 @@ async function viewDigest(date, home = false) {
   </div>
   <p class="faint" style="font-size:.72rem;margin-top:8px">Bản tin tự động tạo từ số liệu sau phiên – thông tin tham khảo, không phải khuyến nghị đầu tư.</p>`;
   $("#dgSel").onchange = (e) => (location.hash = "#/digest/" + e.target.value);
+  bindDecision();
 }
 
 // ---- thanh đầu trang: chuông + tài khoản

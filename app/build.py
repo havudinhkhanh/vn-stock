@@ -33,6 +33,7 @@ from .analysis import styles as sty
 from .analysis import technical as tech
 from .analysis import valuation as va
 from .analysis import events as evx
+from .analysis import stance as stn
 from .analysis import forecast as fc
 from . import swing_build as swb
 from . import pairs_build as pab
@@ -231,6 +232,11 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     # ------------------------------------------------------------ thị trường
     br = mk.breadth(wide, liquid)
     regime = mk.regime(idx, br)
+    try:
+        stance_ = stn.build(idx, prices[~prices["symbol"].isin(INDEX_SYMS)])
+    except Exception as e:  # noqa: BLE001
+        log.exception("Kiểm chứng đèn thị trường lỗi: %s", e)
+        stance_ = None
     sectors = mk.sector_map(wide, wide_val, listing, liquid)
     idx_ti = ind.compute_all(idx)
     idx_ta = tech.summarize(idx, idx_ti)
@@ -574,6 +580,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
              "profile": {"applied": prof_changed, "updated": (profile or {}).get("updated"),
                          "exclude_sectors": cfg.get("exclude_sectors") or [], "exclude_symbols": cfg.get("exclude_symbols") or []},
              "portfolio": advice,
+             "stance": stance_,
              "post_event": sorted(post_events, key=lambda x: (not x["quality"], x["since"])), "event_active": sorted(ev_active, key=lambda x: x["since"])}
     if multi:          # phần riêng (danh mục, cảnh báo, khẩu vị) không nằm trong tệp chung – mỗi người đọc qua /api/personal
         for k in ("portfolio", "alerts", "capital", "profile"):

@@ -954,3 +954,18 @@ th.brand{color:var(--brand)}
 @media (max-width:480px){.helpbtn{display:none}}
 .hsched .row{display:grid!important;grid-template-columns:70px 1fr;gap:10px;text-align:left;align-items:start}
 .hsched .row span{text-align:left!important}
+/* ---- quyết định hôm nay */
+.decide{border-left:4px solid var(--ink-3)}
+.decide.t-up{border-left-color:var(--up)}.decide.t-down{border-left-color:var(--down)}.decide.t-ref{border-left-color:var(--ref)}
+.dhead{font-size:1.25rem;font-weight:800;letter-spacing:-.01em;margin:2px 0 10px}
+.dgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:16px;margin-bottom:10px}
+.dexp{display:grid;gap:6px;align-content:start}
+.dlab{display:flex;justify-content:space-between;gap:8px;font-size:.84rem}.dlab b{font-size:1rem}
+.dbar{position:relative;height:12px;border-radius:6px;background:var(--sunk);overflow:visible}
+.dbar i{display:block;height:100%;border-radius:6px}
+.dbar em{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--ink);transform:translateX(-1px)}
+.dwhy p{margin:0 0 6px;font-size:.84rem;line-height:1.45}
+.dord td,.dord th{font-size:.8rem}
+.dfoot{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;font-size:.8rem;margin:8px 0 4px}
+@media (max-width:860px){.dgrid{grid-template-columns:1fr}.dhead{font-size:1.05rem}}
+.szl{margin:0 0 8px;font-size:.8rem;padding:6px 8px;background:var(--sunk);border-radius:6px;line-height:1.45}
