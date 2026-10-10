@@ -243,3 +243,35 @@ def send(today: dict, dry: bool = False, watch_syms: set | None = None) -> bool:
             return False
     log.info("Telegram: đã gửi %d tin", len(chunks))
     return True
+
+
+def send_weekly(W: dict, dry: bool = False) -> bool:
+    """Báo cáo tuần (chế độ một người dùng) qua Telegram – bản đầy đủ ở #/report."""
+    if not W:
+        return False
+    e = html.escape
+    f = lambda x, nd=1: "—" if x is None else (("+" if x > 0 else "") + f"{x:,.{nd}f}".replace(",", "X").replace(".", ",").replace("X", "."))  # noqa: E731
+    M, P, PL = W["market"], W["pf"], W["plan"]
+    L = {"green": "🟢 Xanh", "yellow": "🟡 Vàng", "red": "🔴 Đỏ"}
+    lines = [f"<b>📊 Báo cáo tuần {e(W['from'][8:10])}/{e(W['from'][5:7])} – {e(W['to'][8:10])}/{e(W['to'][5:7])}</b>",
+             f"VN-Index {f(M.get('vni_chg'), 2)}% trong tuần · đèn {L.get(M.get('light'), '—')}",
+             f"Danh mục: lãi/lỗ tuần {f((P.get('wk_pnl') or 0) / 1e6, 1)} tr ({f(P.get('wk_ret'), 2)}%) · cổ phiếu {f(P.get('exp'), 0).lstrip('+')}% (cho phép ≈ {P.get('target')}%)",
+             "", f"<b>{e(PL['head'])}</b>"]
+    lines += [f"• BÁN {e(x['s'])} – {e(x['action'] or '')}" for x in PL["sells"]]
+    lines += [f"• MUA {e(x['s'])} vùng {x['zone'][0]}–{x['zone'][1]}, cắt lỗ {x['stop']}" for x in PL["picks"] if x.get("zone")]
+    lines += [f"• Chờ {e(x['s'])} về {x['zone'][0]}–{x['zone'][1]}" for x in PL["waits"][:4] if x.get("zone")]
+    if W.get("risks"):
+        lines += ["", "<b>Rủi ro</b>"] + [f"• {e(r)}" for r in W["risks"][:5]]
+    site = os.environ.get("SITE_URL") or ""
+    if site:
+        lines += ["", f"Bản đầy đủ / in PDF: {site.rstrip('/')}/#/report"]
+    msg = "\n".join(lines)
+    tok, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
+    if dry or not (tok and chat) or not config.get("notify.telegram", True):
+        log.info("Telegram báo cáo tuần (không gửi):\n%s", msg)
+        return False
+    r = requests.post(f"https://api.telegram.org/bot{tok}/sendMessage", json={"chat_id": chat, "text": msg[:3900], "parse_mode": "HTML",
+                                                                              "disable_web_page_preview": True}, timeout=20)
+    if not r.ok:
+        log.warning("Telegram báo cáo tuần lỗi: %s", r.text[:300])
+    return r.ok

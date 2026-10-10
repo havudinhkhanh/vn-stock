@@ -217,7 +217,7 @@ def build_base(fa: dict, ys: pd.DataFrame, ttm_row: pd.Series | None, sector_gro
         why["kd"] = (f"lãi vay 12 tháng {interest:,.0f} tỷ ÷ dư nợ vay bình quân {avg_d:,.0f} tỷ".replace(",", ".") if kd0 else "chưa đủ số liệu lãi vay – dùng 8%") + " (giới hạn 3–15%)"
         why["de"] = f"nợ vay {debt0:,.0f} tỷ ÷ vốn chủ {eq:,.0f} tỷ hiện tại – dư nợ tăng theo vốn chủ (vay ròng tính vào dòng tiền)".replace(",", ".")
         why["da"] = "khấu hao ÷ doanh thu, trung vị 3 năm (EBITDA − EBIT)"
-        boom = cap_rec > 0.04 and ((cap_rec > 1.6 * cap_med and cap_rec > da_r * 1.5) or cap_rec > 1.8 * max(da_r, 0.005))
+        boom = (cap_rec > 0.04 and cap_rec > 1.6 * cap_med and cap_rec > da_r * 1.5) or (cap_rec > 0.1 and cap_rec > 1.8 * max(da_r, 0.005))
         why["capex1"] = (f"nhịp đầu tư TSCĐ 2 năm gần nhất {_pct(cap_rec)} doanh thu (5 năm: {_pct(cap_med)}; khấu hao {_pct(da_r)})"
                          + (" – ĐANG TRONG CHU KỲ ĐẦU TƯ LỚN (mua tài sản / xây nhà máy); nếu biết kế hoạch cụ thể, nhập vào Kế hoạch đầu tư bên dưới" if boom else ""))
         why["capex_lt"] = f"mức duy trì: khấu hao {_pct(da_r)} + tăng trưởng dài hạn × TSCĐ/doanh thu ({fa_r:.2f}) – đầu tư đi dần từ nhịp hiện tại về mức này"

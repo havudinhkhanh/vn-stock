@@ -235,6 +235,7 @@ async function route() {
     else if (r === "s" && arg[0]) { setTab(""); await viewStock(arg[0].toUpperCase(), arg[1]); }
     else if (r === "guide") { setTab(""); await viewGuide(); }
     else if (r === "help" || r === "faq") { setTab(""); await viewHelp(); }
+    else if (r === "report") { setTab("portfolio"); await viewReport(); }
     else { app().innerHTML = `<div class="empty">Không có trang này. <a href="#/">Về trang Hôm nay</a></div>`; }
   } catch (e) {
     console.error(e);
@@ -2510,7 +2511,9 @@ const HELP_PAGES = [
   ["Theo dõi", "#/watch", "Danh sách mã quan tâm và cảnh báo giá: giá ≤ / ≥ một mức, biến động ≥ x% trong phiên, hoặc khi mã vào danh sách MUA. Có lịch sự kiện (chốt quyền cổ tức, hạn BCTC, ĐHCĐ).",
     ["Bấm ☆ ở bất kỳ đâu để thêm mã vào theo dõi.", "Mã đang “có sự kiện” trong danh sách theo dõi sẽ được báo khi đến điểm vào sau sự kiện."]],
   ["Danh mục", "#/portfolio", "Nhập mã đang nắm (khối lượng, giá vốn, ngày mua) và tổng vốn. Hệ thống tính mức dừng lỗ, chốt lời từng phần, tỷ trọng, rủi ro theo ngành; có Nhật ký giao dịch và Khẩu vị đầu tư.",
-    ["Ghi lệnh mua/bán ở Nhật ký thì danh mục tự cập nhật và lưu lại hệ thống đang khuyên gì lúc đó.", "Khẩu vị: chỉnh phân bổ rổ, mức cắt lỗ, tỷ trọng theo màu đèn, loại trừ ngành/mã – thấy ngay kết quả nếu đã làm như vậy từ 2020."]],
+    ["Ghi lệnh mua/bán ở Nhật ký thì danh mục tự cập nhật và lưu lại hệ thống đang khuyên gì lúc đó.", "Trước khi ghi lệnh mua, khung Kiểm tra lệnh soát 8 điều: tiền mặt, tỷ trọng mã, tỷ trọng ngành, tổng cổ phiếu so với đèn, số tiền mất nếu chạm cắt lỗ, điểm vào / sự kiện, thanh khoản, đồng pha với mã đang nắm – và gợi ý khối lượng lớn nhất hợp lệ.",
+      "Nhật ký → bảng Nếu làm theo hệ thống: lãi/lỗ thực tế từng tháng so với cùng số vốn đi theo danh mục mẫu và VN-Index.", "Báo cáo tuần (sáng thứ 7): danh mục, lệnh trong tuần, rủi ro, thị trường tuần qua, kế hoạch tuần tới – in hoặc lưu PDF; gói Pro nhận qua email.",
+      "Khẩu vị: chỉnh phân bổ rổ, mức cắt lỗ, tỷ trọng theo màu đèn, loại trừ ngành/mã – thấy ngay kết quả nếu đã làm như vậy từ 2020."]],
   ["Kiểm chứng", "#/backtest", "Mọi phương pháp và tín hiệu được đo trên dữ liệu Việt Nam: lợi nhuận/năm, mức sụt lớn nhất, từng năm, so với VN-Index; theo dõi thực tế danh sách MUA hằng ngày (không thể tối ưu ngược).",
     ["Đây là nơi trả lời câu hỏi “cách này có thật sự hiệu quả không?”."]],
   ["Trang từng mã", "#/s/FPT", "Biểu đồ nhiều khung, các bước nên làm, kế hoạch theo phong cách (vùng mua, cắt lỗ, mục tiêu), định giá đa phương pháp, kỹ thuật, sóng & mô hình, SMC/VSA/Wyckoff, dòng tiền, cơ bản, dự phóng 5 năm (sửa giả định được), cùng ngành, mã liên quan.",
@@ -2540,6 +2543,9 @@ const HELP_FAQ = [
   ["Khuyến nghị", "RSI gần 70, MACD sắp cắt xuống mà vẫn “Mua được”?", "Đo trên dữ liệu VN, mã quá mua trong xu hướng tăng không tệ hơn trung bình, nhưng dễ có nhịp chỉnh sâu. Vì vậy mã đang kéo giãn được chuyển sang “Mua được – chia 2 lệnh” thay vì cấm mua."],
   ["Khuyến nghị", "Giá đã giảm sàn nhiều phiên, P/E chỉ 4x – có phải cơ hội vàng?", "Kiểm chứng 560 đợt 2016–2026: mua ngay khi sập hoặc bắt nhịp hồi sớm thường thua thị trường và còn sụt thêm ~30%. Cơ hội có thật nhưng đến muộn hơn: khi đủ 120 phiên từ lúc có cờ và 60 phiên liền không giảm sàn, nhất là DN còn lãi, nợ thấp. Trang mã đếm ngược số phiên còn phải chờ; thêm mã vào Theo dõi để được báo đúng lúc."],
   ["Khuyến nghị", "Giá trị hợp lý tính thế nào? Tôi muốn dùng giả định của mình.", "P/E và P/B mục tiêu theo trung vị ngành (điều chỉnh theo ROE của mã), DCF dòng tiền cho cổ đông và DDM khi phù hợp; lợi nhuận đỉnh/đáy chu kỳ được chuẩn hoá. Trong trang mã → tab Dự phóng & định giá, sửa tăng trưởng, biên lợi nhuận… giá trị hợp lý tính lại ngay và có thể lưu."],
+  ["Khuyến nghị", "DCF có tính lãi vay, nợ vay và kế hoạch đầu tư (mua tàu, xây nhà máy) không?", "Có. Mô hình dự phóng rõ từng dòng: EBIT − lãi vay (lãi suất thực tế = chi phí lãi 12 tháng ÷ dư nợ vay bình quân) → lợi nhuận; dòng tiền cho cổ đông = lợi nhuận + khấu hao − đầu tư TSCĐ − tăng vốn lưu động + vay ròng (dư nợ đi theo tỷ lệ nợ/vốn chủ). Đầu tư TSCĐ đi từ nhịp 2 năm gần nhất về mức duy trì. Kế hoạch chưa có trong BCTC (vd. PVT đóng tàu mới, DN vay xây nhà máy) nhập ở mục Kế hoạch đầu tư mới: tổng vốn, số năm, % vay, doanh thu và biên khi chạy đủ – giá trị tính lại ngay. Có thêm kiểm tra chéo FCFF/WACC; DN đang đầu tư lớn có cảnh báo riêng."],
+  ["Danh mục", "Bảng “Nếu làm theo hệ thống” tính thế nào?", "Lãi/lỗ của anh/chị dựng lại từ nhật ký giao dịch + danh mục theo giá đóng cửa từng ngày (gồm phí). “Theo hệ thống” = cùng tổng vốn đi theo danh mục mẫu của phong cách đang chọn – gồm cả phần tiền mặt theo đèn: các tháng trước khi có theo dõi thực tế dùng kết quả mô phỏng (đánh dấu mp), từ khi có theo dõi thực tế dùng số thật (tt). Cần ≥ 6 tháng mới nên kết luận."],
+  ["Danh mục", "Báo cáo tuần gửi lúc nào?", "Sáng thứ Bảy sau tuần giao dịch, cho người có danh mục hoặc nhật ký. Xem ở Danh mục → Báo cáo tuần (in hoặc lưu PDF); gói Pro nhận thêm email (tắt được trong Tài khoản)."],
   ["Khuyến nghị", "Mã này chạy rồi thì mã cùng ngành có chạy theo không?", "Kiểm chứng trên dữ liệu VN: các mã đồng pha đi CÙNG LÚC, không đi trước nhau vài tuần; mã tụt lại cũng không có xu hướng bắt kịp. Xem phần Mã liên quan trong trang mã để biết nên né cả nhóm khi nào và mã nào trong nhóm đang vào được."],
   ["Danh mục", "Nhập danh mục ở đâu? Có ai khác xem được không?", "Tab Danh mục → nhập mã, khối lượng, giá vốn (nghìn đồng), ngày mua và tổng vốn. Dữ liệu lưu riêng cho tài khoản của anh/chị, đồng bộ mọi thiết bị; người dùng khác không xem được."],
   ["Danh mục", "Mức dừng lỗ, chốt lời được tính thế nào?", "Theo phong cách của từng mã: dừng lỗ theo ATR và đỉnh sau mua (dời lên theo giá, tối đa −20%), chốt một phần khi vượt giá trị hợp lý, bán khi luận điểm cơ bản gãy, xem lại sau 60 phiên nếu vốn đứng yên. Có thể đặt mức riêng cho từng mã."],
@@ -3867,7 +3873,7 @@ async function viewProfile() {
 // ================================================================ NHẬT KÝ GIAO DỊCH
 const DECISION = { sys: "Theo hệ thống", self: "Tự quyết (ngoài hệ thống)", against: "Ngược hệ thống" };
 function pfTabs(on) {
-  return `<div class="views" style="margin-top:0">${[["", "Đang nắm"], ["journal", "Nhật ký giao dịch"], ["profile", "Khẩu vị đầu tư"]].map(([k, n]) => `<a class="btn ${on === (k || "hold") ? "primary" : ""}" href="#/portfolio${k ? "/" + k : ""}">${n}</a>`).join("")}</div>`;
+  return `<div class="views" style="margin-top:0">${[["", "Đang nắm"], ["journal", "Nhật ký giao dịch"], ["report", "Báo cáo tuần"], ["profile", "Khẩu vị đầu tư"]].map(([k, n]) => `<a class="btn ${on === (k || "hold") ? "primary" : ""}" href="${k === "report" ? "#/report" : "#/portfolio" + (k ? "/" + k : "")}">${n}</a>`).join("")}</div>`;
 }
 function fifo(trades) {
   // khớp lệnh bán với lệnh mua cũ nhất; trả về các lượt đã đóng và các lô còn mở
@@ -3921,6 +3927,7 @@ async function viewJournal() {
     app().innerHTML = `${pfTabs("journal")}
     <div class="ph"><h1>Nhật ký giao dịch</h1><span class="meta">${J.trades.length} lệnh · ${jr.remote ? "đã đồng bộ" : "lưu trong trình duyệt này"}</span></div>
     ${sAll ? kpis([["Tổng lãi/lỗ", big(sAll.pnl) + " đ", cls(sAll.pnl), "Đã chốt + chưa chốt (tạm tính theo giá hiện tại)"], ["Lãi TB mỗi lượt", pct(sAll.ret, 1), cls(sAll.ret)], ["Vượt VN-Index TB", pct(sAll.ex, 1), cls(sAll.ex)], ["Tỷ lệ thắng", pct(sAll.win, 0, false)], ["Số lượt", `${sAll.n} <small>· ${sAll.open} mở</small>`]], true) : ""}
+    ${scoreSection(t.score)}
     <div class="g g-main sec">
       <div class="stack">
         <section class="panel flush"><div class="ph"><h2>Theo hệ thống hay tự quyết – cái nào tốt hơn?</h2><span class="meta">gia quyền theo vốn · phí mua 0,15%, bán 0,25% (gồm thuế)</span></div>
@@ -4005,6 +4012,99 @@ async function viewJournal() {
     };
   };
   render();
+}
+
+// ================================================================ "NẾU LÀM THEO HỆ THỐNG" – lãi/lỗ thực tế theo tháng so với danh mục mẫu & VN-Index
+function scoreSvg(M) {
+  const W = 900, H = 230, P = 40, n = M.length;
+  if (n < 2) return "";
+  const ser = [["cum", "var(--brand)", "Anh/chị"], ["cum_sys", "var(--up)", "Theo hệ thống"], ["cum_vni", "var(--ink-3)", "VN-Index"]];
+  const all = M.flatMap((m) => ser.map(([k]) => m[k] || 0)).concat([0]);
+  const lo = Math.min(...all), hi = Math.max(...all), rg = hi - lo || 1;
+  const X = (i) => P + (i / (n - 1)) * (W - P - 8), Y = (v) => 8 + (1 - (v - lo) / rg) * (H - 30);
+  return `<svg viewBox="0 0 ${W} ${H}" class="scsvg" role="img" aria-label="Lãi/lỗ cộng dồn">
+    <line x1="${P}" x2="${W - 8}" y1="${Y(0)}" y2="${Y(0)}" stroke="var(--line)" stroke-dasharray="3 3"/>
+    ${ser.map(([k, c]) => `<polyline fill="none" stroke="${c}" stroke-width="${k === "cum" ? 2.4 : 1.6}" points="${M.map((m, i) => `${X(i).toFixed(1)},${Y(m[k] || 0).toFixed(1)}`).join(" ")}"/>`).join("")}
+    ${M.map((m, i) => (i % Math.ceil(n / 8) === 0 || i === n - 1 ? `<text x="${X(i)}" y="${H - 6}" font-size="10" text-anchor="middle" fill="var(--ink-3)">${m.m.slice(5)}/${m.m.slice(2, 4)}</text>` : "")).join("")}
+    <text x="2" y="${Y(hi) + 4}" font-size="10" fill="var(--ink-3)">${big(hi)}</text><text x="2" y="${Y(lo)}" font-size="10" fill="var(--ink-3)">${big(lo)}</text></svg>
+    <div class="leg">${ser.map(([, c, n_]) => `<span><i style="background:${c}"></i>${n_}</span>`).join("")}</div>`;
+}
+function scoreSection(sc) {
+  if (!can("scorecard")) return lockBox("scorecard", "Nếu làm theo hệ thống – so sánh theo tháng", true);
+  if (!sc || !(sc.months || []).length) return `<section class="panel"><div class="ph"><h2>Nếu làm theo hệ thống</h2></div><p class="muted">Chưa đủ dữ liệu: cần nhập <b>tổng vốn</b> (hoặc tiền mặt) ở Danh mục và có lệnh trong nhật ký / mã đang nắm. Bảng được tính lại mỗi tối sau khi đóng cửa.</p></section>`;
+  const M = sc.months, T = sc.total12 || {};
+  const bt = M.some((m) => m.src === "bt"), fw = M.some((m) => m.src === "fwd");
+  const vs = (T.diff ?? 0);
+  return `<section class="panel flush sec"><div class="ph"><h2>Nếu làm theo hệ thống – lãi/lỗ theo tháng</h2><span class="meta">vốn ${big(sc.capital)} đ${sc.capital_src === "capital" ? "" : " (tiền mặt + cổ phiếu hiện tại)"} · phong cách ${esc(STYLE_SHORT[sc.style] || sc.style)}</span></div>
+    <div style="padding:8px 12px">
+    ${kpis([["Anh/chị", big(T.pnl) + " đ", cls(T.pnl), `lãi/lỗ ${M.length} tháng`], ["Theo hệ thống", big(T.sys_pnl) + " đ", cls(T.sys_pnl), "cùng số vốn"], ["Chênh lệch", (vs > 0 ? "+" : "") + big(vs) + " đ", cls(vs), vs >= 0 ? "anh/chị tốt hơn" : "hệ thống tốt hơn"], ["VN-Index", big(T.vni_pnl) + " đ", cls(T.vni_pnl), "nếu mua chỉ số"]], true)}
+    ${scoreSvg(M)}</div>
+    <div class="tw"><table data-hm="c2 c4 c6 c7"><thead><tr><th class="l">Tháng</th><th>Lãi/lỗ của anh/chị</th><th>% tổng vốn</th><th>Hệ thống</th><th>Nếu theo hệ thống</th><th>VN-Index</th><th>Chênh lệch</th><th>Cổ phiếu TB</th><th>Lệnh</th></tr></thead><tbody>
+    ${M.slice().reverse().map((m) => `<tr><td class="l">${m.m.slice(5)}/${m.m.slice(0, 4)}${m.src === "bt" ? ' <small class="faint" title="danh mục mẫu mô phỏng lịch sử">mp</small>' : m.src === "fwd" ? ' <small class="up" title="theo dõi thực tế">tt</small>' : ""}</td>
+      <td class="${cls(m.pnl)}"><b>${big(m.pnl)}</b></td><td class="${cls(m.ret)}">${pct(m.ret, 2)}</td><td class="${cls(m.sys_ret)}">${pct(m.sys_ret, 2)}</td><td class="${cls(m.sys_pnl)}">${big(m.sys_pnl)}</td>
+      <td class="${cls(m.vni_ret)}">${pct(m.vni_ret, 1)}</td><td class="${cls(m.diff)}"><b>${m.diff == null ? "—" : (m.diff > 0 ? "+" : "") + big(m.diff)}</b></td><td>${nf(m.exp, 0)}%</td><td>${m.trades || ""}</td></tr>`).join("")}</tbody></table></div>
+    <div style="padding:6px 12px 10px;font-size:.76rem">
+      ${sc.decisions ? `<p>Lệnh trong nhật ký: <b>${sc.decisions.sys}</b> theo hệ thống · <b>${sc.decisions.self}</b> tự quyết · <b>${sc.decisions.against}</b> ngược hệ thống${sc.n_pre ? ` · ${sc.n_pre} mã đang nắm từ trước khi ghi nhật ký (tính từ ngày mua đã nhập)` : ""}.</p>` : ""}
+      ${sc.missed?.n ? `<p>Mã hệ thống đã chọn (theo dõi thực tế) mà anh/chị không mua: <b>${sc.missed.n}</b> lượt, lãi TB <b class="${cls(sc.missed.avg)}">${pct(sc.missed.avg, 1)}</b>${sc.missed.top.length ? ` – ${sc.missed.top.map((x) => `<a href="#/s/${x.s}">${x.s}</a> ${pct(x.ret, 0)}`).join(", ")}` : ""}${sc.taken?.n ? `; những mã anh/chị có mua: ${pct(sc.taken.avg, 1)}` : ""}.</p>` : ""}
+      <p class="faint">Lãi/lỗ của anh/chị dựng lại từ nhật ký + danh mục theo giá đóng cửa hằng ngày (gồm phí giao dịch, chưa gồm cổ tức tiền). "Nếu theo hệ thống" = cùng tổng vốn đi theo danh mục mẫu của phong cách đang chọn (gồm cả phần tiền mặt theo đèn):
+      ${bt ? "<b>mp</b> = mô phỏng lịch sử (backtest, chưa phải kết quả thật)" : ""}${bt && fw ? "; " : ""}${fw ? `<b>tt</b> = theo dõi thực tế từ ${esc(sc.fwd_start || "")}` : ""}. So sánh có ý nghĩa sau ≥ 6 tháng.</p></div></section>`;
+}
+
+// ================================================================ BÁO CÁO TUẦN (thứ 7) – in / lưu PDF
+async function viewReport() {
+  const [t, rows] = await Promise.all([loadToday(), screenerRows()]);
+  const W = t.weekly;
+  if (!W) {
+    app().innerHTML = `${pfTabs("report")}<div class="panel"><h2>Báo cáo tuần</h2><p class="muted">Báo cáo được tạo vào sáng thứ 7 (sau tuần giao dịch) cho người có danh mục hoặc nhật ký giao dịch${multiUser() ? " – đồng thời gửi qua email nếu anh/chị bật email trong trang Tài khoản" : " – đồng thời gửi qua Telegram"}. Chưa có báo cáo nào.</p></div>`;
+    return;
+  }
+  const R = Object.fromEntries(rows.map((r) => [r.symbol, r]));
+  const M = W.market, P = W.pf, PL = W.plan;
+  const L = { green: "Xanh", yellow: "Vàng", red: "Đỏ" };
+  const zone = (z) => (z ? `${nf(z[0])}–${nf(z[1])}` : "—");
+  app().innerHTML = `${pfTabs("report")}
+  <div class="report">
+    <div class="ph"><h1>Báo cáo tuần ${esc(W.from.slice(8, 10))}/${esc(W.from.slice(5, 7))} – ${esc(W.to.slice(8, 10))}/${esc(W.to.slice(5, 7))}/${esc(W.to.slice(0, 4))}</h1>
+      <span class="meta" data-nopdf><button class="btn" id="rpPrint">🖨️ In</button>${can("pdf") ? ` <button class="btn primary" id="rpPdf">Lưu PDF</button>` : ""}</span></div>
+    <section class="panel decide t-${PL.sells.length || (P.exp > P.target + 5) ? "down" : PL.picks.length ? "up" : "ref"}"><div class="dhead"><b>${esc(PL.head)}</b></div>
+      ${kpis([["Lãi/lỗ tuần", big(P.wk_pnl) + " đ", cls(P.wk_pnl), `${pct(P.wk_ret, 2)} tổng tài sản`], ["VN-Index tuần", pct(M.vni_chg, 2), cls(M.vni_chg), nf(M.vni)], ["Cổ phiếu / tài sản", `${nf(P.exp, 0)}%`, P.exp > P.target + 5 ? "down" : "", `đèn ${L[M.light] || "—"} cho phép ≈ ${P.target}%`],
+        ["Tổng tài sản", big(P.total) + " đ", "", `${P.n} mã`], ["Sụt từ đỉnh 1 năm", pct(P.dd, 0), cls(P.dd)]], true)}</section>
+    <div class="g g2 sec">
+      <section class="panel"><div class="ph"><h2>1. Thị trường tuần qua</h2><span class="meta">${esc(M.from)} → ${esc(M.to)}</span></div>
+        <p>VN-Index <b>${nf(M.vni)}</b> (<b class="${cls(M.vni_chg)}">${pct(M.vni_chg, 2)}</b>), đèn <b>${L[M.light] || "—"}</b>${M.light_start && M.light_start !== M.light ? ` (đầu tuần: ${L[M.light_start]})` : ""}. Cổ phiếu thanh khoản: ${M.breadth.up} tăng / ${M.breadth.down} giảm.</p>
+        ${M.sectors_top.length ? `<p style="margin-top:6px"><b>Ngành mạnh:</b> ${M.sectors_top.map((s) => `${esc(s.name)} <span class="${cls(s.chg)}">${pct(s.chg, 1)}</span>`).join(" · ")}</p>` : ""}
+        ${M.sectors_bottom.length ? `<p><b>Ngành yếu:</b> ${M.sectors_bottom.map((s) => `${esc(s.name)} <span class="${cls(s.chg)}">${pct(s.chg, 1)}</span>`).join(" · ")}</p>` : ""}
+        <p style="margin-top:6px"><b>Tăng mạnh:</b> ${M.gainers.map((x) => `<a href="#/s/${x.s}">${x.s}</a> ${pct(x.chg, 0)}`).join(", ")} · <b>Giảm mạnh:</b> ${M.losers.map((x) => `<a href="#/s/${x.s}">${x.s}</a> ${pct(x.chg, 0)}`).join(", ")}</p>
+        ${(M.days || []).length ? `<ul class="rpdays">${M.days.map((d) => `<li><b>${esc(d.date.slice(8, 10))}/${esc(d.date.slice(5, 7))}</b> <span class="${cls(d.chg)}">${pct(d.chg, 2)}</span> – ${esc(d.headline || "")} <a href="#/digest/${d.date}" data-nopdf>bản tin</a></li>`).join("")}</ul>` : ""}</section>
+      <section class="panel"><div class="ph"><h2>2. Rủi ro cần để ý</h2></div>
+        ${W.risks.length ? `<ul class="rplist">${W.risks.map((r) => `<li>⚠️ ${esc(r)}</li>`).join("")}</ul>` : `<p class="muted">Không có rủi ro nổi bật: tỷ trọng, ngành, mức dừng đều trong giới hạn.</p>`}</section>
+    </div>
+    <section class="panel flush sec"><div class="ph"><h2>3. Danh mục</h2><span class="meta">giá đóng cửa ${esc(W.to)}</span></div>
+      <div class="tw"><table data-hm="c3 c5 c6"><thead><tr><th class="sym">Mã</th><th>KL</th><th>Giá vốn</th><th>Giá</th><th>Tuần</th><th>Lãi/lỗ</th><th>Tỷ trọng</th><th>Mức dừng</th><th class="l">Hệ thống</th></tr></thead><tbody>
+      ${W.holdings.map((h) => `<tr><td class="sym"><a href="#/s/${h.s}">${h.s}</a></td><td>${nf(h.qty, 0)}</td><td>${nf(h.cost)}</td><td>${nf(h.price)}</td><td class="${cls(h.wk)}">${pct(h.wk, 1)}</td>
+        <td class="${cls(h.pnl_pct)}">${pct(h.pnl_pct, 1)} <small>${big(h.pnl_vnd)}</small></td><td>${nf(h.weight, 0)}%</td><td>${nf(h.stop)}</td>
+        <td class="l wrap"><b class="${h.sev >= 2 ? "down" : h.sev === 1 ? "ref" : ""}">${esc(h.action || "")}</b>${h.sev ? `<br><small class="faint">${esc(h.why || "")}</small>` : ""}</td></tr>`).join("") || `<tr><td colspan="9" class="l">Chưa có mã nào.</td></tr>`}</tbody></table></div></section>
+    <section class="panel flush sec"><div class="ph"><h2>4. Lệnh trong tuần</h2><span class="meta">${W.trades.length} lệnh</span></div>
+      ${W.trades.length ? `<div class="tw"><table><thead><tr><th class="l">Ngày</th><th class="sym">Mã</th><th class="l">Lệnh</th><th>KL</th><th>Giá</th><th>Giá hiện tại</th><th class="l">Quyết định</th><th class="l">Lý do</th></tr></thead><tbody>
+        ${W.trades.map((x) => `<tr><td class="l">${esc(x.date)}</td><td class="sym">${esc(x.s)}</td><td class="l ${x.side === "buy" ? "up" : "down"}">${x.side === "buy" ? "Mua" : "Bán"}</td><td>${nf(x.qty, 0)}</td><td>${nf(x.price)}</td><td>${nf(R[x.s]?.price)}</td>
+          <td class="l"><small>${esc(DECISION[x.decision] || "—")}</small></td><td class="l wrap"><small>${esc(x.reason)}</small></td></tr>`).join("")}</tbody></table></div>`
+      : `<p class="muted" style="padding:10px 12px">Không có lệnh nào được ghi trong tuần.</p>`}</section>
+    <section class="panel sec"><div class="ph"><h2>5. Kế hoạch tuần tới</h2><span class="meta">phong cách ${esc(PL.style_name || STYLE_SHORT[PL.style] || "")} · đèn ${L[PL.light] || "—"} → cổ phiếu ≈ ${PL.target}%</span></div>
+      <ol class="rpplan">
+        ${PL.sells.map((x) => `<li><b class="down">BÁN ${esc(x.s)}</b> ${nf(x.qty, 0)} cp – ${esc(x.action || "")}<br><small class="faint">${esc(x.why || "")}</small></li>`).join("")}
+        ${P.exp > P.target + 5 && !PL.sells.length ? `<li><b class="down">GIẢM TỶ TRỌNG</b> cổ phiếu từ ${nf(P.exp, 0)}% về ≈ ${PL.target}% – bán bớt mã yếu nhất / lỗ nhiều nhất trước.</li>` : ""}
+        ${PL.watch.map((x) => `<li><b class="ref">XEM LẠI ${esc(x.s)}</b> – ${esc(x.action || "")}<br><small class="faint">${esc(x.why || "")}</small></li>`).join("")}
+        ${PL.picks.map((x) => `<li><b class="up">MUA ${esc(x.s)}</b> vùng ${zone(x.zone)}, cắt lỗ ${nf(x.stop)}, mục tiêu ${nf(x.t1)}, tỷ trọng ≈ ${nf(x.weight, 1)}%</li>`).join("")}
+        ${PL.post_event.map((x) => `<li><b class="up">TUỲ CHỌN – sau sự kiện ${esc(x.s)}</b> vùng ${zone(x.zone)}, cắt lỗ ${nf(x.stop)} (tỷ trọng nhỏ)</li>`).join("")}
+        ${PL.no_buy ? `<li><b>CHƯA MUA MỚI</b> cho tới khi xử lý xong các lệnh bán / tỷ trọng cổ phiếu về mức đèn cho phép.</li>` : ""}
+        ${PL.waits.length ? `<li><b>${PL.no_buy ? "THEO DÕI" : "CHỜ"} về vùng mua</b> (đặt cảnh báo giá, không mua đuổi): ${PL.waits.map((x) => `<a href="#/s/${x.s}">${x.s}</a> ${zone(x.zone)}`).join(" · ")}</li>` : ""}
+      </ol>
+      ${PL.events.length ? `<h3 style="margin-top:10px">Lịch tuần tới</h3><ul class="rplist">${PL.events.map((e) => `<li>📅 <b>${esc(e.date)}</b> ${e.symbol ? `<a href="#/s/${e.symbol}">${esc(e.symbol)}</a> ` : ""}${esc(e.title)}</li>`).join("")}</ul>` : ""}
+      <p class="faint" style="font-size:.72rem;margin-top:8px">Số lượng cụ thể cho từng lệnh xem ở thẻ "Hôm nay nên làm gì" vào phiên giao dịch (theo giá mới nhất). Thông tin tham khảo, không phải khuyến nghị đầu tư cá nhân.</p></section>
+    ${W.month ? `<section class="panel sec"><div class="ph"><h2>6. Tháng này: anh/chị so với hệ thống</h2></div><p>Lãi/lỗ tháng ${esc(W.month.m.slice(5))}: <b class="${cls(W.month.pnl)}">${big(W.month.pnl)} đ</b> · nếu theo hệ thống: <b class="${cls(W.month.sys_pnl)}">${big(W.month.sys_pnl)} đ</b> · VN-Index ${pct(W.month.vni_ret, 1)}. <a href="#/portfolio/journal" data-nopdf>Xem bảng theo tháng →</a></p></section>` : ""}
+  </div>`;
+  $("#rpPrint").onclick = () => window.print();
+  if ($("#rpPdf")) $("#rpPdf").onclick = () => PDFX.thisPage();
 }
 
 // ================================================================ THEO DÕI THỰC TẾ (forward test)
@@ -4663,7 +4763,7 @@ const PDFX = {
     const held = [...new Set((pf.data?.holdings || []).map((h) => h.symbol))].slice(0, 12);
     const picks = ((t?.styles || {})[t?.style || "position"]?.picks || []).map((p) => p.symbol).filter((s) => !held.includes(s)).slice(0, 8);
     const L = await liveData();
-    const S = [["#/", "Hôm nay", 1], ["#/portfolio", "Danh mục", 1], ...(liveFresh(L) ? [["#/swing/live", "Trong phiên", 1]] : []), ["#/swing/today", "Biến động – phiên gần nhất", 1],
+    const S = [["#/", "Hôm nay", 1], ...(t?.weekly ? [["#/report", "Báo cáo tuần", 1]] : []), ["#/portfolio", "Danh mục", 1], ...(liveFresh(L) ? [["#/swing/live", "Trong phiên", 1]] : []), ["#/swing/today", "Biến động – phiên gần nhất", 1],
       ["#/market", "Thị trường", 1], ["#/sector", "Toàn cảnh các ngành", 1], ["#/swing/table", "Bảng hành vi giá", 0], ["#/swing/pairs", "Mã liên quan (đồng pha / dẫn dắt)", 0], ["#/backtest", "Kiểm chứng", 0],
       ...held.map((s) => [`#/s/${s}`, `Mã ${s} (đang nắm)`, 1]), ...picks.map((s) => [`#/s/${s}`, `Mã ${s} (danh sách mua)`, 1])];
     let o = $("#pdfdlg"); o?.remove();
@@ -4708,6 +4808,7 @@ async function loadToday() {
   if (t.__merged) return t;
   const P = await personalData();
   if (P && P.personal) Object.assign(t, P.personal);
+  if (P && P.weekly) t.weekly = P.weekly;
   else if (multiUser()) { t.portfolio = null; t.alerts = []; }
   t.__merged = true;
   return t;
@@ -4739,12 +4840,12 @@ function planTable() {
     <tr><td class="l">Số mã trong danh mục / theo dõi / cảnh báo đang bật</td>${ks.map((k) => { const L = P.plans[k].limits || {}; return `<td>${L.holdings} / ${L.watch} / ${L.alerts}</td>`; }).join("")}</tr>
   </tbody></table></div>`;
 }
-const ROUTE_FEATURE = { swing: (a) => (a === "live" ? "live" : a === "flow" || a === "mood" ? "flow" : a === "pairs" ? "pairs" : "swing"), backtest: () => "backtest" };
+const ROUTE_FEATURE = { swing: (a) => (a === "live" ? "live" : a === "flow" || a === "mood" ? "flow" : a === "pairs" ? "pairs" : "swing"), backtest: () => "backtest", report: () => "weekly" };
 
 // ---- chuông thông báo
 const NK = { event: "⚡", event_ok: "🎯", event_new: "🎯", act: "📌", near: "⏳", exit: "🚨", alert: "🔔", pick_new: "🛒", pick_out: "🛒", pick_in: "🛒", pick_chase: "🛒", flow: "🐋", rel: "🔗", flag: "👀",
-  light: "🚦", warn: "⚠️", digest: "📰", system: "ℹ️", admin: "🛠️" };
-const NKIND = { event: "Mã của anh/chị có sự kiện (giá sập)", event_ok: "Mã của anh/chị qua sự kiện – điểm vào", event_new: "Cơ hội sau sự kiện (mã mới)", act: "Khuyến nghị cho mã đang nắm", near: "Sắp chạm mức thoát", exit: "Đã chạm mức thoát (trong phiên)", alert: "Cảnh báo giá", pick_new: "Mã mới vào danh sách MUA",
+  light: "🚦", warn: "⚠️", digest: "📰", weekly: "📊", system: "ℹ️", admin: "🛠️" };
+const NKIND = { weekly: "Báo cáo tuần (thứ 7)", event: "Mã của anh/chị có sự kiện (giá sập)", event_ok: "Mã của anh/chị qua sự kiện – điểm vào", event_new: "Cơ hội sau sự kiện (mã mới)", act: "Khuyến nghị cho mã đang nắm", near: "Sắp chạm mức thoát", exit: "Đã chạm mức thoát (trong phiên)", alert: "Cảnh báo giá", pick_new: "Mã mới vào danh sách MUA",
   pick_out: "Mã ra khỏi danh sách MUA", pick_in: "Mã trong danh sách MUA vào vùng mua (trong phiên)", flow: "Dòng tiền lớn với mã của anh/chị", rel: "Mã liên quan / rủi ro tập trung",
   flag: "Biến động bất thường mã của anh/chị (trong phiên)", light: "Đèn thị trường đổi màu", warn: "Cảnh báo tỷ trọng danh mục", digest: "Bản tin thị trường mỗi phiên" };
 const agoShort = (iso) => { const m = (Date.now() - new Date(iso)) / 60000; return m < 1 ? "vừa xong" : m < 60 ? `${Math.round(m)} phút` : m < 1440 ? `${Math.round(m / 60)} giờ` : new Date(iso).toLocaleDateString("vi-VN"); };

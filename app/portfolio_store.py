@@ -47,6 +47,19 @@ def load_holdings() -> tuple[list[dict], float, float | None]:
     return holdings, float(data.get("cash") or 0), (float(data["capital"]) if data.get("capital") else None)
 
 
+def load_journal() -> dict:
+    """Nhật ký giao dịch (chế độ một người dùng: KV "journal"; chạy máy nhà: journal.json nếu có)."""
+    data = _from_kv("journal")
+    if data is None:
+        p = ROOT / "journal.json"
+        if p.exists():
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+            except ValueError:
+                data = None
+    return data if isinstance(data, dict) else {"trades": []}
+
+
 def load_watchlist() -> list[dict]:
     """Danh sách theo dõi + cảnh báo giá anh đặt trên web."""
     data = _from_kv("watchlist")

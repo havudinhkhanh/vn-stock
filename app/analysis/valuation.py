@@ -166,7 +166,7 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
                 note += f" – giảm ½ trọng số: kiểm tra chéo FCFF/WACC lệch {q:.1f} lần"
         lbl = "DCF (dòng tiền tự do cho cổ đông)"
         if ctype == "CT" and a0.get("kd") is not None:
-            lbl = f"DCF (FCFE: lãi vay {a0['kd'] * 100:.1f}%, nợ/vốn {a0.get('de', 0):.2f}" + (", có kế hoạch đầu tư" if (a0.get("inv") or 0) > 0 else "") + ")"
+            lbl = f"DCF (FCFE: lãi vay {a0['kd'] * 100:.1f}%, nợ/vốn {a0.get('de', 0):.2f}".replace(".", ",") + (", có kế hoạch đầu tư" if (a0.get("inv") or 0) > 0 else "") + ")"
         methods.append({"key": "dcf", "name": lbl + (f" – không dùng: {'; '.join(why_off)}" if why_off else note),
                         "value": sc["base"]["dcf"], "w": 0.0 if why_off else w_dcf,
                         "range": [lo_, hi_], "off": why_off or None, "fcff": ff or None})

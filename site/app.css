@@ -979,3 +979,15 @@ th.brand{color:var(--brand)}
 .ptc li.p-ok i{background:var(--up)}.ptc li.p-warn i{background:var(--ref)}.ptc li.p-bad i{background:var(--down)}
 .ptc li small{display:block;color:var(--ink-3);font-size:.72rem}
 .tbox .tb-in{max-height:92vh;overflow:auto}
+/* nếu làm theo hệ thống / báo cáo tuần */
+.scsvg{width:100%;height:auto;max-height:280px;margin-top:8px;display:block}
+.rpdays,.rplist{margin:8px 0 0;padding-left:18px;font-size:.8rem;display:grid;gap:4px}
+.rplist{list-style:none;padding-left:0}
+.rpplan{margin:4px 0 0;padding-left:20px;display:grid;gap:7px;font-size:.84rem}
+@media print{
+  header,nav,#tabs,#board,#demo,.mtabs,.ticker,.views,[data-nopdf],.toast,#tbox{display:none!important}
+  body{background:#fff!important;color:#000}
+  .panel{break-inside:avoid;box-shadow:none!important;border:1px solid #ddd}
+  .report .g2{grid-template-columns:1fr 1fr}
+  a{color:inherit;text-decoration:none}
+}

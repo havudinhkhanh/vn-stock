@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -38,10 +39,11 @@ from .analysis import forecast as fc
 from . import swing_build as swb
 from . import pairs_build as pab
 from . import personal as per_
+from . import notify
 from . import users as users_
 import copy
 from .data import store
-from .portfolio_store import apply_profile, load_holdings, load_overrides, load_profile, load_watchlist
+from .portfolio_store import apply_profile, load_holdings, load_journal, load_overrides, load_profile, load_watchlist
 
 log = logging.getLogger("build")
 INDEX_SYMS = {"VNINDEX", "HNXINDEX", "UPCOMINDEX", "VN30"}
@@ -712,7 +714,29 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     # ------------------------------------------------------------ phần riêng từng người dùng
     owner_today, owner_watch = today, None
     pctx = {"u": u, "g": g, "cfg0": cfg0, "regime": regime, "last_date": last_date, "plan_syms": plan_syms, "active_style": active_style,
-            "co": pab.LAST_CO, "rel_by": rel_by}
+            "co": pab.LAST_CO, "rel_by": rel_by, "close": wide, "vni": idx["close"], "fwd": fres,
+            "sbt": (json.loads(store.path("styles_bt.json").read_text(encoding="utf-8")) if store.path("styles_bt.json").exists() else None)}
+    # báo cáo tuần: lượt chạy thứ 7 / chủ nhật (giờ VN) – hoặc VNSTOCK_WEEKLY=1 để thử
+    try:
+        vn_now = pd.Timestamp.now(tz="Asia/Ho_Chi_Minh")
+        if os.environ.get("VNSTOCK_WEEKLY") == "1" or (vn_now.weekday() >= 5 and not only):
+            from . import report as rp_
+            dgs = []
+            for f_ in sorted(store.path("digest").glob("*.json"))[-7:]:
+                try:
+                    x_ = json.loads(f_.read_text(encoding="utf-8"))
+                    if x_.get("date"):
+                        dgs.append(x_)
+                except ValueError:
+                    pass
+            mw = rp_.market_week(wide, idx["close"], u, today, dgs)
+            dgs = [x_ for x_ in dgs if x_["date"] >= mw["from"]]
+            mw = rp_.market_week(wide, idx["close"], u, today, dgs)
+            evj = json.loads((out_dir / "events.json").read_text(encoding="utf-8")) if (out_dir / "events.json").exists() else {}
+            pctx["weekly"] = {"market": mw, "events": evj.get("events") or []}
+            log.info("Báo cáo tuần %s → %s", mw["from"], mw["to"])
+    except Exception as e:  # noqa: BLE001
+        log.exception("Báo cáo tuần (phần thị trường) lỗi: %s", e)
     if multi:
         try:
             pers = per_.run_all(be, U, pctx, today, out_dir)
@@ -730,9 +754,25 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     else:
         try:
             today["rel"] = per_.rel_for(pab.LAST_CO, rel_by, held, watch_all)
-            dump(out_dir / "today.json", today)
         except Exception as e:  # noqa: BLE001
             log.exception("Mã liên quan trong danh mục lỗi: %s", e)
+        try:   # một người dùng (Cloudflare Access): bảng "nếu làm theo hệ thống" + báo cáo tuần nằm trong today.json (đã sau lớp đăng nhập)
+            odata = {"portfolio": {"holdings": holdings, "cash": cash_vnd, "capital": capital}, "journal": load_journal()}
+            per_o = {"portfolio": advice, "rel": today.get("rel") or {}, "style": active_style, "capital": capital}
+            today["score"] = per_o["score"] = per_.score_for(odata, per_o, pctx)
+            wk = per_.weekly_for(odata, per_o, today, pctx)
+            wp = store.path("weekly_owner.json")
+            if wk:
+                old_w = json.loads(wp.read_text(encoding="utf-8")) if wp.exists() else {}
+                wp.write_text(json.dumps(wk, ensure_ascii=False, default=str), encoding="utf-8")
+                if old_w.get("week") != wk["week"]:
+                    notify.send_weekly(wk)
+            elif wp.exists():
+                wk = json.loads(wp.read_text(encoding="utf-8"))
+            today["weekly"] = wk
+        except Exception as e:  # noqa: BLE001
+            log.exception("Bảng so sánh / báo cáo tuần lỗi: %s", e)
+        dump(out_dir / "today.json", today)
     for s, d in details.items():
         r = u.loc[s]
         peers = u[(u["industry"] == r["industry"]) & u["has_fin"]].sort_values("mcap_bn", ascending=False)

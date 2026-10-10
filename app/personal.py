@@ -5,10 +5,12 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import os
 
 import pandas as pd
 
 from . import config, notify, users
+from . import report as rp
 from .analysis import portfolio as pf
 from .analysis import styles as sty
 from .portfolio_store import apply_profile
@@ -87,9 +89,34 @@ def compute(data: dict, ctx: dict) -> dict:
     advice = pf.advise(holdings, ctx["u"], closes, cfg, ctx["regime"], cash, capital) if holdings else None
     watch = watch_of(data)
     wsyms = {str(w["symbol"]).upper() for w in watch}
-    return {"date": str(pd.Timestamp(ctx["last_date"]).date()), "portfolio": advice, "alerts": alerts_for(watch, ctx["g"], ctx["last_date"], ctx["plan_syms"], style),
+    out = {"date": str(pd.Timestamp(ctx["last_date"]).date()), "portfolio": advice, "alerts": alerts_for(watch, ctx["g"], ctx["last_date"], ctx["plan_syms"], style),
             "capital": capital, "style": style, "rel": rel_for(ctx["co"], ctx["rel_by"], held, wsyms),
             "profile": {"applied": changed, "updated": prof.get("updated"), "exclude_sectors": cfg.get("exclude_sectors") or [], "exclude_symbols": cfg.get("exclude_symbols") or []}}
+    out["score"] = score_for(data, out, ctx)
+    return out
+
+
+def score_for(data: dict, per: dict, ctx: dict) -> dict | None:
+    """Bảng "nếu làm theo hệ thống" (None nếu chưa có lệnh / chưa có vốn)."""
+    if ctx.get("close") is None:
+        return None
+    try:
+        _, cash, capital = holdings_of(data)
+        return rp.scorecard(data, ctx["close"], ctx["vni"], ctx.get("sbt"), ctx.get("fwd"), per.get("style") or ctx["active_style"], capital, cash)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Bảng so sánh lỗi: %s", e)
+        return None
+
+
+def weekly_for(data: dict, per: dict, today: dict, ctx: dict) -> dict | None:
+    wk = ctx.get("weekly")
+    if not wk or not (per.get("portfolio") or ((data or {}).get("journal") or {}).get("trades")):
+        return None
+    try:
+        return rp.weekly(data, per, today, ctx["close"], ctx["vni"], wk["market"], wk["events"], per.get("score"))
+    except Exception as e:  # noqa: BLE001
+        log.exception("Báo cáo tuần lỗi: %s", e)
+        return None
 
 
 def holdings_levels(advice: dict | None) -> dict:
@@ -122,6 +149,19 @@ def run_all(be, U: list[dict], ctx: dict, today: dict, out_dir) -> dict:
                           "body": (today.get("digest_line") or "Tổng hợp biến động thị trường phiên hôm nay."), "url": "#/digest"})
             users.save(be, u["id"], "_nstate", state)
             r = users.deliver(be, cfgD, u, items, f"VN-Stock {per['date']}: " + (items[0]["title"] if len(items) == 1 else f"{len(items)} việc mới"))
+            if "weekly" in u["features"]:
+                W = weekly_for(u["data"], per, {**today, **per}, ctx)
+                if W:
+                    users.save(be, u["id"], "_weekly", W)
+                    wi = [{"kind": "weekly", "key": f"{W['week']}:weekly", "sev": 1, "title": f"Báo cáo tuần {W['from'][8:10]}/{W['from'][5:7]}–{W['to'][8:10]}/{W['to'][5:7]}",
+                           "body": W["plan"]["head"], "url": "#/report"}]
+                    new = users.add_notifications(be, u["id"], wi)
+                    if new:
+                        site = os.environ.get("SITE_URL") or cfgD.get("site_url") or ""
+                        users.send_push(be, cfgD, u, new, site)
+                        if "notify_email" in u["features"] and users.prefs(u)["email"] != "off":
+                            sub, html_ = rp.weekly_email(u, W, site)
+                            stats["email"] += int(users.send_html(cfgD, users.prefs(u)["email_to"], sub, html_))
             stats["users"] += 1
             stats["new"] += r.get("new", 0)
             stats["push"] += r.get("push", 0)

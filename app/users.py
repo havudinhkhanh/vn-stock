@@ -26,7 +26,7 @@ from .config import ROOT
 
 log = logging.getLogger("users")
 PLANS = json.loads((ROOT / "functions" / "_lib" / "plans.json").read_text(encoding="utf-8"))
-DATA_KEYS = ("portfolio", "watchlist", "profile", "notify", "assumptions", "_nstate")
+DATA_KEYS = ("portfolio", "watchlist", "profile", "notify", "assumptions", "journal", "_nstate")
 SEV_MIN = {"all": 0, "normal": 1, "important": 2, "off": 99}
 
 
@@ -217,6 +217,11 @@ def send_email(cfg: dict, u: dict, items: list[dict], subject: str, site_url: st
                    + (f"<br><a href='{site_url.rstrip('/')}/{x.get('url') or ''}'>Mở</a>" if site_url else "") + "</td></tr>" for x in want)
     body = (f"<div style='font-family:Arial,sans-serif;font-size:14px'><p>Chào {_e(u.get('name') or '')},</p><table style='border-collapse:collapse;width:100%'>{rows}</table>"
             f"<p style='color:#888;font-size:12px'>Đổi cài đặt nhận email trong trang Tài khoản. Thông tin chỉ để tham khảo, không phải khuyến nghị đầu tư.</p></div>")
+    return send_html(cfg, to, subject, body)
+
+
+def send_html(cfg: dict, to: str, subject: str, body: str) -> bool:
+    """Gửi một email HTML qua SMTP (ưu tiên) hoặc Resend."""
     smtp_user = os.environ.get("SMTP_USER") or cfg.get("smtp_user")
     smtp_pass = os.environ.get("SMTP_PASS") or cfg.get("smtp_pass")
     resend = os.environ.get("RESEND_API_KEY") or cfg.get("resend_key")

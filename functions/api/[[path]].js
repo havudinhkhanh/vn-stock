@@ -95,8 +95,8 @@ export async function onRequest(ctx) {
     if (key === "run" && m === "POST") return ses.r === "admin" ? ghRun(env) : err("Chỉ quản trị viên", 403);
 
     if (key === "personal" && m === "GET") {
-      const [p, l] = await Promise.all([getData(env, uid, "_personal"), getData(env, uid, "_live")]);
-      return json({ personal: p, live: l });
+      const [p, l, w] = await Promise.all([getData(env, uid, "_personal"), getData(env, uid, "_live"), getData(env, uid, "_weekly")]);
+      return json({ personal: p, live: l, weekly: can(ses, "weekly") ? w : null });
     }
     if (key === "intraday" && m === "GET") {
       if (!can(ses, "live")) return err("Tính năng của gói Pro", 402, { feature: "live" });
