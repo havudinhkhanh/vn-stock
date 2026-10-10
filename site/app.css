@@ -969,3 +969,4 @@ th.brand{color:var(--brand)}
 .dfoot{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;font-size:.8rem;margin:8px 0 4px}
 @media (max-width:860px){.dgrid{grid-template-columns:1fr}.dhead{font-size:1.05rem}}
 .szl{margin:0 0 8px;font-size:.8rem;padding:6px 8px;background:var(--sunk);border-radius:6px;line-height:1.45}
+.agrp{font-size:.8rem;margin:12px 0 2px;color:var(--ink-2);font-weight:600}

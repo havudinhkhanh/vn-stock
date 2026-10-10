@@ -144,21 +144,32 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
     if sc and sc["base"]["dcf"]:
         a0 = (model or {}).get("assumptions", {})
         why_off = []
-        cr = a0.get("conv_raw")
-        if ctype == "CT" and cr is not None and cr < 0.2:
-            why_off.append(f"dòng tiền tự do lịch sử chỉ {cr * 100:.0f}% lợi nhuận (đầu tư nặng)")
         tvs = sc["base"].get("tv_share")
-        if tvs is not None and tvs > 0.85:
+        f5 = sc["base"].get("fcfe5")
+        # mô hình đã tính rõ đầu tư TSCĐ, vay nợ, lãi vay → dòng tiền âm vài năm đầu (đang đầu tư) không còn là lý do loại bỏ;
+        # chỉ loại khi gần như toàn bộ giá trị dồn vào cuối kỳ (kết quả phụ thuộc giả định dài hạn)
+        if tvs is not None and tvs > 0.9:
             why_off.append(f"{tvs * 100:.0f}% giá trị nằm ở giá trị cuối kỳ")
+        elif tvs is not None and tvs > 0.85 and f5 is not None and f5 < 0:
+            why_off.append(f"5 năm tới dòng tiền cho cổ đông âm {abs(f5):,.0f} tỷ (đang đầu tư/vay) và {tvs * 100:.0f}% giá trị ở cuối kỳ".replace(",", "."))
         lo_, hi_ = sc["bear"]["dcf"], sc["bull"]["dcf"]
         w_dcf = 0.25 if ctype == "CT" else 0.15
         note = ""
         if lo_ and hi_ and hi_ / lo_ > 2.5:
             w_dcf /= 2
             note = f" – giảm ½ trọng số: kịch bản tốt/xấu chênh {hi_ / lo_:.1f} lần"
-        methods.append({"key": "dcf", "name": "DCF (dòng tiền tự do cho cổ đông)" + (f" – không dùng: {'; '.join(why_off)}" if why_off else note),
+        ff = sc["base"].get("fcff") or {}
+        if not why_off and ff.get("per_share") and sc["base"]["dcf"]:
+            q = ff["per_share"] / sc["base"]["dcf"]
+            if q > 2 or q < 0.5:
+                w_dcf /= 2
+                note += f" – giảm ½ trọng số: kiểm tra chéo FCFF/WACC lệch {q:.1f} lần"
+        lbl = "DCF (dòng tiền tự do cho cổ đông)"
+        if ctype == "CT" and a0.get("kd") is not None:
+            lbl = f"DCF (FCFE: lãi vay {a0['kd'] * 100:.1f}%, nợ/vốn {a0.get('de', 0):.2f}" + (", có kế hoạch đầu tư" if (a0.get("inv") or 0) > 0 else "") + ")"
+        methods.append({"key": "dcf", "name": lbl + (f" – không dùng: {'; '.join(why_off)}" if why_off else note),
                         "value": sc["base"]["dcf"], "w": 0.0 if why_off else w_dcf,
-                        "range": [lo_, hi_], "off": why_off or None})
+                        "range": [lo_, hi_], "off": why_off or None, "fcff": ff or None})
     # 2) DDM
     div = fa.get("dividend") or {}
     payout = (model or {}).get("assumptions", {}).get("payout", 0) if model else 0

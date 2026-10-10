@@ -98,22 +98,39 @@ const FC = {
     return out;
   },
   project(base, a) {
-    const n = base.years, rows = [], shares = base.shares;
-    let equity = base.equity, rev = base.revenue, niPrev = base.ni;
-    const rev0 = base.revenue, P = FC.path(a, n);
+    const n = base.years, rows = [], shares = base.shares, ct = base.model === "CT";
+    let equity = base.equity, niPrev = base.ni, revCore = base.revenue, revPrev = base.revenue, debtPrev = base.debt || 0, planDebt = 0;
+    const P = FC.path(a, n);
     for (let t = 1; t <= n; t++) {
       const [g, gmT, sgaT] = P[t - 1];
       let ni, fcfe, row;
-      if (base.model === "CT") {
-        rev = rev * (1 + g);
-        const gp = rev * gmT, sga = rev * sgaT, interest = base.interest * Math.pow(rev / rev0, 0.5);
+      if (ct) {
+        revCore = revCore * (1 + g);
+        const inv = +a.inv || 0, ny = Math.max(1, Math.round(a.inv_y || 2)), idebt = +a.inv_debt || 0;
+        const capexPlan = inv > 0 && t <= ny ? inv / ny : 0;
+        planDebt += capexPlan * idebt;
+        if (inv > 0 && t > ny) planDebt = Math.max(0, planDebt - inv * idebt / 8);
+        const revPlan = t > ny && (a.inv_rev || 0) > 0 ? a.inv_rev * Math.pow(1 + g, t - ny - 1) : 0;
+        const rev = revCore + revPlan;
+        const gp = revCore * gmT, sga = revCore * sgaT;
+        const ebit = gp - sga + revPlan * (+a.inv_m || 0);
+        const debt = (+a.de || 0) * equity + planDebt;
+        const interest = (+a.kd || 0) * (debtPrev + debt) / 2;
         const other = base.other * Math.pow(0.8, t);
-        const pbt = gp - sga - interest + other;
+        const pbt = ebit - interest + other;
         const tax = Math.max(0, pbt * a.tax);
-        ni = (pbt - tax) * (1 - base.minority);
-        const ct = isNum(a.conv_term) ? a.conv_term : a.conv;
-        fcfe = ni * (a.conv + (ct - a.conv) * t / n);
-        row = { revenue: rev, gross_profit: gp, sga, interest, pbt, ni };
+        const niAll = pbt - tax;
+        ni = niAll * (1 - base.minority);
+        const f = (t - 1) / Math.max(1, n - 1);
+        const capexR = a.capex1 + (a.capex_lt - a.capex1) * f;
+        const da = a.da * revCore + (inv > 0 && t > ny ? inv / 15 : 0);
+        const capex = capexR * revCore + capexPlan;
+        const dnwc = a.nwc * (rev - revPrev);
+        const borrow = debt - debtPrev;
+        fcfe = (niAll + da - capex - dnwc + borrow) * (1 - base.minority);
+        const fcff = ebit * (1 - a.tax) + da - capex - dnwc;
+        row = { revenue: rev, gross_profit: gp, sga, ebit, interest, pbt, ni, da, capex, dnwc, debt, borrow, fcff };
+        debtPrev = debt; revPrev = rev;
       } else {
         ni = niPrev * (1 + g);
         const roe = equity > 0 ? ni / equity : a.roe_cap;
@@ -129,15 +146,29 @@ const FC = {
     }
     return rows;
   },
-  dcf(base, a, rows, ke) {
+  dcfD(base, a, rows, ke) {
     const g = a.gterm; if (ke <= g + 0.01) ke = g + 0.01;
     let pv = 0; rows.forEach((r) => (pv += r.fcfe / Math.pow(1 + ke, r.year_offset)));
     const last = rows[rows.length - 1];
     const roeT = Math.min(Math.max(last.roe ?? 0.12, 0.06), 0.25);
-    const fT = base.model === "CT" && last.ni ? last.fcfe * (1 + g) : last.ni * (1 + g) * (1 - g / roeT);
-    const tv = fT / (ke - g);
-    const val = pv + tv / Math.pow(1 + ke, rows.length);
-    return val > 0 ? val / base.shares : null;
+    const fT = base.model === "CT" && last.ni ? last.ni * (1 + g) * (isNum(a.conv_term) ? a.conv_term : 0.7) : last.ni * (1 + g) * (1 - g / roeT);
+    const tv = fT / (ke - g) / Math.pow(1 + ke, rows.length);
+    const val = pv + tv;
+    return val > 0 ? { v: val / base.shares, tvs: tv / val } : { v: null, tvs: null };
+  },
+  dcf(base, a, rows, ke) { return FC.dcfD(base, a, rows, ke).v; },
+  fcff(base, a, rows, ke) {
+    if (base.model !== "CT" || !rows.length || !base.price) return null;
+    const E = base.price * base.shares, D = +base.debt || 0, kdAt = (isNum(a.kd) ? a.kd : 0.08) * (1 - a.tax);
+    const g = a.gterm;
+    let w = E + D > 0 ? (E * ke + D * kdAt) / (E + D) : ke;
+    w = Math.max(w, g + 0.01);
+    let pv = 0; rows.forEach((r) => (pv += r.fcff / Math.pow(1 + w, r.year_offset)));
+    const last = rows[rows.length - 1];
+    const tv = last.ebit * (1 - a.tax) * (1 + g) * (isNum(a.conv_term) ? a.conv_term : 0.7) / (w - g) / Math.pow(1 + w, rows.length);
+    const ev = pv + tv, cash = +base.cash || 0;
+    const eqv = (ev - D + cash) * (1 - base.minority);
+    return { wacc: w, ev, net_debt: D - cash, per_share: eqv > 0 ? eqv / base.shares : null, kd_after_tax: kdAt, d_weight: E + D > 0 ? D / (E + D) : null };
   },
   ddm(base, a, rows, ke) {
     if (a.payout <= 0.05) return null;
@@ -2227,11 +2258,29 @@ function tabFund(d) {
 
 // ---- dự phóng & định giá (sửa giả định -> tính lại ngay)
 const A_FIELDS = [
-  ["g1", "Tăng trưởng năm 1", "%"], ["gmid", "Tăng trưởng năm 3", "%"], ["gterm", "Tăng trưởng dài hạn", "%"], ["gm", "Biên LN gộp hiện tại", "%"], ["gm_lt", "Biên LN gộp dài hạn", "%"],
-  ["sga", "Chi phí BH & QL / DT hiện tại", "%"], ["sga_lt", "Chi phí BH & QL / DT dài hạn", "%"],
-  ["tax", "Thuế suất", "%"], ["payout", "Tỷ lệ chi trả cổ tức", "%"], ["conv", "Tỷ lệ LN thành tiền tự do", "%"], ["roe_cap", "ROE bình thường (ngân hàng)", "%"],
+  ["g1", "Tăng trưởng năm 1", "%", "g"], ["gmid", "Tăng trưởng năm 3", "%", "g"], ["gterm", "Tăng trưởng dài hạn", "%", "g"], ["gm", "Biên LN gộp hiện tại", "%", "g"], ["gm_lt", "Biên LN gộp dài hạn", "%", "g"],
+  ["sga", "Chi phí BH & QL / DT hiện tại", "%", "g"], ["sga_lt", "Chi phí BH & QL / DT dài hạn", "%", "g"],
+  ["tax", "Thuế suất", "%", "g"], ["payout", "Tỷ lệ chi trả cổ tức", "%", "g"], ["roe_cap", "ROE bình thường (ngân hàng)", "%", "g"], ["conv_term", "LN thành tiền tự do dài hạn", "%", "g"],
+  ["kd", "Lãi suất vay bình quân", "%", "d"], ["de", "Nợ vay / vốn chủ", "lần", "d"], ["da", "Khấu hao / DT", "%", "d"], ["capex1", "Đầu tư TSCĐ / DT năm 1", "%", "d"], ["capex_lt", "Đầu tư TSCĐ / DT dài hạn (duy trì)", "%", "d"],
+  ["nwc", "Vốn lưu động / DT", "%", "d"],
+  ["inv", "Tổng vốn dự án mới", "tỷ", "p"], ["inv_y", "Thời gian đầu tư", "năm", "p"], ["inv_debt", "Phần vốn đi vay", "%", "p"], ["inv_rev", "Doanh thu tăng thêm khi chạy đủ", "tỷ/năm", "p"], ["inv_m", "Biên EBIT của phần mới", "%", "p"],
 ];
+const A_GROUPS = { g: "Tăng trưởng & biên lợi nhuận", d: "Vay nợ, lãi vay & đầu tư tài sản", p: "Kế hoạch đầu tư mới (đóng tàu, nhà máy, dự án…) – chưa có trong BCTC" };
+const aUnitPct = (u) => u === "%";
+const aShow = (k, u, x) => (aUnitPct(u) ? (x * 100).toFixed(1) : u === "lần" ? (+x).toFixed(2) : String(Math.round(+x * 10) / 10));
 const base0 = (v) => v.model.base;
+function invHint(v) {
+  const h = v.model.base?.inv_hint; if (!h || !h.boom) return "";
+  return `<p class="note" style="margin-top:6px">🏗️ <b>Đang trong chu kỳ đầu tư lớn:</b> 2 năm gần nhất đầu tư TSCĐ ${pct(h.cap_rec * 100, 0, false)} doanh thu (5 năm: ${pct(h.cap_med * 100, 0, false)}${isNum(h.da_r) ? `, gấp ${nf(h.cap_rec / Math.max(h.da_r, 0.005), 1)} lần khấu hao` : ""})${isNum(h.debt_chg_2y) && h.debt_chg_2y > 0 ? `, nợ vay tăng ${nf(h.debt_chg_2y, 0)} tỷ trong năm qua` : ""}.
+    Mô hình mặc định coi nhịp đầu tư này giảm dần về mức duy trì trong 5 năm. Nếu doanh nghiệp đã công bố kế hoạch (số tàu/nhà máy, tổng vốn, doanh thu kỳ vọng) – nhập vào phần <b>Kế hoạch đầu tư mới</b> và giảm "Đầu tư TSCĐ / DT năm 1" cho khỏi tính trùng.</p>`;
+}
+function dcfCheck(r, base) {
+  if (base.model !== "CT" || !r.ff) return "";
+  const f5 = r.rows.reduce((s, x) => s + x.fcfe, 0), ff = r.ff;
+  return `<p class="faint" style="margin-top:6px;font-size:.76rem">Kiểm tra chéo DCF: dòng tiền doanh nghiệp (FCFF) chiết khấu theo WACC ${nf(ff.wacc * 100, 1)}%
+    (ke và lãi vay sau thuế ${nf(ff.kd_after_tax * 100, 1)}%, nợ chiếm ${nf((ff.d_weight || 0) * 100, 0)}%) → giá trị DN ${nf(ff.ev, 0)} tỷ − nợ ròng ${nf(ff.net_debt, 0)} tỷ
+    = <b>${ff.per_share ? nf(ff.per_share) : "âm"}</b>/cp (FCFE: ${r.dcf ? nf(r.dcf) : "—"}). Tổng FCFE 5 năm ${nf(f5, 0)} tỷ; giá trị cuối kỳ chiếm ${nf((r.tvs || 0) * 100, 0)}% DCF.</p>`;
+}
 function tabVal(d) {
   const v = d.valuation || {};
   if (!v.ok || !v.model) return `<div class="empty">${esc(v.reason || "Không đủ số liệu để dự phóng (doanh nghiệp lỗ, vốn chủ âm hoặc thiếu BCTC).")}</div>`;
@@ -2239,33 +2288,38 @@ function tabVal(d) {
   return `<div class="g g-main"><div class="stack">
     ${panel("Giá trị hợp lý", `<div id="vOut"></div>`)}
     ${panel("Bảng dự phóng (kịch bản cơ sở)", `<div id="pOut"></div><p class="faint" style="margin-top:6px;font-size:.74rem">Doanh thu tăng theo giả định, giảm dần về mức dài hạn; biên lợi nhuận và chi phí theo tỷ lệ doanh thu; lợi nhuận khác giảm 20%/năm.
+      Lãi vay = lãi suất × dư nợ bình quân (dư nợ = nợ/vốn × vốn chủ + vay cho dự án mới); FCFE = LN + khấu hao − đầu tư TSCĐ − tăng vốn lưu động + vay ròng.
       Ngân hàng/CTCK/bảo hiểm dự phóng thẳng lợi nhuận. Kịch bản Xấu/Tốt điều chỉnh tăng trưởng và biên lợi nhuận.</p>`, "tỷ đồng")}</div>
     ${panel("Giả định dự phóng", `${v.model.overridden?.length ? `<p class="note">Đang dùng giả định anh đã sửa: ${esc(v.model.overridden.join(", "))}</p>` : ""}
       <p class="faint" style="font-size:.76rem;margin-top:4px">Mặc định suy ra từ lịch sử của chính ${esc(d.symbol)} (bảng dưới), kéo dần về mức ngành khi lịch sử thất thường. Tăng trưởng đi từ năm 1 → năm 3 → dài hạn; biên lợi nhuận đi dần từ hiện tại về trung vị nhiều năm.</p>
-      <div class="assump" style="margin-top:6px">${A_FIELDS.filter(([k]) => a[k] !== undefined && a[k] !== null).map(([k, n]) => `
-        <div class="field"><label for="as_${k}">${n} (%)</label><input id="as_${k}" data-a="${k}" inputmode="decimal" value="${(a[k] * 100).toFixed(1)}">${v.model.why?.[k] ? `<small class="awhy">${esc(v.model.why[k])}</small>` : ""}</div>`).join("")}
-        <div class="field"><label for="as_ke">Chi phí vốn chủ ke (%)</label><input id="as_ke" inputmode="decimal" value="${nf(v.ke, 2).replace(",", ".")}"></div></div>
+      ${invHint(v)}
+      ${Object.entries(A_GROUPS).map(([gk, gn]) => { const F = A_FIELDS.filter(([k, , , g]) => g === gk && a[k] !== undefined && a[k] !== null); if (!F.length) return "";
+        return `<h3 class="agrp">${gn}</h3><div class="assump" style="margin-top:6px">${F.map(([k, n, u]) => `
+        <div class="field"><label for="as_${k}">${n} (${u})</label><input id="as_${k}" data-a="${k}" data-u="${u}" inputmode="decimal" value="${aShow(k, u, a[k])}">${v.model.why?.[k] ? `<small class="awhy">${esc(v.model.why[k])}</small>` : ""}</div>`).join("")}
+        ${gk === "g" ? `<div class="field"><label for="as_ke">Chi phí vốn chủ ke (%)</label><input id="as_ke" inputmode="decimal" value="${nf(v.ke, 2).replace(",", ".")}"></div>` : ""}</div>`; }).join("")}
       <p style="margin-top:8px"><button class="btn primary" id="aSave">Lưu giả định cho ${d.symbol}</button> <button class="btn" id="aReset">Về mặc định</button></p>
       <p class="faint" style="font-size:.74rem">Sửa số – kết quả tính lại ngay. Lưu rồi thì lần chạy kế tiếp hệ thống dùng giả định của anh khi ra tín hiệu.</p>
       ${(v.model.hist || []).length ? `<div class="tw sec"><table><thead><tr><th class="l">Lịch sử của ${esc(d.symbol)}</th>${v.model.hist.map((h) => `<th>${h.year}</th>`).join("")}</tr></thead><tbody>
-        ${(base0(v).model === "CT" ? [["Tăng trưởng DT", "rev_g"], ["Tăng trưởng LN", "ni_g"], ["Biên LN gộp", "gm"], ["BH & QL / DT", "sga"], ["LN thành tiền tự do", "conv"], ["ROE", "roe"]] : [["Tăng trưởng LN", "ni_g"], ["ROE", "roe"]])
-          .map(([n, k]) => `<tr><td class="l">${n}</td>${v.model.hist.map((h) => `<td class="${k.endsWith("_g") ? cls(h[k]) : ""}">${isNum(h[k]) ? pct(h[k] * 100, k === "conv" ? 0 : 1, k.endsWith("_g")) : "—"}</td>`).join("")}</tr>`).join("")}</tbody></table></div>` : ""}`)}
+        ${(base0(v).model === "CT" ? [["Tăng trưởng DT", "rev_g"], ["Tăng trưởng LN", "ni_g"], ["Biên LN gộp", "gm"], ["BH & QL / DT", "sga"], ["LN thành tiền tự do", "conv"], ["ROE", "roe"],
+            ["Đầu tư TSCĐ / DT", "capex_r"], ["Khấu hao / DT", "da_r"], ["Đầu tư TSCĐ (tỷ)", "capex", "n"], ["Nợ vay (tỷ)", "debt", "n"], ["Nợ ròng (tỷ)", "net_debt", "n"], ["Lãi suất vay", "kd"], ["Nợ vay / vốn chủ", "de", "x"]] : [["Tăng trưởng LN", "ni_g"], ["ROE", "roe"]])
+          .map(([n, k, f]) => `<tr><td class="l">${n}</td>${v.model.hist.map((h) => `<td class="${k.endsWith("_g") ? cls(h[k]) : ""}">${!isNum(h[k]) ? "—" : f === "n" ? nf(h[k], 0) : f === "x" ? nf(h[k], 2) : pct(h[k] * 100, k === "conv" ? 0 : 1, k.endsWith("_g"))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>` : ""}`)}
   </div>`;
 }
 function bindVal(d) {
   const v = d.valuation, base = v.model.base, a0 = { ...v.model.assumptions };
   const calc = () => {
     const a = { ...a0 };
-    $$("[data-a]").forEach((el) => { const x = Number(String(el.value).replace(",", ".")); if (!Number.isNaN(x)) a[el.dataset.a] = x / 100; });
+    $$("[data-a]").forEach((el) => { const x = Number(String(el.value).replace(",", ".")); if (!Number.isNaN(x)) a[el.dataset.a] = aUnitPct(el.dataset.u) ? x / 100 : x; });
     const ke = Number(String($("#as_ke").value).replace(",", ".")) / 100 || v.ke / 100;
     const bear = (g) => g - Math.max(0.05, 0.5 * Math.abs(g)), bull = (g) => g + Math.max(0.04, 0.3 * Math.abs(g)), same = (g) => g;
-    const sc = { bear: { f: bear, gm: -0.015 }, base: { f: same, gm: 0 }, bull: { f: bull, gm: 0.01 } };
+    const sc = { bear: { f: bear, gm: -0.015, kd: 0.015 }, base: { f: same, gm: 0, kd: 0 }, bull: { f: bull, gm: 0.01, kd: -0.01 } };
     const res = {};
     for (const [k, s] of Object.entries(sc)) {
       const aa = { ...a, g1: s.f(a.g1) }; if (isNum(a.gmid)) aa.gmid = s.f(a.gmid);
-      if (base.model === "CT") { aa.gm = a.gm + s.gm; if (isNum(a.gm_lt)) aa.gm_lt = a.gm_lt + s.gm; }
+      if (base.model === "CT") { aa.gm = a.gm + s.gm; if (isNum(a.gm_lt)) aa.gm_lt = a.gm_lt + s.gm; if (isNum(a.kd)) aa.kd = a.kd + s.kd; }
       const rows = FC.project(base, aa);
-      res[k] = { rows, dcf: FC.dcf(base, aa, rows, ke), ddm: FC.ddm(base, aa, rows, ke) };
+      const D = FC.dcfD(base, aa, rows, ke);
+      res[k] = { rows, dcf: D.v, tvs: D.tvs, ff: FC.fcff(base, aa, rows, ke), ddm: FC.ddm(base, aa, rows, ke) };
     }
     const fwd = res.base.rows[0].eps;
     const ms = v.methods.map((m) => {
@@ -2299,10 +2353,12 @@ function bindVal(d) {
       <div class="tw sec"><table data-hm="c5"><thead><tr><th class="l">Phương pháp</th><th>Giá trị</th><th>Xấu</th><th>Tốt</th><th>Trọng số</th></tr></thead><tbody>
       ${ms.map((m) => `<tr style="${m.used ? "" : "opacity:.5"}"><td class="wrap">${esc(m.name)}${m.used ? "" : m.w === 0 ? "" : " <small>(lệch xa, bỏ qua)</small>"}</td><td><b>${nf(m.value)}</b></td><td>${nf(m.lo)}</td><td>${nf(m.hi)}</td><td>${m.used ? nf(m.we * 100, 0) + "%" : "0%"}</td></tr>`).join("")}
       </tbody></table></div>
+      ${dcfCheck(res.base, base)}
       <p class="faint" style="margin-top:4px;font-size:.74rem">ke = max(lãi suất phi rủi ro ${nf(v.ke_parts?.rf, 1)}% + max(beta ${nf(v.beta)}; 1) × phần bù ${nf(v.ke_parts?.erp, 0)}% + phần bù quy mô ${nf(v.ke_parts?.size, 0)}%; tối thiểu ${nf(v.ke_parts?.floor, 0)}%). Trọng số thực = trọng số gốc giảm dần khi phương pháp lệch xa trung vị; DCF bị tắt khi mô hình mong manh. Mua an toàn = thấp hơn của (hợp lý × (1 − biên an toàn)) và (trung vị các phương pháp × (1 − ½ biên an toàn)). Giá trị theo nghìn đồng/cổ phiếu.</p>`;
     const rows = res.base.rows;
     const yr0 = new Date().getFullYear();
-    const lines = base.model === "CT" ? [["Doanh thu", "revenue", 0], ["LN gộp", "gross_profit", 0], ["LN trước thuế", "pbt", 0], ["LN cổ đông mẹ", "ni", 0], ["EPS (đ)", "eps", 0], ["Cổ tức (đ)", "dps", 0], ["Dòng tiền tự do", "fcfe", 0], ["Tăng trưởng", "g", "p"], ["ROE", "roe", "p"]]
+    const lines = base.model === "CT" ? [["Doanh thu", "revenue", 0], ["LN gộp", "gross_profit", 0], ["EBIT (LN từ kinh doanh)", "ebit", 0], ["− Lãi vay", "interest", 0], ["LN trước thuế", "pbt", 0], ["LN cổ đông mẹ", "ni", 0], ["EPS (đ)", "eps", 0], ["Cổ tức (đ)", "dps", 0],
+        ["+ Khấu hao", "da", 0], ["− Đầu tư TSCĐ", "capex", 0], ["− Tăng vốn lưu động", "dnwc", 0], ["+ Vay ròng", "borrow", 0], ["Dư nợ vay cuối năm", "debt", 0], ["Dòng tiền cho cổ đông (FCFE)", "fcfe", 0], ["Dòng tiền doanh nghiệp (FCFF)", "fcff", 0], ["Tăng trưởng", "g", "p"], ["ROE", "roe", "p"]]
       : [["LN cổ đông mẹ", "ni", 0], ["EPS (đ)", "eps", 0], ["Cổ tức (đ)", "dps", 0], ["BVPS (đ)", "bvps", 0], ["Tăng trưởng LN", "g", "p"], ["ROE", "roe", "p"]];
     $("#pOut").innerHTML = `<div class="tw"><table><thead><tr><th class="l">Tỷ đồng</th>${rows.map((r) => `<th>${yr0 + r.year_offset - 1}F</th>`).join("")}</tr></thead><tbody>
       ${lines.map(([n, k, f]) => `<tr><td class="l">${n}</td>${rows.map((r) => `<td>${f === "p" ? pct((r[k] ?? 0) * 100, 1, false) : nf(r[k], 0)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
@@ -2321,7 +2377,7 @@ function bindVal(d) {
   $("#aReset").onclick = async () => {
     const { data } = await Store.get("assumptions");
     const all = data || {}; delete all[d.symbol]; await Store.put("assumptions", all);
-    $$("[data-a]").forEach((el) => (el.value = (a0[el.dataset.a] * 100).toFixed(1)));
+    $$("[data-a]").forEach((el) => (el.value = aShow(el.dataset.a, el.dataset.u, a0[el.dataset.a])));
     $("#as_ke").value = String(v.ke); calc(); toast("Đã về giả định mặc định");
   };
 }
