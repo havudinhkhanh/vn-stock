@@ -101,7 +101,9 @@ def run() -> dict:
         for k, url in (("verify", "https://api.cloudflare.com/client/v4/user/tokens/verify"),
                        ("workers", f"https://api.cloudflare.com/client/v4/accounts/{acc}/workers/scripts"),
                        ("subdomain", f"https://api.cloudflare.com/client/v4/accounts/{acc}/workers/subdomain"),
-                       ("pages", f"https://api.cloudflare.com/client/v4/accounts/{acc}/pages/projects")):
+                       ("pages", f"https://api.cloudflare.com/client/v4/accounts/{acc}/pages/projects"),
+                       ("d1", f"https://api.cloudflare.com/client/v4/accounts/{acc}/d1/database"),
+                       ("access", f"https://api.cloudflare.com/client/v4/accounts/{acc}/access/apps")):
             try:
                 r = requests.get(url, headers=h, timeout=20)
                 j = r.json()
