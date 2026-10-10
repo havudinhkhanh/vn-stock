@@ -142,7 +142,8 @@ def plan_long(u: pd.DataFrame, sc: pd.DataFrame, regime: dict, cfg: dict) -> dic
     ct = d["ctype"] == "CT"
     m = (d["has_fin"].fillna(False) & (d["avg_value_bn"].fillna(0) >= 2) & (d["mcap_bn"].fillna(0) >= 3000)
          & (d["fscore"].fillna(0) >= 6) & (d[["roe_avg5", "roe"]].min(axis=1).fillna(0) >= 12) & ((d["de"].fillna(0) < 1.5) | ~ct)
-         & (d["ni_ttm"].fillna(-1) > 0) & (d["loss_years"].fillna(0) == 0) & (d["fair"].notna()))
+         & (d["ni_ttm"].fillna(-1) > 0) & (d["loss_years"].fillna(0) == 0) & (d["fair"].notna())
+         & ~d.get("val_flag", pd.Series(None, index=d.index)).isin(["event", "det"]))
     d = d[m].copy()
     d["sc_long"] = 0.35 * d["s_quality"] + 0.35 * d["s_value"] + 0.15 * d["s_dividend"] + 0.15 * d["s_growth"]
     d = d.sort_values("sc_long", ascending=False)
@@ -178,7 +179,8 @@ def plan_income(u: pd.DataFrame, regime: dict) -> dict:
     ex = S["exposure"][regime.get("light", "yellow")]
     d = u[u["has_fin"].fillna(False) & (u["avg_value_bn"].fillna(0) >= 1) & (u["cash_years"].fillna(0) >= 3)
           & (u["div_yield"].fillna(0) >= 3.5) & (u["payout"].fillna(999) <= 90) & (u["ni_ttm"].fillna(-1) > 0)
-          & (u["fscore"].fillna(0) >= 5) & (u["mcap_bn"].fillna(0) >= 500)].copy()
+          & (u["fscore"].fillna(0) >= 5) & (u["mcap_bn"].fillna(0) >= 500)
+          & ~u.get("val_flag", pd.Series(None, index=u.index)).isin(["event", "det"])].copy()
     d["sc_inc"] = d["div_yield"].clip(upper=15) * 4 + d["cash_years"].clip(upper=10) * 3 + d["fscore"].fillna(5) * 2 - d["de"].fillna(0).clip(upper=3) * 5
     d = d.sort_values("sc_inc", ascending=False)
     picks, watch = [], []

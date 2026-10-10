@@ -379,10 +379,11 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             model["overridden"] = sorted(ov)
         hist = va.hist_multiples(qs, d["df"]["close"], fa.get("shares_mn"))
         peers = {"pe_ind_med": r.get("pe_ind_med"), "pb_ind_med": r.get("pb_ind_med"), "roe_ind_med": r.get("roe_ind_med")}
-        val = va.value(fa, model, peers, hist, r["beta"], vcfg, mos)
+        val = va.value(fa, model, peers, hist, r["beta"], vcfg, mos, event=va.event_flag(d["df"]["close"]))
         d["val"] = val
         if val.get("ok"):
             u.at[s, "verdict"] = val["verdict"]
+            u.at[s, "val_flag"] = val.get("flag")
             if val.get("reliable"):
                 for k in ("fair", "fair_lo", "fair_hi", "buy_below", "sell_above", "upside"):
                     u.at[s, k] = val[k]
@@ -391,6 +392,8 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     for k in ("fair", "fair_lo", "fair_hi", "buy_below", "sell_above", "upside", "pe_vs_hist"):
         if k not in u:
             u[k] = np.nan
+    if "val_flag" not in u:
+        u["val_flag"] = None
     if "verdict" not in u:
         u["verdict"] = None
 

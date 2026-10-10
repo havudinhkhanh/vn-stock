@@ -83,6 +83,19 @@ def norm_earnings(qs: pd.DataFrame | None) -> dict:
         last, prev4 = float(nq.iloc[-1]), float(nq.iloc[-5:-1].mean())
         if prev4 > 0 and last > 2 * prev4:
             out["spike_q"] = {"q": f"Q{int(q['quarter'].iloc[-1])}/{int(q['year'].iloc[-1])}", "ni": _r(last, 1), "avg4": _r(prev4, 1)}
+    # Lợi nhuận đang xấu đi: quý gần nhất lỗ, hoặc < 50% cùng kỳ năm trước.
+    # Kiểm chứng 2019–2026: mã "rẻ" theo P/E nhưng LN quý xấu đi → 6 tháng sau kém bình quân −3,7% (2019–22) / −4,9% (2023–26),
+    # mã rẻ có LN ổn: −2,0% / 0,0%. Không nhân EPS cho mọi mã (làm IC tụt 0,076 → 0,049) – chỉ áp khi có cờ này.
+    if len(nq.dropna()) >= 6:
+        kk = (q["year"].astype(int) * 4 + q["quarter"].astype(int)).values
+        cont = len(kk) >= 6 and kk[-1] - kk[-5] == 4 and kk[-2] - kk[-6] == 4
+        last, l1 = float(nq.iloc[-1]), float(nq.iloc[-2])
+        ly, ly1 = (float(nq.iloc[-5]), float(nq.iloc[-6])) if cont else (np.nan, np.nan)
+        if cont and (last < 0 or (ly > 0 and last < 0.5 * ly)):
+            p2, s2 = ly + ly1, last + l1
+            r2 = float(np.clip(s2 / p2, 0.0, 2.0)) if p2 > 0 else (1.0 if s2 > 0 else 0.0)
+            out["det"] = {"q": f"Q{int(q['quarter'].iloc[-1])}/{int(q['year'].iloc[-1])}", "ni": _r(last, 1), "ni_ly": _r(ly, 1),
+                          "s2": _r(s2, 1), "p2": _r(p2, 1), "r2": _r(r2, 2)}
     if "cfo" in q and ttm > 0:
         cf = pd.to_numeric(q["cfo"], errors="coerce").iloc[-4:]
         if cf.notna().sum() == 4:
@@ -90,8 +103,24 @@ def norm_earnings(qs: pd.DataFrame | None) -> dict:
     return out
 
 
+def event_flag(close: pd.Series | None) -> dict | None:
+    """Giá sụt kiểu "có sự kiện": ≥ 45% từ đỉnh 120 phiên VÀ ≥ 3 phiên giảm ≥ 6,5% (sàn HOSE) trong 60 phiên.
+    Kiểm chứng 2019–2026 (mã GTGD ≥ 1 tỷ): 6 tháng sau kém bình quân −14,8% (2019–22, t −2,3) / −17,4% (2023–26, t −3,6),
+    12 tháng −23,6%; kể cả khi P/E đang rất "rẻ" (−14,4% / 6 tháng). Ngưỡng 35–55%, 2–5 phiên cho kết quả tương tự.
+    Giá đang phản ánh thông tin BCTC chưa có → không định giá theo số liệu quá khứ cho tới khi qua giai đoạn này."""
+    if close is None or len(close) < 80:
+        return None
+    c = close.dropna()
+    dd = float(c.iloc[-1] / c.iloc[-120:].max() - 1)
+    r = c.pct_change().iloc[-60:]
+    n = int((r <= -0.065).sum())
+    if dd <= -0.45 and n >= 3:
+        return {"dd": _r(100 * dd, 0), "n_down": n, "hi": _r(float(c.iloc[-120:].max())), "hi_date": str(c.iloc[-120:].idxmax().date())}
+    return None
+
+
 def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: dict,
-          mos_pct: float) -> dict:
+          mos_pct: float, event: dict | None = None) -> dict:
     price = fa.get("price")
     rf = cfg.get("risk_free", 3.2) / 100
     erp = cfg.get("equity_risk_premium", 8.0) / 100
@@ -148,11 +177,15 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
     pe_t = pe_ind * adj if pe_ind and 3 < pe_ind * adj < 40 else (hist.get("pe_med") if hist.get("pe_med") and 3 < hist["pe_med"] < 40 else None)
     nz = fa.get("norm") or {}
     nfac = float(nz.get("f") or 1.0)
+    det = nz.get("det")
+    dfac = float(np.clip(det["r2"], 0.3, 1.0)) if det and det.get("r2") is not None else 1.0
     if pe_t and eps and eps > 0:
-        e = eps * nfac
+        e = eps * min(nfac, dfac)
         src = f"ngành{f' ×{adj:.2f} theo ROE' if adj != 1 else ''}" if pe_ind else "lịch sử của mã (thiếu số liệu ngành)"
         lo_m, hi_m = (pe_ind * adj * 0.85, pe_ind * adj * 1.15) if pe_ind else (hist.get("pe_lo") or pe_t * 0.85, hist.get("pe_hi") or pe_t * 1.15)
-        ename = "EPS 12 tháng" if nfac == 1 else f"EPS chuẩn hoá ({'đỉnh' if nfac < 1 else 'đáy'} chu kỳ: ½ mức 12 tháng + ½ mức bình thường 5 năm)"
+        ename = ("EPS 12 tháng" if nfac == 1 else f"EPS chuẩn hoá ({'đỉnh' if nfac < 1 else 'đáy'} chu kỳ: ½ mức 12 tháng + ½ mức bình thường 5 năm)")
+        if dfac < 1 and dfac <= nfac:
+            ename = f"EPS 12 tháng × {dfac:.2f} (2 quý gần nhất chỉ bằng {dfac * 100:.0f}% cùng kỳ – lợi nhuận đang xấu đi)"
         nz["pe_ttm_val"] = _r(pe_t * eps / 1000)
         if nz.get("med") and nz.get("ttm"):
             nz["pe_med_val"] = _r(pe_t * eps * (nz["med"] / nz["ttm"]) / 1000)
@@ -224,8 +257,27 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
     if nz.get("cash_conv") is not None and nz["cash_conv"] < 0.5 and ctype == "CT":
         w2 = f"Lợi nhuận 12 tháng chưa thành tiền: dòng tiền kinh doanh 4 quý chỉ bằng {nz['cash_conv'] * 100:.0f}% lợi nhuận."
         warning = f"{warning} {w2}" if warning else w2
+    flag = None
+    if det:
+        if (det["ni"] or 0) < 0:
+            what = "lỗ " + f"{-det['ni']:,.0f}".replace(",", ".") + " tỷ"
+        else:
+            what = f"lãi chỉ bằng {100 * det['ni'] / det['ni_ly']:.0f}% cùng kỳ"
+        w3 = (f"Lợi nhuận đang xấu đi: {det['q']} {what} – EPS 12 tháng bị kéo cao bởi các quý cũ, phần P/E dùng EPS × {dfac:.2f}. "
+              "Lịch sử VN: mã \"rẻ\" kiểu này 6 tháng sau kém bình quân ~4%. Không vào lệnh mới cho tới khi BCTC quý sau xác nhận.")
+        warning = f"{warning} {w3}" if warning else w3
+        flag = "det"
+    if event:
+        reliable = False
+        flag = "event"
+        w4 = (f"Giá sụt {abs(event['dd']):.0f}% từ đỉnh {event['hi']} ({event['hi_date']}), {event['n_down']} phiên giảm sàn trong 60 phiên – thị trường đang định giá "
+              f"một thông tin mà BCTC chưa phản ánh. Lịch sử VN 2019–2026: mã sụt kiểu này 6 tháng sau kém bình quân 15–17%, kể cả khi P/E trông rất rẻ. "
+              f"P/E thấp lúc này là rủi ro, không phải cơ hội – không định giá cho tới khi qua giai đoạn này.")
+        warning = f"{w4} {warning}" if warning else w4
     if price is None:
         verdict = "n/a"
+    elif event:
+        verdict = "Có sự kiện – chưa định giá"
     elif not reliable:
         verdict = "Chưa đáng tin – cần rà lại"
     elif price <= buy_below:
@@ -240,5 +292,5 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
             "buy_below": _r(buy_below), "sell_above": _r(fair * 1.10), "upside": _r(upside, 1), "median": _r(med_used),
             "ke_parts": {"rf": _r(rf * 100, 2), "beta": _r(b, 2), "beta_used": _r(max(b, 1.0), 2), "erp": _r(erp * 100, 2), "size": _r(size_p * 100, 1),
                          "floor": cfg.get("ke_min", 12.0)},
-            "verdict": verdict, "reliable": reliable, "warning": warning, "methods": methods, "norm": nz, "ke": _r(ke * 100, 2), "beta": _r(b, 2),
+            "verdict": verdict, "reliable": reliable, "warning": warning, "flag": flag, "event": event, "det": det, "methods": methods, "norm": nz, "ke": _r(ke * 100, 2), "beta": _r(b, 2),
             "scenarios": sc, "model": model, "hist": {k: _r(v, 2) for k, v in hist.items()}}

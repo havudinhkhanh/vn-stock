@@ -214,6 +214,11 @@ def trade_levels(row: pd.Series, risk_cfg: dict) -> dict:
 def timing_ok(row: pd.Series) -> tuple[bool, str]:
     """Hàng rào kỹ thuật. Backtest 2020-2026: chỉ mua khi giá đã vào xu hướng tăng (giá > MA50 > MA200)
     giảm mức sụt danh mục từ ~-50% xuống ~-26%."""
+    vf = row.get("val_flag")
+    if vf == "event":
+        return False, "Giá sụt mạnh kiểu có sự kiện (nhiều phiên giảm sàn) – lịch sử VN: 6 tháng sau thường kém thị trường 15–17%; chưa mua"
+    if vf == "det":
+        return False, "Lợi nhuận quý gần nhất lỗ / giảm hơn ½ cùng kỳ – chờ BCTC quý sau xác nhận trước khi mua"
     if STRATEGY["trend_filter"] == "up" and row.get("trend") != "up":
         if row.get("trend") == "down":
             return False, "Giá đang trong xu hướng giảm – chờ giá lên trên MA50 và MA50 trên MA200"

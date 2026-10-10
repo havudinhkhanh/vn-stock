@@ -2159,6 +2159,7 @@ function bindVal(d) {
     const L = Math.min(lo, price) * 0.9, R = Math.max(hi, price) * 1.08, X = (x) => ((x - L) / (R - L)) * 100;
     $("#vOut").innerHTML = `
       ${kpis([["Giá trị hợp lý", nf(fair)], ["Mua an toàn dưới", nf(buy)], ["Giá hiện tại", nf(price)], ["Tiềm năng", pct(up), cls(up)], ["Biên an toàn", d.mos + "%"], ["ke", nf(ke * 100, 1) + "%"]], true)}
+      ${v.flag ? `<p class="note" style="margin:6px 0">${v.flag === "event" ? "⚠️ <b>Có sự kiện – chưa định giá.</b> " : "⚠️ "}${esc(v.warning || "")}</p>` : ""}
       <div class="vrange" aria-hidden="true"><div class="track"></div>
         <div class="zone" style="left:${X(lo)}%;width:${X(hi) - X(lo)}%;background:color-mix(in srgb,var(--up) 35%,transparent)"></div>
         <div class="zone" style="left:${X(L)}%;width:${Math.max(0, X(buy) - X(L))}%;background:color-mix(in srgb,var(--brand) 25%,transparent)"></div>
