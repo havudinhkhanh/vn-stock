@@ -933,3 +933,24 @@ th.brand{color:var(--brand)}
 .dg .dgl{margin:0;padding-left:18px;display:grid;gap:4px;font-size:.92rem;line-height:1.45}
 @media (max-width:640px){.bellbox{width:auto;left:12px}.menu{top:44px}}
 @media (max-width:480px){.pdfbtn{display:none}.top-in{gap:6px;padding:6px 10px}.upd small,.upd .ago{display:none}}
+/* ---- hướng dẫn & FAQ */
+.hsteps{margin:0;padding:0;list-style:none;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;counter-reset:hs}
+.hsteps li{counter-increment:hs;display:grid;gap:4px;padding:10px 12px 10px 44px;position:relative;border:1px solid var(--line-2);border-radius:8px;background:var(--surface);color:var(--ink);font-size:.84rem}
+.hsteps li::before{content:counter(hs);position:absolute;left:12px;top:10px;width:22px;height:22px;border-radius:50%;background:var(--brand);color:var(--brand-ink);display:grid;place-items:center;font-weight:700;font-size:.78rem}
+.hsteps li span{color:var(--ink-2);line-height:1.4}
+.hlab{display:grid;grid-template-columns:minmax(150px,auto) 1fr;gap:6px 12px;margin:0;font-size:.82rem}
+.hlab dt{font-weight:600}.hlab dd{margin:0;color:var(--ink-2);line-height:1.4}
+.hpages{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px}
+.hpages article{border:1px solid var(--line-2);border-radius:8px;padding:10px 12px;font-size:.82rem}
+.hpages h3{margin:0 0 4px}.hpages p{margin:0 0 6px;color:var(--ink-2);line-height:1.45}
+.hpages ul{margin:0;padding-left:16px;display:grid;gap:3px;line-height:1.4}
+.faq{display:grid;gap:6px}
+.faq details{border:1px solid var(--line-2);border-radius:8px;padding:8px 12px;background:var(--surface)}
+.faq details[open]{border-color:var(--line)}
+.faq summary{cursor:pointer;font-weight:600;font-size:.88rem}
+.faq p{margin:6px 0 2px;color:var(--ink-2);line-height:1.5;font-size:.86rem}
+.helpbtn{color:var(--ink)}.helpbtn:hover{text-decoration:none}
+@media (max-width:640px){.hlab{grid-template-columns:1fr}.hlab dd{margin-bottom:6px}}
+@media (max-width:480px){.helpbtn{display:none}}
+.hsched .row{display:grid!important;grid-template-columns:70px 1fr;gap:10px;text-align:left;align-items:start}
+.hsched .row span{text-align:left!important}

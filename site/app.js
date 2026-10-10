@@ -202,6 +202,7 @@ async function route() {
     else if (r === "compare") { setTab(""); await viewCompare(arg[0]); }
     else if (r === "s" && arg[0]) { setTab(""); await viewStock(arg[0].toUpperCase(), arg[1]); }
     else if (r === "guide") { setTab(""); await viewGuide(); }
+    else if (r === "help" || r === "faq") { setTab(""); await viewHelp(); }
     else { app().innerHTML = `<div class="empty">Không có trang này. <a href="#/">Về trang Hôm nay</a></div>`; }
   } catch (e) {
     console.error(e);
@@ -2214,6 +2215,110 @@ function tabPeers(d) {
 }
 
 // ================================================================ HƯỚNG DẪN
+// ================================================================ HƯỚNG DẪN SỬ DỤNG & FAQ
+const HELP_PAGES = [
+  ["Hôm nay", "#/", "Trang mở đầu mỗi ngày: đèn thị trường (được nắm tối đa bao nhiêu % cổ phiếu), việc cần làm với danh mục, danh sách MUA theo phong cách đang chọn, mã chờ điểm mua, tâm lý thị trường, cơ hội sau sự kiện, mùa vụ, ngành dẫn dắt.",
+    ["Xem ô “Việc hôm nay” trước: số mã nên mua, cần xử lý, chờ điểm mua.", "Đổi phong cách (Lướt sóng / Trung hạn / Dài hạn / Cổ tức) bằng nút trên bảng kế hoạch – danh sách MUA đổi theo.", "Gói Miễn phí: trang này là Bản tin thị trường."]],
+  ["Bản tin thị trường", "#/digest", "Tóm tắt mỗi phiên: chỉ số, độ rộng (tăng/giảm/trần/sàn), thanh khoản so với trung bình, ngành mạnh/yếu, mã kéo/đè VN-Index, tăng/giảm mạnh, khối lượng đột biến, dòng tiền lớn, phiên bất thường, sự kiện 7 ngày tới, tin tức.",
+    ["Chọn ngày ở ô phía trên để xem lại các phiên trước.", "Bấm vào mã bất kỳ để mở trang phân tích mã."]],
+  ["Thị trường", "#/market", "VN-Index theo nhiều khung thời gian, các điều kiện của đèn thị trường, độ rộng (% mã trên MA50/MA200), phân phối, định giá toàn thị trường so với lịch sử.",
+    ["Đèn Xanh: được nắm tới 100% cổ phiếu · Vàng: 60% · Đỏ: 30% (mặc định, đổi được trong Khẩu vị)."]],
+  ["Biến động", "#/swing", "Trong phiên (giá trực tiếp lúc 11:35 và 14:35), phiên gần nhất có gì bất thường, dòng tiền lớn gom/xả/bứt phá, tâm lý thị trường, mã liên quan (đồng pha), bảng hành vi giá từng mã, kiểm chứng.",
+    ["Mỗi tín hiệu đều kèm kết quả lịch sử: sau những phiên giống vậy giá thường đi đâu.", "“Điểm bất thường” cao = giá hay bị đẩy/đạp, KHÔNG phải bằng chứng thao túng."]],
+  ["Ngành", "#/sector", "Toàn cảnh các ngành: định giá so với lịch sử, xoay vòng ngành (RRG), triển vọng 3–6 và 12 tháng, mùa vụ. Bấm vào ngành để xếp hạng các mã trong ngành.",
+    ["“Tốt nhất ngành” là công thức đã kiểm chứng; các phương án khác để nhìn theo góc khác."]],
+  ["Bộ lọc", "#/screener", "Lọc toàn bộ HOSE/HNX/UPCOM theo hơn 60 chỉ tiêu: định giá, sinh lời, tăng trưởng, kỹ thuật, dòng tiền, các rổ chiến lược. Lưu được bộ lọc riêng, chọn nhiều mã để so sánh.",
+    ["Bấm tiêu đề cột để sắp xếp; rê chuột lên tên chỉ tiêu để xem cách tính."]],
+  ["Theo dõi", "#/watch", "Danh sách mã quan tâm và cảnh báo giá: giá ≤ / ≥ một mức, biến động ≥ x% trong phiên, hoặc khi mã vào danh sách MUA. Có lịch sự kiện (chốt quyền cổ tức, hạn BCTC, ĐHCĐ).",
+    ["Bấm ☆ ở bất kỳ đâu để thêm mã vào theo dõi.", "Mã đang “có sự kiện” trong danh sách theo dõi sẽ được báo khi đến điểm vào sau sự kiện."]],
+  ["Danh mục", "#/portfolio", "Nhập mã đang nắm (khối lượng, giá vốn, ngày mua) và tổng vốn. Hệ thống tính mức dừng lỗ, chốt lời từng phần, tỷ trọng, rủi ro theo ngành; có Nhật ký giao dịch và Khẩu vị đầu tư.",
+    ["Ghi lệnh mua/bán ở Nhật ký thì danh mục tự cập nhật và lưu lại hệ thống đang khuyên gì lúc đó.", "Khẩu vị: chỉnh phân bổ rổ, mức cắt lỗ, tỷ trọng theo màu đèn, loại trừ ngành/mã – thấy ngay kết quả nếu đã làm như vậy từ 2020."]],
+  ["Kiểm chứng", "#/backtest", "Mọi phương pháp và tín hiệu được đo trên dữ liệu Việt Nam: lợi nhuận/năm, mức sụt lớn nhất, từng năm, so với VN-Index; theo dõi thực tế danh sách MUA hằng ngày (không thể tối ưu ngược).",
+    ["Đây là nơi trả lời câu hỏi “cách này có thật sự hiệu quả không?”."]],
+  ["Trang từng mã", "#/s/FPT", "Biểu đồ nhiều khung, các bước nên làm, kế hoạch theo phong cách (vùng mua, cắt lỗ, mục tiêu), định giá đa phương pháp, kỹ thuật, sóng & mô hình, SMC/VSA/Wyckoff, dòng tiền, cơ bản, dự phóng 5 năm (sửa giả định được), cùng ngành, mã liên quan.",
+    ["Gõ mã vào ô tìm kiếm phía trên hoặc bấm phím / để mở nhanh."]],
+];
+const HELP_LABELS = [
+  ["Mua được", "Đạt đủ: xu hướng, giá trong vùng mua an toàn, và mã nằm trong danh sách MUA của rổ đã kiểm chứng."],
+  ["Mua được – chia 2 lệnh", "Đạt điều kiện nhưng giá đang kéo giãn (cách EMA20 > 2,5 ATR hoặc +25%/tháng): mua 1/2 ngay, 1/2 đặt lệnh thấp hơn 1 ATR trong 10 phiên."],
+  ["Chờ giá", "Giá còn trên vùng mua an toàn – đặt cảnh báo giá ở vùng mua."],
+  ["Chưa đến lúc", "Chưa qua hàng rào kỹ thuật (cần giá > MA50 > MA200), hoặc lợi nhuận quý gần nhất xấu đi, hoặc mã đang có sự kiện."],
+  ["Đạt giá – ngoài danh sách MUA", "Giá và xu hướng đạt nhưng rổ của mã không được phân bổ vốn, đã đủ số mã, vượt trần ngành hoặc đèn thị trường không cho – chỉ theo dõi."],
+  ["Rẻ / Hơi rẻ / Hợp lý / Đắt", "So giá với giá trị hợp lý (P/E và P/B mục tiêu theo ngành điều chỉnh theo ROE, DCF, DDM khi phù hợp). Rẻ = dưới vùng mua an toàn."],
+  ["Chưa đáng tin – cần rà lại", "Các phương pháp lệch nhau quá xa hoặc giá trị lệch quá xa giá thị trường – thường do số liệu bất thường. Không dùng để quyết định."],
+  ["Có sự kiện – chưa định giá", "Giá sụt ≥ 45% kèm ≥ 3 phiên giảm sàn: thị trường đang định giá thông tin BCTC chưa có. Chờ ≥ 120 phiên và ≥ 60 phiên liền không giảm sàn rồi mới tính điểm vào."],
+  ["Lợi nhuận đang xấu đi", "Quý gần nhất lỗ hoặc dưới ½ cùng kỳ: P/E dùng EPS điều chỉnh theo 2 quý gần nhất, chưa mua mới cho tới khi BCTC quý sau xác nhận."],
+  ["Đèn thị trường", "Xanh / Vàng / Đỏ từ 7 điều kiện (xu hướng VN-Index, độ rộng, phân phối…). Quyết định tỷ trọng cổ phiếu tối đa."],
+];
+const HELP_FAQ = [
+  ["Bắt đầu", "Dữ liệu cập nhật lúc nào?", "Các ngày giao dịch: 11:35 và 14:35 (giá trong phiên, cảnh báo nhanh) và 15:35 (phân tích đầy đủ sau đóng cửa). Thứ Bảy tải lại báo cáo tài chính, cổ tức và chạy kiểm chứng. Góc trên bên trái ghi rõ dữ liệu cập nhật lúc nào."],
+  ["Bắt đầu", "Tôi nên dùng trang này mỗi ngày thế nào?", "Mở Hôm nay sau 15:35: xem đèn thị trường → việc với danh mục (bán/cắt lỗ/chốt lời) → danh sách MUA mới → mã chờ điểm mua. Trong ngày chỉ cần xem thông báo; không cần nhìn bảng điện."],
+  ["Bắt đầu", "Vì sao tìm mã không thấy trang phân tích đầy đủ?", "Mã có giá trị giao dịch bình quân dưới 0,5 tỷ/phiên chỉ có số liệu tóm tắt – quá ít thanh khoản để phân tích sâu và để mua bán an toàn. Khuyến nghị MUA chỉ áp cho mã ≥ 3 tỷ/phiên."],
+  ["Bắt đầu", "Giá trên trang có phải giá trực tiếp không?", "Không theo từng giây. Giá được chụp ở các lượt 11:35, 14:35 và 15:35. Khi đặt lệnh, luôn kiểm tra lại giá trên ứng dụng của công ty chứng khoán."],
+  ["Khuyến nghị", "“Mua được” nghĩa là tôi nên mua ngay?", "Nghĩa là mã đạt đủ điều kiện của hệ thống tại giá đóng cửa gần nhất. Mua trong vùng mua, đặt cắt lỗ ngay sau khi mua, tỷ trọng theo gợi ý (mỗi lệnh sai chỉ mất khoảng 1,5% tổng vốn). Đây là thông tin tham khảo, không phải lời khuyên đầu tư cá nhân."],
+  ["Khuyến nghị", "Mã định giá “Rẻ” sao lại “Chưa đến lúc”?", "Rẻ chưa đủ: hệ thống chỉ mua khi giá đã vào xu hướng tăng (giá > MA50 > MA200). Kiểm chứng 2020–2026: hàng rào này giảm mức sụt danh mục từ khoảng −50% xuống khoảng −26%. Mã rẻ mà đang giảm thường còn rẻ hơn nữa."],
+  ["Khuyến nghị", "RSI gần 70, MACD sắp cắt xuống mà vẫn “Mua được”?", "Đo trên dữ liệu VN, mã quá mua trong xu hướng tăng không tệ hơn trung bình, nhưng dễ có nhịp chỉnh sâu. Vì vậy mã đang kéo giãn được chuyển sang “Mua được – chia 2 lệnh” thay vì cấm mua."],
+  ["Khuyến nghị", "Giá đã giảm sàn nhiều phiên, P/E chỉ 4x – có phải cơ hội vàng?", "Kiểm chứng 560 đợt 2016–2026: mua ngay khi sập hoặc bắt nhịp hồi sớm thường thua thị trường và còn sụt thêm ~30%. Cơ hội có thật nhưng đến muộn hơn: khi đủ 120 phiên từ lúc có cờ và 60 phiên liền không giảm sàn, nhất là DN còn lãi, nợ thấp. Trang mã đếm ngược số phiên còn phải chờ; thêm mã vào Theo dõi để được báo đúng lúc."],
+  ["Khuyến nghị", "Giá trị hợp lý tính thế nào? Tôi muốn dùng giả định của mình.", "P/E và P/B mục tiêu theo trung vị ngành (điều chỉnh theo ROE của mã), DCF dòng tiền cho cổ đông và DDM khi phù hợp; lợi nhuận đỉnh/đáy chu kỳ được chuẩn hoá. Trong trang mã → tab Dự phóng & định giá, sửa tăng trưởng, biên lợi nhuận… giá trị hợp lý tính lại ngay và có thể lưu."],
+  ["Khuyến nghị", "Mã này chạy rồi thì mã cùng ngành có chạy theo không?", "Kiểm chứng trên dữ liệu VN: các mã đồng pha đi CÙNG LÚC, không đi trước nhau vài tuần; mã tụt lại cũng không có xu hướng bắt kịp. Xem phần Mã liên quan trong trang mã để biết nên né cả nhóm khi nào và mã nào trong nhóm đang vào được."],
+  ["Danh mục", "Nhập danh mục ở đâu? Có ai khác xem được không?", "Tab Danh mục → nhập mã, khối lượng, giá vốn (nghìn đồng), ngày mua và tổng vốn. Dữ liệu lưu riêng cho tài khoản của anh/chị, đồng bộ mọi thiết bị; người dùng khác không xem được."],
+  ["Danh mục", "Mức dừng lỗ, chốt lời được tính thế nào?", "Theo phong cách của từng mã: dừng lỗ theo ATR và đỉnh sau mua (dời lên theo giá, tối đa −20%), chốt một phần khi vượt giá trị hợp lý, bán khi luận điểm cơ bản gãy, xem lại sau 60 phiên nếu vốn đứng yên. Có thể đặt mức riêng cho từng mã."],
+  ["Danh mục", "Tôi đã bán mà hệ thống vẫn báo mã đó?", "Ghi lệnh bán ở Danh mục → Nhật ký giao dịch (hoặc bấm “Bán” cạnh mức thoát) để danh mục cập nhật. Thông báo theo danh mục đã lưu ở lượt chạy gần nhất."],
+  ["Thông báo", "Làm sao nhận thông báo trên điện thoại?", "Tài khoản → Nhận thông báo → “Bật trên thiết bị này” và cho phép thông báo. Android/máy tính: dùng Chrome, Edge hoặc Firefox. iPhone/iPad (iOS 16.4+): mở trang bằng Safari → nút Chia sẻ → Thêm vào Màn hình chính → mở trang từ biểu tượng mới → bật lại. Thông báo đẩy và email thuộc gói Pro."],
+  ["Thông báo", "Khi nào tôi nhận thông báo?", "Sau các lượt 11:35, 14:35 và 15:35, chỉ khi có việc mới: chạm/sắp chạm mức thoát, khuyến nghị bán/cắt lỗ, cảnh báo giá, mã mới vào danh sách MUA, dòng tiền lớn với mã của anh/chị, mã có sự kiện / đến điểm vào sau sự kiện. Mỗi việc chỉ báo một lần."],
+  ["Thông báo", "Nhận quá nhiều / quá ít thông báo?", "Tài khoản → chọn mức gửi đẩy và email (Tất cả / Bình thường / Chỉ việc quan trọng / Tắt) và bỏ chọn loại không cần. Chuông trên web luôn giữ đủ để xem lại."],
+  ["Thông báo", "Bật rồi mà không nhận được thông báo đẩy?", "Kiểm tra: trình duyệt/điện thoại cho phép thông báo của trang; iPhone phải mở từ biểu tượng ngoài màn hình chính; chế độ Tập trung/Không làm phiền đang tắt. Bấm “Gửi thử” trong trang Tài khoản để kiểm tra thiết bị."],
+  ["Tài khoản", "Quên mật khẩu?", "Ở trang đăng nhập bấm “Quên mật khẩu?”, nhập email. Nếu chưa nhận được email, quản trị viên sẽ gửi liên kết đặt lại mật khẩu (hiệu lực 72 giờ)."],
+  ["Tài khoản", "Gói Miễn phí và Pro khác gì? Nâng cấp thế nào?", "Xem bảng quyền lợi ở trang Tài khoản. Miễn phí: bản tin, thị trường, ngành, bộ lọc, lịch sự kiện, danh mục với tư vấn mức thoát, theo dõi, chuông thông báo. Pro thêm danh sách MUA, phân tích đầy đủ từng mã, biến động & trong phiên, dòng tiền, mã liên quan, kiểm chứng, PDF, thông báo đẩy và email. Liên hệ quản trị viên để nâng cấp/gia hạn."],
+  ["Tài khoản", "Dùng chung tài khoản trên nhiều máy được không?", "Được – đăng nhập cùng email, dữ liệu đồng bộ. “Đăng xuất mọi thiết bị” trong trang Tài khoản khi nghi lộ mật khẩu."],
+  ["Khác", "Xuất báo cáo PDF thế nào?", "Nút PDF ở thanh trên: xuất trang đang xem, hoặc chọn nhiều trang để tạo báo cáo tổng hợp có bìa, mục lục, số trang."],
+  ["Khác", "Phím tắt?", "/ hoặc Ctrl/⌘ + K: tìm nhanh mã, trang, thuật ngữ. Gõ g rồi một phím để chuyển trang (g h: Hôm nay, g r: Bản tin, g m: Thị trường, g d: Danh mục, g t: Theo dõi, g ?: Hướng dẫn)."],
+  ["Khác", "Số liệu lấy từ đâu? Có chính xác không?", "Giá, báo cáo tài chính, cổ tức lấy từ nguồn dữ liệu công khai, kiểm tra và chuẩn hoá tự động (điều chỉnh chia tách, cổ tức). Sai sót nguồn vẫn có thể xảy ra – các giá trị bất thường được gắn nhãn “Chưa đáng tin”."],
+  ["Khác", "Đây có phải là lời khuyên đầu tư?", "Không. Đây là hệ thống phân tích tự động cung cấp thông tin tham khảo; quyết định và rủi ro đầu tư thuộc về anh/chị. Hiệu quả quá khứ (kể cả kiểm chứng) không bảo đảm kết quả tương lai."],
+];
+async function viewHelp() {
+  const multi = multiUser();
+  const P = HELP_PAGES, cats = [...new Set(HELP_FAQ.map((x) => x[0]))];
+  app().innerHTML = `<div class="ph"><h1>Hướng dẫn sử dụng & câu hỏi thường gặp</h1><span class="meta"><a href="#/guide">Phương pháp chọn mã & từ điển chỉ số →</a></span></div>
+  <section class="panel hero hstart"><div class="ph"><h2>Bắt đầu trong 5 phút</h2></div>
+    <ol class="hsteps">
+      ${multi ? `<li><b>Hoàn thiện tài khoản</b><span>Đặt tên, bật thông báo trên điện thoại ở <a href="#/account">Tài khoản</a>.</span></li>` : ""}
+      <li><b>Nhập danh mục</b><span>Tab <a href="#/portfolio">Danh mục</a>: mã, khối lượng, giá vốn, ngày mua và tổng vốn.</span></li>
+      <li><b>Chọn phong cách</b><span><a href="#/portfolio/profile">Khẩu vị</a>: Lướt sóng, Trung hạn, Dài hạn hoặc Cổ tức – danh sách MUA đổi theo.</span></li>
+      <li><b>Thêm mã quan tâm</b><span>Bấm ☆ ở trang mã hoặc vào <a href="#/watch">Theo dõi</a>, đặt cảnh báo giá.</span></li>
+      <li><b>Mỗi chiều sau 15:35</b><span>Mở <a href="#/">Hôm nay</a> / <a href="#/digest">Bản tin</a>: đèn thị trường → việc với danh mục → mã mới.</span></li>
+    </ol></section>
+  <div class="g g2 sec">
+    <section class="panel"><div class="ph"><h2>Lịch cập nhật</h2></div>
+      <div class="rows hsched">
+        <div class="row"><span><b>11:35</b></span><span>Giá giữa phiên: chạm/sắp chạm mức thoát, cảnh báo giá, biến động bất thường, mã vào vùng mua</span></div>
+        <div class="row"><span><b>14:35</b></span><span>Giá trước ATC: như trên + kiểu “sáng đẩy chiều xả”</span></div>
+        <div class="row"><span><b>15:35</b></span><span>Phân tích đầy đủ: định giá, danh sách MUA, tư vấn danh mục, bản tin thị trường, thông báo</span></div>
+        <div class="row"><span><b>Thứ Bảy</b></span><span>Tải lại BCTC, cổ tức; chạy kiểm chứng</span></div>
+      </div>
+      <p class="faint" style="font-size:.74rem;margin-top:6px">Ngày nghỉ lễ hệ thống tự bỏ qua. Giờ cập nhật gần nhất hiện ở góc trên bên trái.</p></section>
+    <section class="panel"><div class="ph"><h2>Đọc các nhãn</h2></div>
+      <dl class="hlab">${HELP_LABELS.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl></section>
+  </div>
+  <section class="panel sec"><div class="ph"><h2>Các trang</h2></div>
+    <div class="hpages">${P.map(([n, h, d, tips]) => `<article><h3><a href="${h}">${esc(n)}</a></h3><p>${esc(d)}</p><ul>${tips.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></article>`).join("")}</div></section>
+  <section class="panel sec" id="faq"><div class="ph"><h2>Câu hỏi thường gặp</h2><span class="meta"><input id="fq" placeholder="Tìm câu hỏi…" style="width:180px" autocomplete="off"></span></div>
+    <div class="views" id="fcat" style="margin:0 0 8px">${["Tất cả", ...cats].map((c, i) => `<button class="btn ${i ? "" : "primary"}" data-c="${esc(c)}">${esc(c)}</button>`).join("")}</div>
+    <div class="faq">${HELP_FAQ.map(([c, q, a]) => `<details data-c="${esc(c)}" data-s="${esc((q + " " + a).toLowerCase())}"><summary>${esc(q)}</summary><p>${esc(a)}</p></details>`).join("")}</div>
+    <p class="muted" id="fnone" hidden>Không thấy câu hỏi phù hợp – thử từ khoá khác${multi ? ", hoặc liên hệ quản trị viên" : ""}.</p></section>
+  <p class="faint" style="font-size:.72rem;margin-top:8px">Thông tin tham khảo từ hệ thống phân tích tự động – không phải khuyến nghị đầu tư cá nhân.</p>`;
+  let cat = "Tất cả";
+  const filt = () => {
+    const q = ($("#fq").value || "").trim().toLowerCase();
+    let n = 0;
+    $$(".faq details").forEach((d) => { const ok = (cat === "Tất cả" || d.dataset.c === cat) && (!q || d.dataset.s.includes(q)); d.hidden = !ok; if (ok) n++; if (q && ok) d.open = true; });
+    $("#fnone").hidden = n > 0;
+  };
+  $("#fq").oninput = filt;
+  $$("#fcat button").forEach((b) => (b.onclick = () => { cat = b.dataset.c; $$("#fcat button").forEach((x) => x.classList.toggle("primary", x === b)); filt(); }));
+  if (location.hash.includes("faq")) setTimeout(() => $("#faq")?.scrollIntoView(), 50);
+}
+
 async function viewGuide() {
   const [m, t] = await Promise.all([load("data/methods.json"), loadToday()]);
   const glo = Object.entries(GLOSS).sort((a, b) => a[1].t.localeCompare(b[1].t, "vi"));
@@ -3732,7 +3837,7 @@ function cmpAdd(s) { const L = lsGet("cmp", []).filter((x) => x !== s); L.push(s
 
 // ---- tìm nhanh (Ctrl/⌘ + K hoặc phím /)
 const PAGES = [["Hôm nay", "#/", "h"], ["Bản tin thị trường mỗi phiên", "#/digest", "r"], ["Thông báo", "#/notifications", "o"], ["Tài khoản & cài đặt thông báo", "#/account", "a"], ["Thị trường", "#/market", "m"], ["Trong phiên & biến động", "#/swing", "b"], ["Bảng hành vi giá (đẩy/xả, đảo chiều)", "#/swing/table", "x"], ["Mã liên quan (đồng pha / dẫn dắt)", "#/swing/pairs", "q"], ["Toàn cảnh ngành", "#/sector", "n"], ["Bộ lọc", "#/screener", "l"], ["Theo dõi & cảnh báo", "#/watch", "t"], ["Lịch sự kiện", "#/watch/calendar", "e"],
-  ["So sánh mã", "#/compare", "c"], ["Danh mục đang nắm", "#/portfolio", "d"], ["Nhật ký giao dịch", "#/portfolio/journal", "j"], ["Khẩu vị & phong cách đầu tư", "#/portfolio/profile", "p"], ["Kiểm chứng", "#/backtest", "k"], ["Hướng dẫn", "#/guide", "?"]];
+  ["So sánh mã", "#/compare", "c"], ["Danh mục đang nắm", "#/portfolio", "d"], ["Nhật ký giao dịch", "#/portfolio/journal", "j"], ["Khẩu vị & phong cách đầu tư", "#/portfolio/profile", "p"], ["Kiểm chứng", "#/backtest", "k"], ["Hướng dẫn sử dụng & câu hỏi thường gặp (FAQ)", "#/help", "?"], ["Phương pháp chọn mã & từ điển chỉ số", "#/guide", "y"]];
 async function palette(q0 = "") {
   const old = $("#pal"); if (old) { old.remove(); return; }
   const rows = await screenerRows(); await WL.load();
@@ -4604,7 +4709,7 @@ function initAccountUI() {
     m = document.createElement("div"); m.id = "meMenu"; m.className = "menu memenu";
     m.style.top = Math.round(meb.getBoundingClientRect().bottom + 6) + "px";
     m.innerHTML = `<div class="mh"><b>${esc(ME.name || ME.email)}</b><small>${esc(ME.email)}</small><span class="pill ${ME.eff_plan === "pro" ? "buy" : ""}">Gói ${esc(ME.plan_name || ME.eff_plan)}${ME.plan_until ? " · đến " + esc(ME.plan_until) : ""}</span></div>
-      <a href="#/digest">📰 Bản tin thị trường</a><a href="#/notifications">🔔 Thông báo</a><a href="#/account">⚙️ Tài khoản & cài đặt</a>${ME.role === "admin" ? '<a href="#/admin">🛠️ Quản trị</a>' : ""}<button id="meOut">↩ Đăng xuất</button>`;
+      <a href="#/digest">📰 Bản tin thị trường</a><a href="#/notifications">🔔 Thông báo</a><a href="#/account">⚙️ Tài khoản & cài đặt</a><a href="#/help">❓ Hướng dẫn & FAQ</a>${ME.role === "admin" ? '<a href="#/admin">🛠️ Quản trị</a>' : ""}<button id="meOut">↩ Đăng xuất</button>`;
     document.body.appendChild(m);
     $("#meOut").onclick = logout;
     m.querySelectorAll("a").forEach((a) => a.addEventListener("click", () => m.remove()));
@@ -4619,10 +4724,17 @@ function initAccountUI() {
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
 }
 
+function initHelpBtn() {
+  const th = $("#theme"); if (!th || $("#helpBtn")) return;
+  const b = document.createElement("a");
+  b.className = "iconbtn helpbtn"; b.id = "helpBtn"; b.href = "#/help"; b.title = "Hướng dẫn sử dụng & câu hỏi thường gặp"; b.setAttribute("aria-label", "Hướng dẫn");
+  b.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14"/><circle cx="12" cy="17.2" r=".6" fill="currentColor"/></svg>`;
+  th.parentNode.insertBefore(b, th);
+}
 (async function main() {
   ME = await fetchMe();
   if (!ME) { location.replace("/login?next=" + encodeURIComponent("/" + location.hash)); return; }
-  initTheme(); initSearch(); initGlobal(); GL.init(); initAccountUI(); plansData();
+  initTheme(); initSearch(); initGlobal(); GL.init(); initAccountUI(); initHelpBtn(); plansData();
   $("#pdfBtn")?.addEventListener("click", () => PDFX.dialog());
   paintUpd(); setInterval(paintUpd, 60000);
   WL.load().catch(() => {});
