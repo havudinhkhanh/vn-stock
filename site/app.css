@@ -1173,3 +1173,89 @@ tbody tr:hover>td{background:color-mix(in srgb,var(--brass) 7%,var(--surface))}
 .lay.editing>.lc{outline-color:var(--brass-line)}
 .laytool .chip[data-ledit]{color:var(--ink-3)}
 @media print{:root{--bg:#fff;--surface:#fff;--ink:#111;--ink-2:#444;--ink-3:#666;--line:#ccc;--line-2:#e5e5e5;--brass:#8a6a2f}}
+
+/* =====================================================================
+   V2 – hiện đại hơn: thanh điều hướng dọc trên máy tính, mặt khối "gia công" (viền sáng mảnh phía trên),
+   đầu trang mã dạng bảng giá lớn có vùng giá 52 tuần, chuyển trang mờ dần, khung chờ thay chữ "Đang tải".
+   ===================================================================== */
+:root{--rail:212px;--r:10px}
+body.rail-min{--rail:68px}
+/* mặt khối */
+.panel,.deck{border-radius:var(--r);background:linear-gradient(180deg,color-mix(in srgb,var(--surface) 96%,#fff) 0,var(--surface) 56px);
+  box-shadow:inset 0 1px 0 color-mix(in srgb,#fff 5%,transparent),0 1px 0 color-mix(in srgb,#000 22%,transparent)}
+:root[data-theme="light"] .panel{background:var(--surface);box-shadow:0 1px 2px rgba(18,26,38,.05),0 0 0 1px var(--line-2)}
+.lay{gap:14px}
+.panel{padding:14px 16px}
+.panel.flush{padding:0}
+.panel.flush>.ph{padding:12px 16px 9px}
+.kpis{border-radius:8px}
+main{padding:16px 22px 48px}
+@media (max-width:700px){main{padding:12px 12px 80px}}
+
+/* thanh điều hướng dọc */
+.tabs .rail-brand,.tabs .rail-fold{display:none}
+@media (min-width:1180px){
+  body{padding-left:var(--rail)}
+  .tabs{position:fixed;top:0;left:0;bottom:0;width:var(--rail);display:flex;flex-direction:column;gap:2px;padding:14px 10px 12px;
+    border:0;border-right:1px solid var(--line-2);background:color-mix(in srgb,var(--surface) 70%,var(--bg));z-index:40;overflow:hidden auto;transition:width .18s ease}
+  .tabs a{flex-direction:row!important;justify-content:flex-start;gap:12px!important;padding:10px 12px!important;border-radius:8px;border:0!important;
+    font:500 .9rem/1.1 "Be Vietnam Pro",system-ui,sans-serif!important;color:var(--ink-2);white-space:nowrap;position:relative}
+  .tabs a svg{width:18px!important;height:18px!important;flex:none;color:var(--ink-3)}
+  .tabs a:hover{background:var(--sunk);color:var(--ink);text-decoration:none}
+  .tabs a.on{background:color-mix(in srgb,var(--brass) 11%,transparent);color:var(--ink)!important}
+  .tabs a.on svg{color:var(--brass)}
+  .tabs a.on::before{content:"";position:absolute;left:-10px;top:8px;bottom:8px;width:3px;border-radius:0 3px 3px 0;background:var(--brass)}
+  .tabs .rail-brand{display:flex;align-items:center;gap:10px;padding:4px 12px 18px;margin-bottom:6px;border-bottom:1px solid var(--line-2);color:var(--ink)!important;text-decoration:none!important;white-space:nowrap}
+  .rail-brand b{font:600 1.25rem/1 var(--serif)}
+  .rail-brand .brand-dot{width:10px;height:10px;border-radius:50%;flex:none}
+  .tabs .rail-fold{display:flex;align-items:center;gap:12px;margin-top:auto;padding:9px 12px;border:0;background:none;color:var(--ink-3);border-radius:8px;cursor:pointer;font-size:.8rem;white-space:nowrap}
+  .rail-fold:hover{background:var(--sunk);color:var(--ink)}
+  .rail-fold svg{width:18px;height:18px;flex:none;transition:transform .18s ease}
+  body.rail-min .tabs a,body.rail-min .rail-fold{font-size:0!important;gap:0!important;justify-content:center}
+  body.rail-min .rail-brand b{display:none}body.rail-min .rail-brand{justify-content:center;padding-left:0;padding-right:0}
+  body.rail-min .rail-fold svg{transform:rotate(180deg)}
+  .top a.brand{display:none}
+  .top-in,main{max-width:1640px}
+  .board{position:relative;z-index:31}
+}
+@media (prefers-reduced-motion:reduce){.tabs,.rail-fold svg{transition:none}}
+
+/* thanh trên: ô tìm có biểu tượng, nút gọn */
+.top-in{padding:8px 22px;gap:12px}
+.search input{padding-left:32px;height:34px;border-radius:8px;background:var(--sunk) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238892A0' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M20 20l-3.5-3.5'/%3E%3C/svg%3E") no-repeat 10px 50%/15px}
+@media (min-width:1180px){.search{width:340px}}
+.iconbtn{height:34px;border-radius:8px}
+.upd{font-size:.76rem}
+
+/* đầu trang mã: bảng giá lớn */
+.stock-head{align-items:center;gap:10px 22px;padding:6px 0 4px}
+.stock-head h1{font:700 2.6rem/1 var(--num);letter-spacing:.015em}
+.pxb{display:grid;grid-template-columns:auto auto;align-items:center;gap:2px 12px}
+.stock-head .px{font:700 3rem/.92 var(--num);letter-spacing:-.01em}
+.stock-head .pxc{font:600 1.05rem/1 var(--num);padding:5px 9px;border-radius:7px;background:color-mix(in srgb,currentColor 13%,transparent)}
+.rng52{grid-column:1/-1;display:flex;align-items:center;gap:8px;font:500 .82rem/1 var(--num);color:var(--ink-3);margin-top:6px}
+.rng52 i{position:relative;width:150px;height:4px;border-radius:2px;background:linear-gradient(90deg,var(--down),var(--ref),var(--up));opacity:.55}
+.rng52 i b{position:absolute;top:50%;width:11px;height:11px;margin:-5.5px 0 0 -5.5px;border-radius:50%;background:var(--ink);box-shadow:0 0 0 3px var(--bg)}
+.rng52 small{font-family:"Be Vietnam Pro",system-ui,sans-serif;font-size:.7rem;color:var(--ink-3)}
+.subtabs.stick{margin-top:6px;gap:2px}
+.subtabs button{padding:10px 14px;font-size:.86rem}
+
+/* chuyển trang & khung chờ */
+@media (prefers-reduced-motion:no-preference){
+  #app.enter{animation:appIn .22s ease-out both}
+  @keyframes appIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+}
+.skel{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.skel i{height:150px;border-radius:var(--r);background:linear-gradient(90deg,var(--surface) 0,var(--sunk) 50%,var(--surface) 100%);background-size:200% 100%;animation:skel 1.3s linear infinite}
+.skel i.w{grid-column:span 3;height:260px}
+@keyframes skel{to{background-position:-200% 0}}
+@media (max-width:860px){.skel{grid-template-columns:1fr}.skel i.w{grid-column:auto}}
+@media (prefers-reduced-motion:reduce){.skel i{animation:none}}
+
+/* ô chỉ số: giá trị lớn hơn, nhãn nhỏ gọn */
+.kpis dd{font-size:1.12rem}
+.sg .kpis.c3 dd{font-size:1.18rem}
+.kpis dt{font-size:.7rem;letter-spacing:.005em}
+.ph h2,.ph h3,.panel>h2{font-size:1rem}
+.deck .exposure{letter-spacing:-.01em}
+.stock-head .pxc{justify-self:start}

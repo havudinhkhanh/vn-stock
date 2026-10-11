@@ -347,6 +347,7 @@ async function route() {
   const parts = h.split("/");
   const r = parts[0], arg = parts.slice(1).map((x) => decodeURIComponent(x));
   window.scrollTo(0, 0);
+  if (!app().querySelector(".lay, .panel")) app().innerHTML = `<div class="skel"><i></i><i></i><i></i><i class="w"></i><i class="w"></i></div>`;
   try {
     const gate = ROUTE_FEATURE[r] && ROUTE_FEATURE[r](arg[0]);
     if (gate && !can(gate)) { setTab(r); await lockView(gate); }
@@ -374,6 +375,7 @@ async function route() {
       <p class="muted">Hệ thống cập nhật mỗi chiều sau 15h35. Nếu đây là lần đầu, chờ lượt chạy đầu tiên hoàn tất (khoảng 30–60 phút).</p></div>`;
   }
   if (multiUser()) deTelegram(app());
+  app().classList.remove("enter"); void app().offsetWidth; app().classList.add("enter");
   app().focus({ preventScroll: true });
 }
 // chế độ nhiều người dùng: Telegram chỉ dành cho chủ sở hữu – trên web gọi chung là "thông báo"
@@ -2141,7 +2143,9 @@ async function viewStock(sym, tabArg) {
   <div class="stock-head">
     <div><h1>${sym} <small class="muted" style="font-size:.8rem;font-weight:400">${esc(d.exchange)} · <a href="#/sector/${enc(d.sector || "")}">${esc(d.sector || "")}</a>${d.industry && d.industry !== d.sector ? ` › <a href="#/sector/${enc(d.industry)}/l3">${esc(d.industry)}</a>` : ""}</small></h1>
       <div class="muted" style="font-size:.8rem">${esc(d.name)}</div></div>
-    <div class="px ${boardCls(chg, d.exchange)}">${nf(last)}</div><div class="${boardCls(chg, d.exchange)} pxc">${arrow(boardCls(chg, d.exchange))} ${pct(chg, 2)}</div>
+    <div class="pxb"><div class="px ${boardCls(chg, d.exchange)}">${nf(last)}</div><div class="${boardCls(chg, d.exchange)} pxc">${arrow(boardCls(chg, d.exchange))} ${pct(chg, 2)}</div>
+      ${(() => { const H = (o.h || []).slice(-250), Lw = (o.l || []).slice(-250); if (H.length < 20) return ""; const hi = Math.max(...H), lo = Math.min(...Lw), x = hi > lo ? (last - lo) / (hi - lo) * 100 : 50;
+        return `<div class="rng52" title="Vùng giá 52 tuần"><span>${nf(lo)}</span><i><b style="left:${Math.max(0, Math.min(100, x))}%"></b></i><span>${nf(hi)}</span><small>52 tuần</small></div>`; })()}</div>
     <div class="tags" style="margin-left:auto">${d.in_plan ? '<span class="pill buy">Trong danh sách MUA</span>' : ""}${(d.baskets || []).map((b) => `<span class="pill brand">${esc(BASKET_SHORT[b] || b)}</span>`).join("")}
       <span class="pill ${r.trend === "up" ? "buy" : r.trend === "down" ? "sell" : ""}">Xu hướng ${TREND_VI[r.trend] || "—"}</span>
       ${secRec ? `<span class="pill" title="Vị trí ngành trên biểu đồ xoay vòng"><span class="quad" style="background:${qcol(secRec.quadrant)}"></span>Ngành ${esc(secRec.quadrant)}</span>` : ""}
@@ -4559,6 +4563,16 @@ async function palette(q0 = "") {
   el.onclick = (e) => { if (e.target === el) el.remove(); };
   build(); $("#palQ").focus();
 }
+// thanh điều hướng dọc (máy tính): nhãn hiệu ở đầu, nút thu gọn ở cuối
+function initRail() {
+  const nv = $("#tabs"); if (!nv || nv.querySelector(".rail-brand")) return;
+  nv.insertAdjacentHTML("afterbegin", `<a class="rail-brand" href="#/" aria-label="VN-Stock – về trang Hôm nay"><span class="brand-dot"></span><b>VN-Stock</b></a>`);
+  nv.insertAdjacentHTML("beforeend", `<button class="rail-fold" type="button" aria-label="Thu gọn / mở rộng thanh điều hướng" title="Thu gọn / mở rộng"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 6l-6 6 6 6"/></svg><span>Thu gọn</span></button>`);
+  const set = (f) => { document.body.classList.toggle("rail-min", f); lsSet("railMin", f); window.dispatchEvent(new Event("resize")); };
+  document.body.classList.toggle("rail-min", !!lsGet("railMin", false));
+  nv.querySelector(".rail-fold").onclick = () => set(!document.body.classList.contains("rail-min"));
+  $$("a[data-r]", nv).forEach((a) => (a.title = a.textContent.trim()));
+}
 function initGlobal() {
   document.addEventListener("click", async (e) => {
     const b = e.target.closest("[data-star],[data-qt],[data-cmp],[data-alert],[data-pal]");
@@ -5408,7 +5422,7 @@ function initHelpBtn() {
 (async function main() {
   ME = await fetchMe();
   if (!ME) { location.replace("/login?next=" + encodeURIComponent("/" + location.hash)); return; }
-  initTheme(); initSearch(); initGlobal(); GL.init(); initAccountUI(); initHelpBtn(); plansData();
+  initTheme(); initSearch(); initGlobal(); GL.init(); initAccountUI(); initHelpBtn(); initRail(); plansData();
   $("#pdfBtn")?.addEventListener("click", () => PDFX.dialog());
   paintUpd(); setInterval(paintUpd, 60000);
   WL.load().catch(() => {});
