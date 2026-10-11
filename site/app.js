@@ -4732,9 +4732,9 @@ async function viewCompare(arg) {
 // ================================================================ khởi động
 function initTheme() {
   const saved = lsGet("theme", null);
-  if (saved) document.documentElement.dataset.theme = saved;
+  document.documentElement.dataset.theme = saved || "dark";       // mặc định: bàn giao dịch tối
   $("#theme").onclick = () => {
-    const dark = document.documentElement.dataset.theme ? document.documentElement.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+    const dark = document.documentElement.dataset.theme === "dark";
     document.documentElement.dataset.theme = dark ? "light" : "dark";
     lsSet("theme", document.documentElement.dataset.theme);
     route();

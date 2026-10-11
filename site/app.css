@@ -1052,3 +1052,124 @@ th.brand{color:var(--brand)}
 @media (max-width:859px){.lay{grid-template-columns:minmax(0,1fr)}.lay>.lc.s1,.lay>.lc.s2,.lay>.lc.s3{grid-column:1/-1}.lbar [data-ls]{display:none}}
 /* thanh mục trang mã dính trên cùng */
 .subtabs.stick{position:sticky;z-index:18;background:var(--bg);padding:6px 0;margin:8px 0 0}
+
+/* =====================================================================
+   BÀN GIAO DỊCH ĐÊM – giao diện "thực chiến" kiểu terminal nhưng sang:
+   nền xanh than đêm, chữ ngà, đồng thau cho điểm nhấn (nút chính, mục đang chọn, viền focus),
+   số liệu chữ đứng hẹp như bảng điện, tiêu đề trang chữ có chân (một chỗ duy nhất dùng serif).
+   ===================================================================== */
+@font-face{font-family:"Noto Serif Display";font-weight:500;font-display:swap;src:url(vendor/fonts/noto-serif-display-vietnamese-500-normal.woff2) format("woff2");unicode-range:U+0102-0103,U+0110-0111,U+0128-0129,U+0168-0169,U+01A0-01A1,U+01AF-01B0,U+0300-0301,U+0303-0304,U+0308-0309,U+0323,U+0329,U+1EA0-1EF9,U+20AB}
+@font-face{font-family:"Noto Serif Display";font-weight:500;font-display:swap;src:url(vendor/fonts/noto-serif-display-latin-ext-500-normal.woff2) format("woff2");unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0}
+@font-face{font-family:"Noto Serif Display";font-weight:500;font-display:swap;src:url(vendor/fonts/noto-serif-display-latin-500-normal.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215}
+@font-face{font-family:"Noto Serif Display";font-weight:600;font-display:swap;src:url(vendor/fonts/noto-serif-display-vietnamese-600-normal.woff2) format("woff2");unicode-range:U+0102-0103,U+0110-0111,U+0128-0129,U+0168-0169,U+01A0-01A1,U+01AF-01B0,U+0300-0301,U+0303-0304,U+0308-0309,U+0323,U+0329,U+1EA0-1EF9,U+20AB}
+@font-face{font-family:"Noto Serif Display";font-weight:600;font-display:swap;src:url(vendor/fonts/noto-serif-display-latin-ext-600-normal.woff2) format("woff2");unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0}
+@font-face{font-family:"Noto Serif Display";font-weight:600;font-display:swap;src:url(vendor/fonts/noto-serif-display-latin-600-normal.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215}
+
+:root{
+  --serif:"Noto Serif Display",Georgia,serif;
+  --brass:#9A7433; --brass-2:#F3ECDD; --brass-line:color-mix(in srgb,#9A7433 38%,transparent);
+  --bg:#ECEEF1; --surface:#FFFFFF; --sunk:#F4F5F7; --sunk-2:#E9ECF0; --ink:#121A26; --ink-2:#4B5566; --ink-3:#848E9C;
+  --line:#DADFE6; --line-2:#E8EBEF; --brand:#1B2A44; --brand-2:#F3ECDD; --brand-ink:#FFFFFF;
+  --up:#0B8A5C; --down:#D23439; --ref:#A27A00;
+  --plate:#0B111A; --r:6px; --r-s:4px;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --brass:#CBA765; --brass-2:#2A2519; --brass-line:color-mix(in srgb,#CBA765 34%,transparent);
+  --bg:#0B1119; --surface:#111925; --sunk:#16202D; --sunk-2:#1C2838; --ink:#ECE6D9; --ink-2:#A7AFBB; --ink-3:#6C7788;
+  --line:#233144; --line-2:#1A2434; --brand:#CBA765; --brand-2:#272317; --brand-ink:#0B1119;
+  --up:#39C98B; --down:#F05A5E; --ref:#F0CC48; --ceil:#C67CFF; --floor:#45C2EA;
+  --up-bg:#0F2A20; --down-bg:#341719; --ref-bg:#2E2910; --lamp-off:#263243; --plate:#080D14; color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --brass:#CBA765; --brass-2:#2A2519; --brass-line:color-mix(in srgb,#CBA765 34%,transparent);
+  --bg:#0B1119; --surface:#111925; --sunk:#16202D; --sunk-2:#1C2838; --ink:#ECE6D9; --ink-2:#A7AFBB; --ink-3:#6C7788;
+  --line:#233144; --line-2:#1A2434; --brand:#CBA765; --brand-2:#272317; --brand-ink:#0B1119;
+  --up:#39C98B; --down:#F05A5E; --ref:#F0CC48; --ceil:#C67CFF; --floor:#45C2EA;
+  --up-bg:#0F2A20; --down-bg:#341719; --ref-bg:#2E2910; --lamp-off:#263243; --plate:#080D14; color-scheme:dark;
+}
+::selection{background:color-mix(in srgb,var(--brass) 40%,transparent)}
+:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
+body{background:var(--bg);letter-spacing:.002em}
+*{scrollbar-color:var(--sunk-2) transparent;scrollbar-width:thin}
+
+/* chữ: serif chỉ cho tên trang, tên công ty và nhãn hiệu */
+h1{font:600 1.85rem/1.08 var(--serif);letter-spacing:-.012em}
+.ph h1{font-size:1.75rem}
+a.brand{font:600 1.22rem/1 var(--serif);letter-spacing:-.005em;color:var(--ink)!important}
+.brand-dot{background:var(--brass)!important;box-shadow:0 0 0 3px color-mix(in srgb,var(--brass) 22%,transparent)}
+.ph h2,.ph h3,.panel>h2{font:600 .95rem/1.25 "Be Vietnam Pro",system-ui,sans-serif;letter-spacing:-.003em;color:var(--ink)}
+details.panel>summary{font:600 .95rem/1.3 "Be Vietnam Pro",system-ui,sans-serif}
+.sg .ph h3{font:600 .8rem/1.2 "Be Vietnam Pro",system-ui,sans-serif;text-transform:none;letter-spacing:0;color:var(--ink-2)}
+.meta{color:var(--ink-3)}
+
+/* thanh trên cùng & thanh trang */
+.top{background:color-mix(in srgb,var(--surface) 92%,transparent);backdrop-filter:saturate(1.2) blur(10px);-webkit-backdrop-filter:saturate(1.2) blur(10px);border-bottom:1px solid var(--brass-line)}
+.tabs{background:var(--surface);border-color:var(--line-2)}
+@media (min-width:980px){
+  .tabs a{font:500 .9rem/1 "Be Vietnam Pro",system-ui,sans-serif;letter-spacing:0;color:var(--ink-2);padding:10px 16px 9px;border-bottom:2px solid transparent}
+  .tabs a:hover{color:var(--ink)}
+  .tabs a.on{color:var(--ink);border-bottom-color:var(--brass)}
+}
+.tabs a.on,.tabs a.on svg{color:var(--brass)}
+@media (min-width:980px){.tabs a.on{color:var(--ink)}}
+.search input{background:var(--sunk);border-color:var(--line);height:30px}
+.search input:focus{border-color:var(--brass);outline:0;box-shadow:0 0 0 3px color-mix(in srgb,var(--brass) 18%,transparent)}
+.iconbtn{border-color:var(--line);background:transparent}
+.iconbtn:hover{border-color:var(--brass-line);color:var(--brass)}
+.board{background:#05080D;border-bottom:1px solid #000}
+.bi{border-right-color:#141B24}
+
+/* khối phân tích: mặt phẳng tối, viền tóc, không đổ bóng */
+.panel{background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r);box-shadow:none}
+.panel>.ph,.panel .ph:first-child{padding-bottom:7px;margin-bottom:9px;border-bottom:1px solid var(--line-2)}
+.sg .ph{border-bottom:0!important;padding-bottom:0}
+.deck,.panel.hero{border:1px solid color-mix(in srgb,var(--brass) 22%,#000);border-radius:var(--r)}
+
+/* nút, chip, nhóm chọn */
+.btn{border-radius:5px;border:1px solid var(--line);background:transparent;font-weight:500}
+.btn:hover{border-color:var(--brass-line);text-decoration:none}
+.btn.primary{background:var(--brass);border-color:var(--brass);color:#0B1119;font-weight:600}
+.btn.primary:hover{background:color-mix(in srgb,var(--brass) 86%,#fff)}
+.chip{border-radius:5px;border:1px solid var(--line);background:transparent}
+.chip:hover{border-color:var(--brass-line);color:var(--ink)}
+.seg{background:var(--sunk);border:1px solid var(--line-2);border-radius:6px;padding:2px}
+.seg button{border-radius:4px;color:var(--ink-2)}
+.seg button.on{background:var(--brass);color:#0B1119;font-weight:600}
+.views .btn.primary,.views button.on{background:var(--brass);border-color:var(--brass);color:#0B1119}
+.subtabs button{color:var(--ink-2);border-bottom:2px solid transparent;font-weight:500}
+.subtabs button.on{color:var(--ink);border-bottom-color:var(--brass);background:transparent}
+.subtabs.stick{background:color-mix(in srgb,var(--bg) 94%,transparent);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-bottom:1px solid var(--line-2)}
+.pill{border:1px solid var(--line);background:transparent;color:var(--ink-2);border-radius:4px}
+.pill.brand{border-color:var(--brass-line);color:var(--brass);background:transparent}
+.pill.buy{border-color:color-mix(in srgb,var(--up) 45%,transparent);color:var(--up);background:transparent}
+.pill.sell{border-color:color-mix(in srgb,var(--down) 45%,transparent);color:var(--down);background:transparent}
+
+/* ô chỉ số */
+.kpis{border-color:var(--line-2);border-radius:5px;background:var(--sunk)}
+.kpis>div{border-color:var(--line-2)}
+.kpis dt{color:var(--ink-3)}
+.kpis dd{color:var(--ink)}
+.kpis>div.hl{background:var(--brass-2)}
+.kpis>div.hl dt{color:var(--brass)}
+
+/* bảng: dòng kẻ tóc, hover ánh đồng */
+th{background:var(--sunk);color:var(--ink-3);font-weight:600;border-bottom:1px solid var(--line)}
+td{border-bottom-color:var(--line-2)}
+tbody tr:hover>td{background:color-mix(in srgb,var(--brass) 7%,var(--surface))}
+.tw>table>tbody>tr:hover>:first-child{background:color-mix(in srgb,var(--brass) 7%,var(--surface))}
+
+/* đầu trang mã: mã chứng khoán chữ đứng, tên công ty chữ có chân */
+.stock-head h1{font:700 2.3rem/1 var(--num);letter-spacing:.01em}
+.stock-head h1 small{font-family:"Be Vietnam Pro",system-ui,sans-serif}
+.stock-head h1+.muted{font:500 1.02rem/1.3 var(--serif)!important;color:var(--ink-2);letter-spacing:0}
+.note{background:var(--ref-bg);border-left:3px solid var(--ref)}
+.empty{background:var(--sunk);border:1px dashed var(--line)}
+#gtip{background:#070B11;border-left-color:var(--brass)}
+
+/* bố cục kéo-thả theo tông mới */
+.lay.editing .lbar{background:var(--brass);color:#0B1119}
+.lbar button{background:rgba(11,17,25,.14);color:#0B1119}
+.lbar button:hover{background:rgba(11,17,25,.28)}
+.lay.editing>.lc{outline-color:var(--brass-line)}
+.laytool .chip[data-ledit]{color:var(--ink-3)}
+@media print{:root{--bg:#fff;--surface:#fff;--ink:#111;--ink-2:#444;--ink-3:#666;--line:#ccc;--line-2:#e5e5e5;--brass:#8a6a2f}}
