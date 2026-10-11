@@ -368,6 +368,7 @@ async function route() {
     else if (r === "guide") { setTab(""); await viewGuide(); }
     else if (r === "help" || r === "faq") { setTab(""); await viewHelp(); }
     else if (r === "report") { setTab("portfolio"); await viewReport(); }
+    else if (r === "desk") { setTab("desk"); await viewDesk(); }
     else { app().innerHTML = `<div class="empty">Không có trang này. <a href="#/">Về trang Hôm nay</a></div>`; }
   } catch (e) {
     console.error(e);
@@ -483,9 +484,11 @@ function barsSvg(rows, keys, colors, labels) {
 function themeOpts() {
   return {
     layout: { background: { color: "transparent" }, textColor: css("--ink-2"), fontFamily: "Be Vietnam Pro, system-ui", fontSize: 11 },
-    grid: { vertLines: { color: css("--line-2") }, horzLines: { color: css("--line-2") } },
+    grid: { vertLines: { visible: false }, horzLines: { color: css("--line-2") } },
     rightPriceScale: { borderColor: css("--line") }, timeScale: { borderColor: css("--line") },
-    crosshair: { mode: 0 }, localization: { locale: "vi-VN" },
+    crosshair: { mode: 0, vertLine: { color: css("--brass") || css("--brand"), style: 3, width: 1, labelBackgroundColor: css("--brass") || css("--brand") },
+      horzLine: { color: css("--brass") || css("--brand"), style: 3, width: 1, labelBackgroundColor: css("--brass") || css("--brand") } },
+    localization: { locale: "vi-VN" },
   };
 }
 function mkChart(el, extra = {}) {
@@ -496,8 +499,15 @@ function mkChart(el, extra = {}) {
 const ser = (t, v) => t.map((d, i) => (v[i] == null || Number.isNaN(v[i]) ? null : { time: d, value: v[i] })).filter(Boolean);
 function candleChart(el, o, opts = {}) {
   const c = mkChart(el);
-  const cs = c.addCandlestickSeries({ upColor: css("--up"), downColor: css("--down"), borderVisible: false, wickUpColor: css("--up"), wickDownColor: css("--down") });
-  cs.setData(o.t.map((d, i) => ({ time: d, open: o.o[i], high: o.h[i], low: o.l[i], close: o.c[i] })));
+  let cs;
+  if ((opts.mode || lsGet("chartMode", "candle")) === "line") {
+    const b = css("--brass") || css("--brand");
+    cs = c.addAreaSeries({ lineColor: b, topColor: b + "55", bottomColor: b + "00", lineWidth: 2, priceLineColor: b, crosshairMarkerBackgroundColor: b });
+    cs.setData(o.t.map((d, i) => ({ time: d, value: o.c[i] })));
+  } else {
+    cs = c.addCandlestickSeries({ upColor: css("--up"), downColor: css("--down"), borderVisible: false, wickUpColor: css("--up"), wickDownColor: css("--down") });
+    cs.setData(o.t.map((d, i) => ({ time: d, open: o.o[i], high: o.h[i], low: o.l[i], close: o.c[i] })));
+  }
   if (opts.volume !== false) {
     const vs = c.addHistogramSeries({ priceScaleId: "vol", priceFormat: { type: "volume" }, lastValueVisible: false, priceLineVisible: false });
     c.priceScale("vol").applyOptions({ scaleMargins: { top: 0.84, bottom: 0 } });
@@ -505,6 +515,23 @@ function candleChart(el, o, opts = {}) {
   }
   return { c, cs };
 }
+
+// chú giải nến khi rê chuột (mở / cao / thấp / đóng, % thay đổi, khối lượng) + chữ chìm tên mã
+function chartPlus(el, c, o, opt = {}) {
+  if (!el) return;
+  el.style.position = "relative";
+  let lg = el.querySelector(".clg"); if (!lg) { lg = document.createElement("div"); lg.className = "clg"; el.appendChild(lg); }
+  const idx = new Map(o.t.map((t, i) => [t, i]));
+  const show = (i) => {
+    if (i == null || i < 0) i = o.t.length - 1;
+    const p = i > 0 ? o.c[i - 1] : o.o[i], ch = p ? (o.c[i] / p - 1) * 100 : null;
+    lg.innerHTML = `${opt.sym ? `<b>${esc(opt.sym)}</b>` : ""}<span>${esc(o.t[i])}</span><span>M <i>${nf(o.o[i])}</i></span><span>C <i>${nf(o.h[i])}</i></span><span>T <i>${nf(o.l[i])}</i></span><span>Đ <i class="${cls(ch)}">${nf(o.c[i])}</i></span><i class="${cls(ch)}">${pct(ch, 2)}</i><span>KL <i>${big(o.v[i])}</i></span>`;
+  };
+  show();
+  c.subscribeCrosshairMove((pr) => { if (!pr || pr.time == null) return show(); const t = pr.time; const k = typeof t === "string" ? t : t.year ? `${t.year}-${String(t.month).padStart(2, "0")}-${String(t.day).padStart(2, "0")}` : new Date(t * 1000).toISOString().slice(0, 10); show(idx.get(k)); });
+  if (opt.sym) c.applyOptions({ watermark: { visible: true, text: opt.sym, color: "rgba(203,167,101,.07)", fontSize: 78, fontFamily: "Barlow Condensed", fontStyle: "700" } });
+}
+const chartModeSeg = () => `<span class="seg cmode">${[["candle", "Nến"], ["line", "Đường"]].map(([k, n]) => `<button data-cm="${k}" class="${lsGet("chartMode", "candle") === k ? "on" : ""}">${n}</button>`).join("")}</span>`;
 
 // ================================================================ xếp hạng trong ngành ("phương án")
 // [nhãn, hướng (+1 cao là tốt / -1 thấp là tốt), định dạng, chỉ tính khi > 0]
@@ -2127,7 +2154,8 @@ async function viewStock(sym, tabArg) {
   if (d._locked) {   // gói Miễn phí: các phần chuyên sâu đã được lược khỏi dữ liệu
     d.style_levels = {}; d.waves = {}; d.levels = null; d.timing = null; d.in_plan = false; d.mtf = null; d.season = null; d.season_support = null; d.fb = null; d.swing = null; d.rel = null;
   }
-  const [pfS, tS, evS, FJ, LV, FLJ] = await Promise.all([Store.get("portfolio"), loadToday(), tryLoad("data/events.json"), fbData(), liveData(), tryLoad("data/flow.json")]);
+  const [pfS, tS, evS, FJ, LV, FLJ, jS] = await Promise.all([Store.get("portfolio"), loadToday(), tryLoad("data/events.json"), fbData(), liveData(), tryLoad("data/flow.json"), Store.get("journal")]);
+  const myTrades = ((jS?.data?.trades) || []).filter((x) => x.symbol === sym);
   const held = (pfS.data?.holdings || []).some((h) => h.symbol === sym);
   window.__pf = pfS.data || {}; window.__risk = tS.risk || {};
   const stepsBlock = d._locked ? lockBox("stock_full", "Kết luận & việc nên làm từng bước").replace("panel lockp", "panel sec steps lockp") : (() => { try { return stepsHtml(stepsFor(d, { t: tS, pf: pfS.data || {}, ev: evS })); } catch (e) { console.warn(e); return ""; } })();
@@ -2218,12 +2246,13 @@ async function viewStock(sym, tabArg) {
   // ---- biểu đồ giá (đổi khung: ngày / tuần / tháng / quý / năm – chỉ báo tính lại trên nến của khung)
   const TFO = tfSeries(d);
   let redraw = () => {}, curCharts = [];
-  const L = { lv: true, smc: false, el: false, vsa: false, wy: false };
+  const L = { lv: true, smc: false, el: false, vsa: false, wy: false, tr: true, dv: true };
   const drawChart = () => {
   curCharts.forEach((x) => { try { x.remove(); } catch (e) { /* đã huỷ */ } const k = charts.indexOf(x); if (k >= 0) charts.splice(k, 1); });
   curCharts = [];
   const tf = TFO[lsGet("tf", "D")] ? lsGet("tf", "D") : "D", o = TFO[tf], kf = TF_KEY[tf];
   const { c, cs } = candleChart($("#pChart"), o);
+  chartPlus($("#pChart"), c, o, { sym });
   const C = o.c;
   const tset = new Set(o.t);
   const overlays = {
@@ -2273,16 +2302,19 @@ async function viewStock(sym, tabArg) {
     }
     if (L.vsa && vs.ok) (vs.signals || []).forEach((x) => add(x.date, x.bias > 0 ? "belowBar" : "aboveBar", x.bias > 0 ? css("--floor") : css("--ceil"), "square", VSA_SHORT[x.signal] || x.signal));
     if (L.wy && wy2.ok) (wy2.events || []).forEach((x) => add(x.date, ["SC", "ST", "Spring", "LPS", "SOS"].includes(x.event) ? "belowBar" : "aboveBar", css("--brand"), "circle", x.event));
+    if (L.tr) myTrades.forEach((x) => add(x.date, x.side === "buy" ? "belowBar" : "aboveBar", x.side === "buy" ? (css("--brass") || css("--brand")) : css("--ink"), x.side === "buy" ? "arrowUp" : "arrowDown", `${x.side === "buy" ? "Mua" : "Bán"} ${nf(x.qty, 0)}`));
+    if (L.dv) (d.divs || []).forEach((x) => add(x.d, "aboveBar", css("--ref"), "circle", x.t === "cash" ? `CT ${nf(x.v, 0)}đ` : `CP ${nf(x.v, 0)}%`));
     return M.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
   };
   redraw = () => { drawLines(); cs.setMarkers(markers()); };
-  $("#tools").innerHTML = tfSeg("tfSel", tf) + Object.keys(overlays).map((k) => `<button class="chip ${active.has(k) ? "on" : ""}" data-ov="${k}">${k}</button>`).join("") +
-    `<span class="faint">|</span>` + [["lv", "Mức giá"], ["smc", "SMC"], ["vsa", "VSA"], ["wy", "Wyckoff"], ["el", "Elliott"]].map(([k, n]) => `<button class="chip ${L[k] ? "on" : ""}" data-l="${k}">${n}</button>`).join("") +
+  $("#tools").innerHTML = tfSeg("tfSel", tf) + chartModeSeg() + Object.keys(overlays).map((k) => `<button class="chip ${active.has(k) ? "on" : ""}" data-ov="${k}">${k}</button>`).join("") +
+    `<span class="faint">|</span>` + [["lv", "Mức giá"], ["tr", "Lệnh của tôi"], ["dv", "Cổ tức"], ["smc", "SMC"], ["vsa", "VSA"], ["wy", "Wyckoff"], ["el", "Elliott"]].map(([k, n]) => `<button class="chip ${L[k] ? "on" : ""}" data-l="${k}">${n}</button>`).join("") +
     `<span style="margin-left:auto" class="seg" id="osc"><button class="on" data-o="rsi">RSI</button><button data-o="macd">MACD</button><button data-o="vol">KL</button><button data-o="obv">OBV</button>${of.history?.length && tf === "D" ? '<button data-o="delta">Delta</button>' : ""}</span>`;
   Object.keys(overlays).forEach(drawOv);
   redraw();
   $$("[data-ov]").forEach((b) => (b.onclick = () => { const k = b.dataset.ov; active.has(k) ? active.delete(k) : active.add(k); b.classList.toggle("on"); drawOv(k); }));
   $$("[data-l]").forEach((b) => (b.onclick = () => { L[b.dataset.l] = !L[b.dataset.l]; b.classList.toggle("on"); redraw(); }));
+  $$("#tools [data-cm]").forEach((b) => (b.onclick = () => { lsSet("chartMode", b.dataset.cm); drawChart(); }));
   c.timeScale().setVisibleLogicalRange({ from: Math.max(0, o.t.length - TF_VIEW[tf]), to: o.t.length + 3 });
   const oc = mkChart($("#oChart"), { timeScale: { visible: false } });
   curCharts.push(c, oc);
@@ -2807,6 +2839,7 @@ const HELP_FAQ = [
   ["Khuyến nghị", "Giá đã giảm sàn nhiều phiên, P/E chỉ 4x – có phải cơ hội vàng?", "Kiểm chứng 560 đợt 2016–2026: mua ngay khi sập hoặc bắt nhịp hồi sớm thường thua thị trường và còn sụt thêm ~30%. Cơ hội có thật nhưng đến muộn hơn: khi đủ 120 phiên từ lúc có cờ và 60 phiên liền không giảm sàn, nhất là DN còn lãi, nợ thấp. Trang mã đếm ngược số phiên còn phải chờ; thêm mã vào Theo dõi để được báo đúng lúc."],
   ["Khuyến nghị", "Giá trị hợp lý tính thế nào? Tôi muốn dùng giả định của mình.", "P/E và P/B mục tiêu theo trung vị ngành (điều chỉnh theo ROE của mã), DCF dòng tiền cho cổ đông và DDM khi phù hợp; lợi nhuận đỉnh/đáy chu kỳ được chuẩn hoá. Trong trang mã → tab Dự phóng & định giá, sửa tăng trưởng, biên lợi nhuận… giá trị hợp lý tính lại ngay và có thể lưu."],
   ["Khuyến nghị", "DCF có tính lãi vay, nợ vay và kế hoạch đầu tư (mua tàu, xây nhà máy) không?", "Có. Mô hình dự phóng rõ từng dòng: EBIT − lãi vay (lãi suất thực tế = chi phí lãi 12 tháng ÷ dư nợ vay bình quân) → lợi nhuận; dòng tiền cho cổ đông = lợi nhuận + khấu hao − đầu tư TSCĐ − tăng vốn lưu động + vay ròng (dư nợ đi theo tỷ lệ nợ/vốn chủ). Đầu tư TSCĐ đi từ nhịp 2 năm gần nhất về mức duy trì. Kế hoạch chưa có trong BCTC (vd. PVT đóng tàu mới, DN vay xây nhà máy) nhập ở mục Kế hoạch đầu tư mới: tổng vốn, số năm, % vay, doanh thu và biên khi chạy đủ – giá trị tính lại ngay. Có thêm kiểm tra chéo FCFF/WACC; DN đang đầu tư lớn có cảnh báo riêng."],
+  ["Bắt đầu", "Bàn làm việc là gì?", "Màn hình chia ô kiểu terminal (thanh bên trái → Bàn làm việc, hoặc phím g rồi w): bảng giá, biểu đồ, mã đang chọn, danh mục, tin tức cùng hiện trên một màn hình. Kéo vạch giữa các ô để đổi kích thước; đổi nội dung từng ô ở tiêu đề ô; ＋ để chia thêm ô, ✕ để bỏ ô. Bấm một mã trong bảng giá (hoặc ↑ ↓) thì biểu đồ và thông tin đổi theo. Biểu đồ có chú giải giá khi rê chuột, chế độ Nến / Đường, đánh dấu lệnh mua/bán của anh/chị và ngày chốt cổ tức."],
   ["Bắt đầu", "Sắp xếp lại các thẻ theo ý mình thế nào?", "Ở trang Hôm nay, Thị trường, Danh mục, Bản tin và trang mã có nút “⊞ Tuỳ chỉnh bố cục”. Bấm vào: kéo biểu tượng ⠿ để đổi chỗ thẻ (hoặc dùng ↑ ↓), chọn Hẹp / Vừa / Rộng để đổi độ rộng, – để thu gọn (bấm tiêu đề để mở lại), ✕ để ẩn (mở lại ở mục “Đã ẩn”). Bố cục lưu theo tài khoản, dùng chung cho mọi mã; “Về mặc định” để quay lại. Trang mã có thanh mục dính trên cùng: Dự phóng & định giá, Báo cáo phân tích… chỉ một chạm, không phải kéo xuống."],
   ["Khuyến nghị", "Tab “Báo cáo phân tích” trong trang mã là gì?", "Bản phân tích kiểu báo cáo CTCK, tự lập cho mọi mã có BCTC: kết quả kinh doanh 3 năm + dự phóng 5 năm, giả định chính, dự phóng FCFF (LNST + khấu hao + lãi vay sau thuế − đầu tư VLĐ − đầu tư TSCĐ), định giá FCFF (PV dòng tiền + PV giá trị cuối kỳ + tiền − nợ vay − lợi ích thiểu số), bảng độ nhạy WACC × tăng trưởng dài hạn, tổng hợp các phương pháp định giá, rủi ro giảm giá có lượng hoá (lãi suất +2 điểm %, biên gộp −2 điểm %, tăng trưởng thấp hơn…) và so sánh P/E, P/B, ROA, ROE dự phóng với các DN cùng ngành. Khấu hao và đầu tư tính theo tài sản cố định (không theo doanh thu). In hoặc lưu PDF được; báo cáo dùng giả định anh/chị đã lưu."],
   ["Khuyến nghị", "P/E trước và sau chia cổ tức khác nhau thế nào? Dùng số nào?", "Chia cổ tức bằng cổ phiếu / thưởng r% không tạo thêm giá trị: sau ngày GDKHQ giá giảm còn giá ÷ (1 + r), số cổ phiếu tăng (1 + r) lần, EPS giảm theo – P/E đúng thì KHÔNG đổi. Sai lệch xảy ra trong 2–6 tuần cổ phiếu mới chưa lên sàn: giá đã giảm nhưng số cổ phiếu (EPS) vẫn cũ, P/E trông rẻ hơn thật (chia 50% → rẻ giả 33%). Hệ thống luôn tính P/E, P/B, EPS, giá trị hợp lý theo số cổ phiếu SAU chia và ghi rõ P/E nếu tính theo số cũ. Cổ tức tiền các năm trước cũng được quy về số cổ phiếu hiện tại để lợi suất, tỷ lệ chi trả, DDM không cao giả. Trước ngày GDKHQ cổ tức tiền, giá còn gồm quyền nhận tiền – trang mã hiện thêm P/E sau khi trừ cổ tức để so với mã đã trả xong."],
@@ -4506,7 +4539,7 @@ const actBar = (s, opt = {}) => `<div class="qa">${starBtn(s, opt.label)}<button
 function cmpAdd(s) { const L = lsGet("cmp", []).filter((x) => x !== s); L.push(s); const out = L.slice(-4); lsSet("cmp", out); return out; }
 
 // ---- tìm nhanh (Ctrl/⌘ + K hoặc phím /)
-const PAGES = [["Hôm nay", "#/", "h"], ["Bản tin thị trường mỗi phiên", "#/digest", "r"], ["Thông báo", "#/notifications", "o"], ["Tài khoản & cài đặt thông báo", "#/account", "a"], ["Thị trường", "#/market", "m"], ["Trong phiên & biến động", "#/swing", "b"], ["Bảng hành vi giá (đẩy/xả, đảo chiều)", "#/swing/table", "x"], ["Mã liên quan (đồng pha / dẫn dắt)", "#/swing/pairs", "q"], ["Toàn cảnh ngành", "#/sector", "n"], ["Bộ lọc", "#/screener", "l"], ["Theo dõi & cảnh báo", "#/watch", "t"], ["Lịch sự kiện", "#/watch/calendar", "e"],
+const PAGES = [["Hôm nay", "#/", "h"], ["Bàn làm việc (màn hình chia ô)", "#/desk", "w"], ["Bản tin thị trường mỗi phiên", "#/digest", "r"], ["Thông báo", "#/notifications", "o"], ["Tài khoản & cài đặt thông báo", "#/account", "a"], ["Thị trường", "#/market", "m"], ["Trong phiên & biến động", "#/swing", "b"], ["Bảng hành vi giá (đẩy/xả, đảo chiều)", "#/swing/table", "x"], ["Mã liên quan (đồng pha / dẫn dắt)", "#/swing/pairs", "q"], ["Toàn cảnh ngành", "#/sector", "n"], ["Bộ lọc", "#/screener", "l"], ["Theo dõi & cảnh báo", "#/watch", "t"], ["Lịch sự kiện", "#/watch/calendar", "e"],
   ["So sánh mã", "#/compare", "c"], ["Danh mục đang nắm", "#/portfolio", "d"], ["Nhật ký giao dịch", "#/portfolio/journal", "j"], ["Khẩu vị & phong cách đầu tư", "#/portfolio/profile", "p"], ["Kiểm chứng", "#/backtest", "k"], ["Hướng dẫn sử dụng & câu hỏi thường gặp (FAQ)", "#/help", "?"], ["Phương pháp chọn mã & từ điển chỉ số", "#/guide", "y"]];
 async function palette(q0 = "") {
   const old = $("#pal"); if (old) { old.remove(); return; }
@@ -4595,6 +4628,143 @@ function initGlobal() {
     if (e.key === "g") { g = Date.now(); return; }
     if (Date.now() - g < 1200) { const p = PAGES.find(([, , k]) => k === e.key); if (p) { location.hash = p[1]; g = 0; } }
   });
+}
+
+// ================================================================ BÀN LÀM VIỆC: màn hình chia ô kiểu terminal (kéo vạch đổi kích thước, chọn nội dung từng ô)
+const DESK_PANES = { list: "Bảng giá", chart: "Biểu đồ", info: "Mã đang chọn", pf: "Danh mục", news: "Tin tức & sự kiện", decide: "Hôm nay nên làm gì", market: "Thị trường" };
+const DESK_DEF = { cols: [{ w: 21, p: [{ k: "list", h: 100 }] }, { w: 51, p: [{ k: "chart", h: 63 }, { k: "pf", h: 37 }] }, { w: 28, p: [{ k: "info", h: 56 }, { k: "news", h: 44 }] }] };
+const DESK_R = {
+  list(el, X) {
+    const tabs = [["pf", "Danh mục"], ["wl", "Theo dõi"], ["buy", "Mua"], ["val", "GTGD lớn"]];
+    let tab = lsGet("deskList", X.pos.length ? "pf" : "buy");
+    const syms = () => tab === "pf" ? X.pos.map((p) => p.symbol) : tab === "wl" ? (WL.data?.items || []).map((x) => x.symbol)
+      : tab === "buy" ? [...new Set([...(X.SP.picks || []), ...(X.SP.watch || [])].map((p) => p.symbol))]
+      : X.rows.filter((r) => r.liquid_ok).sort((a, b) => (b.avg_value_bn || 0) - (a.avg_value_bn || 0)).slice(0, 40).map((r) => r.symbol);
+    const draw = () => {
+      const S = syms().filter((s) => X.R[s]);
+      el.innerHTML = `<div class="dtabs">${tabs.map(([k, n]) => `<button data-lt="${k}" class="${k === tab ? "on" : ""}">${n}</button>`).join("")}</div>
+        <div class="dlist" tabindex="0">${S.map((s) => { const r = X.R[s]; return `<button class="drow ${s === X.sym ? "on" : ""}" data-s="${s}"><b>${s}</b><small>${esc((r.name || "").replace(/^(Công ty |Tổng Công ty |Ngân hàng )?(Cổ phần |TMCP )?/i, "").slice(0, 26))}</small>
+          ${mini(r.spk, { w: 54, h: 20 })}<span class="dpx ${boardCls(r.chg1d, r.exchange)}">${nf(r.price)}</span><span class="dch ${cls(r.chg1d)}">${pct(r.chg1d, 1)}</span></button>`; }).join("") || `<p class="muted" style="padding:10px">${tab === "pf" ? 'Chưa có mã đang nắm – nhập ở <a href="#/portfolio">Danh mục</a>.' : tab === "wl" ? "Chưa theo dõi mã nào – bấm ☆ ở trang mã." : "Không có mã."}</p>`}</div>`;
+      $$("[data-lt]", el).forEach((b) => (b.onclick = () => { tab = b.dataset.lt; lsSet("deskList", tab); draw(); }));
+      $$(".drow", el).forEach((b) => (b.onclick = () => X.select(b.dataset.s)));
+      const lst = $(".dlist", el);
+      lst.onkeydown = (e) => { if (!["ArrowDown", "ArrowUp"].includes(e.key)) return; e.preventDefault(); const i = S.indexOf(X.sym), j = Math.max(0, Math.min(S.length - 1, (i < 0 ? 0 : i) + (e.key === "ArrowDown" ? 1 : -1))); X.select(S[j]); setTimeout(() => $(`.drow[data-s="${S[j]}"]`, el)?.scrollIntoView({ block: "nearest" }), 30); };
+    };
+    draw();
+  },
+  async chart(el, X) {
+    const d = await X.stock(X.sym), r = X.R[X.sym] || {};
+    if (el._c) { try { el._c.remove(); } catch (e) { /* đã huỷ */ } el._c = null; }
+    if (!d) { el.innerHTML = `<p class="muted" style="padding:12px">${esc(X.sym)}: thanh khoản thấp nên không có biểu đồ chi tiết.</p>`; return; }
+    const tfs = tfSeries(d); let tf = lsGet("deskTf", "D"); if (!tfs[tf]) tf = "D";
+    el.innerHTML = `<div class="dch-h"><a href="#/s/${X.sym}"><b>${X.sym}</b></a><span class="dpx ${boardCls(r.chg1d, r.exchange)}">${nf(r.price)}</span><span class="${cls(r.chg1d)}">${pct(r.chg1d, 2)}</span>
+      <span class="sp"></span>${tfSeg("dkTf", tf, ["D", "W", "M"])}${chartModeSeg()}</div><div class="dchart"></div>`;
+    const o = tfs[tf], box = $(".dchart", el);
+    const { c, cs } = candleChart(box, o);
+    el._c = c;
+    chartPlus(box, c, o, { sym: X.sym });
+    [[20, "--floor"], [50, "--brand"], [200, "--ref"]].forEach(([n, col]) => { const s = c.addLineSeries({ color: css(col), lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }); s.setData(ser(o.t, IND.sma(o.c, n))); });
+    const v = d.valuation || {}, lv = d.levels;
+    if (v.ok && v.reliable && v.fair) cs.createPriceLine({ price: v.fair, color: css("--up"), lineStyle: 2, lineWidth: 1, title: "Hợp lý" });
+    if (lv?.stop) cs.createPriceLine({ price: lv.stop, color: css("--down"), lineStyle: 2, lineWidth: 1, title: "Cắt lỗ" });
+    const kf = TF_KEY[tf], tset = new Set(o.t), M = [];
+    const add = (t, pos, color, shape, text) => { const k = kf(t); if (tset.has(k)) M.push({ time: k, position: pos, color, shape, text }); };
+    X.trades.filter((x) => x.symbol === X.sym).forEach((x) => add(x.date, x.side === "buy" ? "belowBar" : "aboveBar", x.side === "buy" ? (css("--brass") || css("--brand")) : css("--ink"), x.side === "buy" ? "arrowUp" : "arrowDown", x.side === "buy" ? "Mua" : "Bán"));
+    (d.divs || []).forEach((x) => add(x.d, "aboveBar", css("--ref"), "circle", x.t === "cash" ? `CT ${nf(x.v, 0)}đ` : `CP ${nf(x.v, 0)}%`));
+    cs.setMarkers(M.sort((a, b) => (a.time < b.time ? -1 : 1)));
+    c.timeScale().setVisibleLogicalRange({ from: Math.max(0, o.t.length - (tf === "D" ? 160 : TF_VIEW[tf])), to: o.t.length + 3 });
+    $$("#dkTf button", el).forEach((b) => (b.onclick = () => { lsSet("deskTf", b.dataset.tf); DESK_R.chart(el, X); }));
+    $$("[data-cm]", el).forEach((b) => (b.onclick = () => { lsSet("chartMode", b.dataset.cm); DESK_R.chart(el, X); }));
+  },
+  async info(el, X) {
+    const d = await X.stock(X.sym), r = X.R[X.sym] || {};
+    if (!d) { el.innerHTML = `<div class="dinfo"><h3>${esc(X.sym)}</h3><p class="muted">${esc(r.name || "")}</p>${kpis([["Giá", nf(r.price)], ["P/E", nf(r.pe, 1)], ["P/B", nf(r.pb)], ["Vốn hoá", mcapFmt(r.mcap_bn)]], false, "c2")}</div>`; return; }
+    const v = d.valuation || {}, lv = d.levels || {}, fa = d.fa || {}, held = X.pos.find((p) => p.symbol === X.sym);
+    el.innerHTML = `<div class="dinfo"><div class="di-h"><div><h3>${esc(X.sym)} <small>${esc(d.exchange || "")}</small></h3><p>${esc(d.name || "")}</p></div>
+        <div class="di-a">${actBar(X.sym, { held: !!held })}</div></div>
+      ${held ? `<p class="note" style="margin:6px 0"><b>${esc(held.action || "")}</b> · nắm ${nf(held.qty, 0)} cp, lãi/lỗ <b class="${cls(held.pnl_pct)}">${pct(held.pnl_pct, 1)}</b>${held.reasons?.[0] ? ` – ${esc(held.reasons[0])}` : ""}</p>` : ""}
+      ${kpis([["Định giá", esc(v.verdict || "—")], ["Hợp lý", nf(v.fair)], ["Mua dưới", nf(v.buy_below)], ["Tiềm năng", pct(v.upside), cls(v.upside)],
+        ["P/E", `${nf(fa.pe ?? r.pe, 1)} <small>ngành ${nf(r.pe_ind, 1)}</small>`], ["Kỹ thuật", esc(r.ta_label || "—")],
+        ["Vùng mua", lv.zone ? `${nf(lv.zone[0])}–${nf(lv.zone[1])}` : "—"], ["Cắt lỗ", nf(lv.stop), "down"], ["Mục tiêu", nf(lv.t1), "up"]], false, "c3")}
+      ${d.timing && !d.timing.ok ? `<p class="faint" style="font-size:.74rem;margin-top:6px">${esc(d.timing.reason)}</p>` : ""}
+      ${recentSignals(d).replace('<section class="panel sec">', '<div class="dsig">').replace(/<\/section>\s*$/, "</div>")}
+      <p style="margin-top:8px"><a class="btn" href="#/s/${X.sym}">Mở phân tích đầy đủ</a> <a class="btn" href="#/s/${X.sym}/rp">Báo cáo phân tích</a></p></div>`;
+  },
+  pf(el, X) {
+    const P = X.pos, tot = X.t.portfolio?.total_vnd;
+    el.innerHTML = P.length ? `<div class="tw"><table class="dtab"><thead><tr><th class="sym">Mã</th><th>KL</th><th>Giá vốn</th><th>Giá</th><th>Lãi/lỗ</th><th>Tỷ trọng</th><th class="l">Hệ thống</th></tr></thead><tbody>
+      ${P.map((p) => `<tr data-s="${p.symbol}" class="${p.symbol === X.sym ? "hl" : ""}"><td class="sym">${p.symbol}</td><td>${nf(p.qty, 0)}</td><td>${nf(p.cost)}</td><td>${nf(p.price)}</td><td class="${cls(p.pnl_pct)}">${pct(p.pnl_pct, 1)} <small>${big(p.pnl_vnd)}</small></td><td>${nf(p.weight, 0)}%</td>
+        <td class="l"><b class="${p.severity >= 2 ? "down" : p.severity === 1 ? "ref" : ""}">${esc(p.action || "")}</b></td></tr>`).join("")}</tbody></table></div>
+      ${tot ? `<p class="faint" style="font-size:.74rem;padding:6px 10px">Tổng tài sản ${big(tot)} đ · ${X.t.portfolio?.warnings?.[0] ? esc(X.t.portfolio.warnings[0]) : "trong giới hạn rủi ro"}</p>` : ""}`
+      : `<p class="muted" style="padding:12px">Chưa có mã đang nắm. <a href="#/portfolio">Nhập danh mục</a>.</p>`;
+    $$("tr[data-s]", el).forEach((tr) => (tr.onclick = () => X.select(tr.dataset.s)));
+  },
+  news(el, X) {
+    const D = X.dg || {}, held = new Set(X.pos.map((p) => p.symbol)), today = X.t.date || "";
+    const ev = X.ev.filter((e) => e.date >= today).filter((e) => !e.symbol || held.has(e.symbol) || e.symbol === X.sym || WL.has(e.symbol)).slice(0, 8);
+    el.innerHTML = `<div class="dnews">${D.headline ? `<p class="dn-h"><b>${esc(D.date || "")}</b> ${esc(D.headline)}</p>` : ""}
+      ${(D.lines || []).slice(1, 4).map((x) => `<p class="faint">${esc(x)}</p>`).join("")}
+      ${ev.length ? `<h4>Sự kiện sắp tới</h4>${ev.map((e) => `<div class="ev"><time>${esc(e.date.slice(5))}</time><span>${e.symbol ? `<a href="#/s/${e.symbol}"><b>${e.symbol}</b></a> ` : ""}${esc(e.title)}</span></div>`).join("")}` : ""}
+      ${(D.news || []).length ? `<h4>Tin tức</h4>${D.news.slice(0, 12).map((n) => `<div class="ev"><time>${esc((n.t || "").slice(11, 16))}</time><span>${n.s ? `<a href="#/s/${n.s}"><b>${n.s}</b></a> ` : ""}<a href="${esc(n.link)}" target="_blank" rel="noopener">${esc(n.title)}</a></span></div>`).join("")}` : ""}
+      <p style="margin-top:6px"><a href="#/digest">Bản tin đầy đủ</a></p></div>`;
+  },
+  decide(el, X) { el.innerHTML = decisionCard(X.t, X.pf).replace("panel sec decide", "decide dk-in"); bindDecision(); },
+  market(el, X) {
+    const D = X.dg || {}, reg = X.t.regime || {};
+    const ix = Object.entries(D.indices || {}).map(([k, v]) => [esc(k), `${nf(v.close)} <small class="${cls(v.chg)}">${pct(v.chg, 2)}</small>`]);
+    const secs = (D.sectors || []).filter((s) => s.n >= 3);
+    el.innerHTML = `<div class="dmk"><p><span class="pill ${reg.light === "green" ? "buy" : reg.light === "red" ? "sell" : ""}">Đèn ${esc(LIGHT_VI[reg.light] || "—")}</span> nắm tối đa <b>${reg.exposure ?? "—"}%</b> cổ phiếu · ${esc(reg.text || "")}</p>
+      ${ix.length ? kpis(ix, false, "c2") : ""}
+      ${D.breadth ? `<p class="faint" style="margin-top:6px">${D.breadth.adv} tăng / ${D.breadth.dec} giảm · ${nf(D.breadth.above50, 0)}% mã trên MA50 · thanh khoản ${nf(D.value?.today, 1)} nghìn tỷ</p>` : ""}
+      ${secs.length ? `<h4>Ngành</h4>${[...secs.slice(0, 4), ...secs.slice(-3)].map((s) => `<div class="drow2"><span>${esc(s.name)}</span><span class="${cls(s.chg)}">${pct(s.chg, 1)}</span></div>`).join("")}` : ""}
+      <p style="margin-top:6px"><a href="#/market">Trang thị trường</a></p></div>`;
+  },
+};
+async function viewDesk() {
+  const [rows, t, pfr, U, idxJ, evJ, jr] = await Promise.all([screenerRows(), loadToday(), Store.get("portfolio"), uiState(), tryLoad("data/digest/index.json"), tryLoad("data/events.json"), Store.get("journal")]);
+  await WL.load();
+  const dg = idxJ?.dates?.[0] ? await tryLoad(`data/digest/${idxJ.dates[0].date}.json`) : null;
+  const R = Object.fromEntries(rows.map((r) => [r.symbol, r]));
+  const pos = (t.portfolio && t.portfolio.positions) || [];
+  const SP = (t.styles || {})[t.style || "position"] || t.plan || {};
+  let L = JSON.parse(JSON.stringify(U.desk && U.desk.cols ? U.desk : DESK_DEF));
+  const X = { rows, R, t, pf: pfr.data || { holdings: [] }, pos, SP, dg, ev: evJ?.events || [], trades: jr?.data?.trades || [],
+    sym: lsGet("deskSym", null) || pos[0]?.symbol || (SP.picks || [])[0]?.symbol || "FPT",
+    stock: async (s) => (s ? tryLoad(`data/stocks/${s}.json`) : null),
+    select(s) { if (!s || s === X.sym) return; X.sym = s; lsSet("deskSym", s); $$(".dpane", app()).forEach((p) => { const k = p.dataset.k; if (k === "chart" || k === "info") fill(p); else if (k === "list" || k === "pf") $$("[data-s]", p).forEach((e) => e.classList.toggle(e.tagName === "TR" ? "hl" : "on", e.dataset.s === s)); }); } };
+  app().innerHTML = `<div class="deskbar"><h1>Bàn làm việc</h1><span class="meta">kéo vạch giữa các ô để đổi kích thước · đổi nội dung ô ở tiêu đề · ↑ ↓ trong bảng giá để chuyển mã</span><button class="chip" id="dkReset">Về mặc định</button></div><div class="desk" id="desk"></div>`;
+  const root = $("#desk");
+  const save = () => { U.desk = L; uiSave(); };
+  const fill = (p) => { const k = p.dataset.k, b = $(".dbody", p); try { DESK_R[k](b, X); } catch (e) { console.warn(e); b.innerHTML = `<p class="muted">Không hiển thị được.</p>`; } };
+  const opts = (k) => Object.entries(DESK_PANES).map(([kk, n]) => `<option value="${kk}" ${kk === k ? "selected" : ""}>${n}</option>`).join("");
+  const build = () => {
+    $$(".dpane .dbody", root).forEach((b) => { if (b._c) { try { b._c.remove(); } catch (e) { /* đã huỷ */ } } });
+    root.innerHTML = L.cols.map((c, ci) => `<div class="dcol" data-ci="${ci}" style="flex:${c.w} 1 0">${c.p.map((p, pi) => `<section class="dpane" data-ci="${ci}" data-pi="${pi}" data-k="${p.k}" style="flex:${p.h} 1 0">
+        <header><select data-sel aria-label="Nội dung ô">${opts(p.k)}</select><span class="sp"></span>${c.p.length < 3 ? `<button data-split title="Chia thêm một ô bên dưới">＋</button>` : ""}${c.p.length > 1 ? `<button data-merge title="Bỏ ô này">✕</button>` : ""}</header>
+        <div class="dbody"></div></section>${pi < c.p.length - 1 ? `<div class="dgut h" data-ci="${ci}" data-pi="${pi}" role="separator" aria-orientation="horizontal"></div>` : ""}`).join("")}</div>
+      ${ci < L.cols.length - 1 ? `<div class="dgut v" data-ci="${ci}" role="separator" aria-orientation="vertical"></div>` : ""}`).join("");
+    $$(".dpane", root).forEach(fill);
+    $$("[data-sel]", root).forEach((s) => (s.onchange = () => { const p = s.closest(".dpane"); L.cols[+p.dataset.ci].p[+p.dataset.pi].k = s.value; save(); build(); }));
+    $$("[data-split]", root).forEach((b) => (b.onclick = () => { const p = b.closest(".dpane"), c = L.cols[+p.dataset.ci]; const used = new Set(L.cols.flatMap((x) => x.p.map((y) => y.k))); const k = Object.keys(DESK_PANES).find((x) => !used.has(x)) || "news"; c.p.forEach((x) => (x.h = x.h * 0.7)); c.p.splice(+p.dataset.pi + 1, 0, { k, h: 30 }); save(); build(); }));
+    $$("[data-merge]", root).forEach((b) => (b.onclick = () => { const p = b.closest(".dpane"); L.cols[+p.dataset.ci].p.splice(+p.dataset.pi, 1); save(); build(); }));
+    $$(".dgut", root).forEach((g) => (g.onpointerdown = (e) => {
+      e.preventDefault(); g.setPointerCapture(e.pointerId); g.classList.add("drag");
+      const v = g.classList.contains("v"), ci = +g.dataset.ci;
+      const A = v ? root.children[ci * 2] : g.previousElementSibling, B = v ? root.children[ci * 2 + 2] : g.nextElementSibling;
+      const ra = A.getBoundingClientRect(), rb = B.getBoundingClientRect();
+      const a0 = v ? ra.width : ra.height, b0 = v ? rb.width : rb.height, s0 = v ? e.clientX : e.clientY;
+      const grow = v ? [L.cols[ci], L.cols[ci + 1]] : [L.cols[ci].p[+g.dataset.pi], L.cols[ci].p[+g.dataset.pi + 1]];
+      const key = v ? "w" : "h", tot = grow[0][key] + grow[1][key], mn = v ? 220 : 120;
+      const mv = (ev) => { const dx = (v ? ev.clientX : ev.clientY) - s0; const a = Math.max(mn, Math.min(a0 + b0 - mn, a0 + dx)); grow[0][key] = tot * a / (a0 + b0); grow[1][key] = tot - grow[0][key];
+        A.style.flex = `${grow[0][key]} 1 0`; B.style.flex = `${grow[1][key]} 1 0`; };
+      const up = () => { g.classList.remove("drag"); g.onpointermove = null; g.onpointerup = null; save(); };
+      g.onpointermove = mv; g.onpointerup = up;
+    }));
+  };
+  build();
+  $("#dkReset").onclick = () => { L = JSON.parse(JSON.stringify(DESK_DEF)); save(); build(); toast("Đã về bố cục mặc định"); };
+  const fit = () => { const top = root.getBoundingClientRect().top + window.scrollY; root.style.height = innerWidth > 900 ? `calc(100vh - ${Math.round(top) + 16}px)` : ""; };
+  fit(); window.addEventListener("resize", fit, { passive: true });
 }
 
 // ================================================================ THEO DÕI (danh sách + cảnh báo) & LỊCH SỰ KIỆN

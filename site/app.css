@@ -1259,3 +1259,69 @@ main{padding:16px 22px 48px}
 .ph h2,.ph h3,.panel>h2{font-size:1rem}
 .deck .exposure{letter-spacing:-.01em}
 .stock-head .pxc{justify-self:start}
+/* chú giải biểu đồ */
+.clg{position:absolute;left:10px;top:8px;z-index:3;display:flex;flex-wrap:wrap;gap:4px 12px;align-items:baseline;pointer-events:none;
+  font:500 .86rem/1.2 var(--num);color:var(--ink-3);background:color-mix(in srgb,var(--surface) 78%,transparent);padding:3px 8px;border-radius:6px;max-width:calc(100% - 80px)}
+.clg b{color:var(--ink);font-weight:700;letter-spacing:.02em}
+.clg i{font-style:normal;color:var(--ink)}
+.clg i.up{color:var(--up)}.clg i.down{color:var(--down)}
+.seg.cmode{margin-right:4px}
+/* ---------- bàn làm việc (màn hình chia ô) ---------- */
+.tabs a.nav-desk{display:none}
+@media (min-width:1180px){.tabs a.nav-desk{display:flex}}
+.deskbar{display:flex;align-items:baseline;gap:14px;margin-bottom:10px;flex-wrap:wrap}
+.deskbar .chip{margin-left:auto}
+.desk{display:flex;gap:0;min-height:560px}
+.dcol{display:flex;flex-direction:column;min-width:0;min-height:0}
+.dpane{display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r);overflow:hidden;
+  box-shadow:inset 0 1px 0 color-mix(in srgb,#fff 5%,transparent)}
+.dpane>header{display:flex;align-items:center;gap:6px;padding:6px 8px 6px 10px;border-bottom:1px solid var(--line-2);background:color-mix(in srgb,var(--sunk) 60%,var(--surface))}
+.dpane>header select{background:transparent;border:0;color:var(--ink);font:600 .86rem/1.2 "Be Vietnam Pro",system-ui,sans-serif;padding:2px 18px 2px 0;cursor:pointer;
+  appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--ink-3) 50%),linear-gradient(135deg,var(--ink-3) 50%,transparent 50%);background-position:calc(100% - 9px) 55%,calc(100% - 5px) 55%;background-size:4px 4px;background-repeat:no-repeat}
+.dpane>header select option{background:var(--surface);color:var(--ink)}
+.dpane>header .sp{flex:1}
+.dpane>header button{border:0;background:none;color:var(--ink-3);border-radius:5px;width:24px;height:22px;cursor:pointer}
+.dpane>header button:hover{background:var(--sunk-2);color:var(--ink)}
+.dbody{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column}
+.dgut{flex:none;position:relative;z-index:2}
+.dgut.v{width:10px;cursor:col-resize}.dgut.h{height:10px;cursor:row-resize}
+.dgut::after{content:"";position:absolute;border-radius:2px;background:transparent;transition:background .12s}
+.dgut.v::after{left:4px;width:2px;top:30%;bottom:30%}.dgut.h::after{top:4px;height:2px;left:30%;right:30%}
+.dgut:hover::after,.dgut.drag::after{background:var(--brass)}
+.dtabs{display:flex;gap:2px;padding:6px 6px 0;border-bottom:1px solid var(--line-2);flex:none}
+.dtabs button{border:0;background:none;color:var(--ink-3);padding:6px 7px;white-space:nowrap;font-size:.78rem;border-bottom:2px solid transparent;cursor:pointer}
+.dtabs button.on{color:var(--ink);border-bottom-color:var(--brass)}
+.dlist{overflow:auto;flex:1;outline:none}
+.drow{display:grid;grid-template-columns:minmax(0,1fr) auto auto 58px;grid-template-areas:"s m p c" "n m p c";align-items:center;column-gap:8px;width:100%;
+  text-align:left;border:0;border-bottom:1px solid var(--line-2);background:none;color:var(--ink);padding:6px 10px;cursor:pointer}
+.drow b{grid-area:s;font:700 1rem/1.1 var(--num);letter-spacing:.02em}
+.drow small{grid-area:n;color:var(--ink-3);font-size:.7rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.drow .mini{grid-area:m}
+.drow .dpx{grid-area:p;font:600 1rem/1 var(--num);text-align:right}
+.drow .dch{grid-area:c;font:500 .9rem/1 var(--num);text-align:right}
+.drow:hover{background:var(--sunk)}
+.drow.on{background:color-mix(in srgb,var(--brass) 12%,transparent);box-shadow:inset 3px 0 0 var(--brass)}
+.dch-h{display:flex;align-items:center;gap:10px;padding:8px 10px;flex:none;flex-wrap:wrap}
+.dch-h b{font:700 1.35rem/1 var(--num);letter-spacing:.02em;color:var(--ink)}
+.dch-h .dpx{font:700 1.35rem/1 var(--num)}
+.dch-h .sp{flex:1}
+.dchart{flex:1;min-height:220px;position:relative;margin:0 6px 6px}
+.dinfo{padding:10px 12px}
+.di-h{display:flex;gap:10px;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;margin-bottom:6px}
+.di-h h3{font:700 1.5rem/1 var(--num);letter-spacing:.02em}.di-h h3 small{font:500 .74rem "Be Vietnam Pro",system-ui,sans-serif;color:var(--ink-3)}
+.di-h p{margin:2px 0 0;font:500 .9rem/1.3 var(--serif);color:var(--ink-2)}
+.dsig{margin-top:8px}.dsig .ph{margin-bottom:4px}.dsig h2{font-size:.86rem}
+.dtab td,.dtab th{padding:6px 8px}
+.dtab tr{cursor:pointer}.dtab tr.hl>td{background:color-mix(in srgb,var(--brass) 12%,var(--surface))}
+.dnews,.dmk{padding:10px 12px;font-size:.82rem}
+.dnews h4,.dmk h4{font-size:.78rem;color:var(--ink-3);margin:10px 0 4px;font-weight:600}
+.dn-h{font-size:.86rem}
+.drow2{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--line-2);font-family:var(--num);font-size:.92rem}
+.dk-in{padding:10px 12px}
+@media (max-width:900px){
+  .desk{flex-direction:column;gap:12px;height:auto!important}
+  .dcol{flex:none!important;gap:12px}
+  .dpane{flex:none!important;max-height:520px}
+  .dpane[data-k="chart"]{height:440px}
+  .dgut{display:none}
+}

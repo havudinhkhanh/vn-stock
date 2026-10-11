@@ -856,6 +856,10 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             "ta": d["ta"], "waves": pat,
             "fa": d["fa"], "history": fu.history_table(fq_s, fy_by.get(s)),
             "valuation": d.get("val"),
+            "divs": ([{"d": str(pd.Timestamp(x.ex_date).date()), "t": "cash" if "cash" in str(x.method) else "stock",
+                       "v": round(float(getattr(x, "cash_raw", x.cash_pct)) * (10000 if "cash" in str(x.method) else 100), 1)}
+                      for x in dv_by[s].sort_values("ex_date").itertuples() if pd.Timestamp(x.ex_date) >= pd.Timestamp(last_date) - pd.Timedelta(days=5 * 365)]
+                     if s in dv_by else []),
             "peers": {"cols": ["symbol", "price", "mcap_bn", "pe", "pb", "roe", "ni_yoy", "rev_yoy", "de",
                                "fscore", "div_yield", "upside", "composite"], "rows": peer_rows,
                       "median": {k: r.get(f"{k}_ind_med") for k in fu.PEER_METRICS},
