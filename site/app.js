@@ -195,6 +195,122 @@ const FC = {
   },
 };
 
+// ================================================================ BỐ CỤC CÁ NHÂN: kéo – thả, đổi độ rộng, thu gọn, ẩn từng thẻ (lưu theo tài khoản)
+let UIS = null;
+async function uiState() {
+  if (UIS) return UIS;
+  try { const r = await Store.get("ui"); UIS = (r && r.data && typeof r.data === "object") ? r.data : {}; } catch (e) { UIS = {}; }
+  if (!UIS.layout) UIS.layout = {};
+  return UIS;
+}
+let uiSaveT = null;
+function uiSave() { clearTimeout(uiSaveT); uiSaveT = setTimeout(() => Store.put("ui", UIS), 600); }
+function stickTop() {
+  const hd = document.querySelector("header.top"), nv = document.getElementById("tabs");
+  let t = hd ? hd.offsetHeight : 0;
+  if (nv && getComputedStyle(nv).position === "sticky") t = Math.max(t, parseFloat(getComputedStyle(nv).top) + nv.offsetHeight);
+  return t;
+}
+function loadScript(src) { return new Promise((ok, no) => { if (document.querySelector(`script[src="${src}"]`)) return ok(); const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = no; document.head.appendChild(s); }); }
+const laySlug = (t) => String(t || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/[^a-z0-9 ]+/g, " ").trim().split(/\s+/).filter((w) => w && !/\d/.test(w)).slice(0, 4).join("-");
+const LAY = {
+  cur: null,
+  keyOf(el, strip, keys) {
+    if (el.dataset.card) return el.dataset.card;
+    const h = el.querySelector("h2, h3, summary"); let t = h ? h.textContent : (el.id || "the");
+    const m = (keys || []).find(([re]) => re.test(t.trim())); if (m) return m[1];
+    (strip || []).forEach((s) => { if (s) t = t.split(s).join(" "); });
+    t = t.split(/[:–(]/)[0];
+    return laySlug(t) || "the";
+  },
+  title(el) { if (el.dataset.title) return el.dataset.title; const h = el.querySelector("h2, h3, summary"); return h ? h.textContent.split(/[–(]/)[0].trim().slice(0, 60) : (el.dataset.title || "Thẻ"); },
+  // gom các thẻ (section.panel hoặc [data-card]) trong root thành một lưới phẳng, áp thứ tự / độ rộng / ẩn đã lưu
+  async apply(page, root, opts = {}) {
+    if (!root) return;
+    const U = await uiState();
+    const SEL = "[data-card], section.panel, details.panel";
+    const cand = [...root.querySelectorAll(SEL)].filter((e) => !e.parentElement.closest(SEL) && !e.closest("[data-nolay]") && root.contains(e));
+    if (cand.length < 2) return;
+    const grid = document.createElement("div"); grid.className = "lay"; grid.dataset.page = page;
+    let anchor = cand[0]; while (anchor.parentElement && anchor.parentElement !== root) anchor = anchor.parentElement;
+    root.insertBefore(grid, anchor);
+    const seen = {}, cards = [];
+    cand.forEach((el) => {
+      let k = LAY.keyOf(el, opts.strip, opts.keys); if (seen[k]) k = k + "-" + (++seen[k]); else seen[k] = 1;
+      const w = document.createElement("div"); w.className = "lc"; w.dataset.k = k; w.dataset.t = LAY.title(el);
+      const sp = opts.span?.[k] ?? (el.querySelector(".chart") ? 3 : el.querySelector("table") && (el.querySelector("thead tr")?.children.length || 0) > 6 ? 2 : 1);
+      w.dataset.def = sp;
+      w.appendChild(el); cards.push(w);
+    });
+    // dọn các khung bao rỗng còn lại
+    const S = U.layout[page] || {};
+    const ord = opts.order || [];
+    const def = cards.map((c) => c.dataset.k).map((k, i) => [k, ord.includes(k) ? ord.indexOf(k) : ord.length + i]).sort((a, b) => a[1] - b[1]).map((x) => x[0]);
+    let order = (S.order || []).filter((k) => def.includes(k));
+    def.forEach((k, i) => { if (!order.includes(k)) { const prev = def.slice(0, i).reverse().find((p) => order.includes(p)); order.splice(prev ? order.indexOf(prev) + 1 : 0, 0, k); } });
+    const by = Object.fromEntries(cards.map((c) => [c.dataset.k, c]));
+    order.forEach((k) => {
+      const c = by[k]; const sp = S.span?.[k] ?? +c.dataset.def;
+      c.classList.add("s" + sp); if ((S.hide || []).includes(k)) c.classList.add("hid"); if ((S.col || []).includes(k)) c.classList.add("col");
+      c.insertAdjacentHTML("afterbegin", `<div class="lbar"><span class="lh" title="Kéo để đổi chỗ">⠿</span><b>${esc(c.dataset.t)}</b>
+        <span class="lbtn"><button data-ls="1" title="Hẹp (1/3 hàng)">Hẹp</button><button data-ls="2" title="Vừa (2/3 hàng)">Vừa</button><button data-ls="3" title="Rộng (cả hàng)">Rộng</button>
+        <button data-lmv="-1" title="Lên">↑</button><button data-lmv="1" title="Xuống">↓</button><button data-lc title="Thu gọn / mở">–</button><button data-lx title="Ẩn thẻ">✕</button></span></div>`);
+      grid.appendChild(c);
+    });
+    [...root.querySelectorAll(".g, .stack, .snap, .sigrow")].filter((n) => !grid.contains(n)).forEach((n) => { if (!n.querySelector("[data-card], section.panel, details.panel, .lc") && !n.textContent.trim()) n.remove(); });
+    const bar = document.createElement("div"); bar.className = "laytool"; bar.dataset.nopdf = "";
+    bar.innerHTML = `<button class="chip" data-ledit>⊞ Tuỳ chỉnh bố cục</button><span class="laytray"></span>`;
+    grid.parentNode.insertBefore(bar, grid);
+    document.documentElement.style.setProperty("--stick", stickTop() + "px");
+    const stb = document.querySelector(".subtabs.stick"); document.documentElement.style.setProperty("--stabs", (stb ? stb.offsetHeight + 6 : 0) + "px");
+    LAY.cur = { page, grid, bar, def, defSpan: Object.fromEntries(cards.map((c) => [c.dataset.k, +c.dataset.def])) };
+    LAY.bind(LAY.cur);
+    LAY.tray(LAY.cur);
+    // thẻ thu gọn: bấm tiêu đề để mở
+    grid.addEventListener("click", (e) => { const c = e.target.closest(".lc.col"); if (c && !grid.classList.contains("editing") && e.target.closest(".ph")) { c.classList.remove("col"); LAY.store(LAY.cur); } });
+    return LAY.cur;
+  },
+  store(L) {
+    const cards = [...L.grid.children].filter((c) => c.classList.contains("lc"));
+    const span = {};
+    cards.forEach((c) => { const s = [1, 2, 3].find((n) => c.classList.contains("s" + n)); if (s !== L.defSpan[c.dataset.k]) span[c.dataset.k] = s; });
+    UIS.layout[L.page] = { order: cards.map((c) => c.dataset.k), span, hide: cards.filter((c) => c.classList.contains("hid")).map((c) => c.dataset.k), col: cards.filter((c) => c.classList.contains("col")).map((c) => c.dataset.k) };
+    uiSave(); LAY.tray(L);
+  },
+  tray(L) {
+    const hid = [...L.grid.querySelectorAll(".lc.hid")];
+    const t = L.bar.querySelector(".laytray");
+    t.innerHTML = hid.length ? `<span class="faint">Đã ẩn:</span> ${hid.map((c) => `<button class="chip" data-lshow="${esc(c.dataset.k)}">+ ${esc(c.dataset.t)}</button>`).join("")}` : "";
+    t.querySelectorAll("[data-lshow]").forEach((b) => (b.onclick = () => { L.grid.querySelector(`.lc[data-k="${CSS.escape(b.dataset.lshow)}"]`)?.classList.remove("hid"); LAY.store(L); }));
+  },
+  bind(L) {
+    const { grid, bar } = L;
+    const edit = async (on) => {
+      grid.classList.toggle("editing", on); bar.classList.toggle("on", on);
+      bar.querySelector("[data-ledit]").outerHTML = on ? `<span class="lhelp"><b>Đang tuỳ chỉnh:</b> kéo ⠿ để đổi chỗ · Hẹp / Vừa / Rộng · ↑ ↓ · – thu gọn · ✕ ẩn (mở lại ở “Đã ẩn”)</span><button class="chip" data-lreset>Về mặc định</button><button class="btn primary" data-ledit>Xong</button>`
+        : `<button class="chip" data-ledit>⊞ Tuỳ chỉnh bố cục</button>`;
+      bar.querySelectorAll("[data-ledit]").forEach((b) => (b.onclick = () => edit(!grid.classList.contains("editing"))));
+      const rs = bar.querySelector("[data-lreset]");
+      if (rs) rs.onclick = () => { delete UIS.layout[L.page]; uiSave(); toast("Đã về bố cục mặc định"); route(); };
+      if (on) {
+        try { await loadScript("vendor/sortable.min.js"); } catch (e) { toast("Không tải được thư viện kéo – dùng nút ↑ ↓"); }
+        if (window.Sortable && !L.sort) L.sort = Sortable.create(grid, { handle: ".lh", animation: 150, draggable: ".lc", ghostClass: "lghost", forceFallback: true, fallbackOnBody: true, scroll: true, scrollSensitivity: 90, scrollSpeed: 18, onEnd: () => LAY.store(L) });
+      }
+    };
+    bar.querySelector("[data-ledit]").onclick = () => edit(true);
+    grid.addEventListener("click", (e) => {
+      const b = e.target.closest(".lbar button"); if (!b) return;
+      const c = b.closest(".lc");
+      if (b.dataset.ls) { c.classList.remove("s1", "s2", "s3"); c.classList.add("s" + b.dataset.ls); }
+      else if (b.dataset.lmv) { const dir = +b.dataset.lmv; let n = dir < 0 ? c.previousElementSibling : c.nextElementSibling; while (n && n.classList.contains("hid")) n = dir < 0 ? n.previousElementSibling : n.nextElementSibling; if (n) (dir < 0 ? n.before(c) : n.after(c)); c.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
+      else if (b.dataset.lc !== undefined) c.classList.toggle("col");
+      else if (b.dataset.lx !== undefined) c.classList.add("hid");
+      LAY.store(L);
+      window.dispatchEvent(new Event("resize"));
+    });
+  },
+};
+
 // ================================================================ dữ liệu dùng chung
 let SCREENER = null;
 async function screenerRows() {
@@ -691,7 +807,7 @@ async function viewToday() {
 
   app().innerHTML = `
   ${stale ? `<div class="note" style="margin-bottom:10px">Dữ liệu ngày ${esc(meta.data_date)} đã cũ hơn 4 ngày – lượt chạy tự động có thể đang lỗi; xem tab Actions trên GitHub.</div>` : ""}
-  <section class="deck" style="--lc:${lightCol}">
+  <section class="deck" data-card="deck" data-title="Đèn thị trường & việc hôm nay" style="--lc:${lightCol}">
     <div class="dk light"><div class="signal">${lamps(reg.light)}<div><div class="exposure">${reg.exposure}%</div><small>được nắm cổ phiếu</small></div></div>
       <p>${esc(reg.text)}</p><small class="faint">Đèn ${LIGHT_VI[reg.light]} · đạt ${reg.score}/${reg.max_score} điều kiện · phiên ${esc(t.date)}</small></div>
     <div class="dk"><small>VN-Index</small><div class="dk-big"><b>${nf(ix.close)}</b><span class="${cls(ix.chg1d)}">${pct(ix.chg1d, 2)}</span></div>
@@ -717,7 +833,7 @@ async function viewToday() {
   <div class="g g-main sec">
     <div class="stack">
       ${sells.length ? `<section class="panel" id="secSell"><div class="ph"><h2>Danh mục – cần xử lý</h2><span class="meta">${sells.length} mã</span></div><div class="picks">${sells.map(sellCard).join("")}</div></section>` : ""}
-      <div id="planBox"></div>
+      <div id="planBox" data-card="plan" data-title="Mua theo kế hoạch & chờ điểm mua"></div>
       ${holds.length ? `<section class="panel"><div class="ph"><h2>Đang nắm – giữ nguyên</h2><span class="meta">${holds.length} mã</span></div><div class="rows">${holds.map((p) => row(`#/s/${p.symbol}`, p.symbol, esc((p.reasons || []).join("; ")), mini(R[p.symbol]?.spk), `<b class="${cls(p.pnl_pct)}">${pct(p.pnl_pct)}</b>`, "lãi/lỗ")).join("")}</div></section>` : ""}
     </div>
 
@@ -739,7 +855,7 @@ async function viewToday() {
         ${kpis([["Đèn X/V/Đ", `${t.exposure_map?.green ?? 100}/${t.exposure_map?.yellow ?? 60}/${t.exposure_map?.red ?? 30}%`], ["Cắt lỗ", (t.risk?.max_stop_loss_pct ?? "—") + "%"], ["Tối đa mã", t.risk?.max_positions], ["Biên an toàn", (t.risk?.margin_of_safety ?? "—") + "%"]], false, "sec")}
         ${t.profile?.applied?.length ? `<p class="faint" style="font-size:.72rem;margin-top:4px">Theo khẩu vị anh lưu trên web${t.profile.updated ? " ngày " + esc(t.profile.updated.slice(0, 10)) : ""}.</p>` : ""}</section>
       <details class="panel"><summary>Vì sao đèn ${LIGHT_VI[reg.light]}? (${reg.score}/${reg.max_score} điều kiện)</summary><ul class="checks">${reg.checks.map((c) => `<li class="${c.ok ? "ok" : ""}">${esc(c.name)}</li>`).join("")}</ul></details>
-      <section class="panel"><button class="btn" id="runNow">Chạy lại phân tích ngay</button>
+      <section class="panel" data-card="run" data-title="Chạy lại phân tích"><button class="btn" id="runNow">Chạy lại phân tích ngay</button>
         <p class="muted" id="runMsg" style="font-size:.74rem">Tự chạy lúc 15h35 các ngày giao dịch. Bấm khi muốn cập nhật sớm (10–30 phút).</p></section>
     </div>
   </div>
@@ -765,6 +881,8 @@ async function viewToday() {
   drawPlan(ST[s0] ? s0 : t.style || "position");
   bindDecision();
   runNow(meta);
+  await LAY.apply("today", app(), { keys: [[/Hôm nay nên làm gì/, "decide"], [/^Danh mục – cần xử lý/, "sell"], [/^Đang nắm/, "hold"], [/^Vì sao đèn/, "why-light"], [/^Ngành đáng đầu tư|^Ngành đang mạnh/, "sectors"]],
+    order: ["deck", "decide", "sell", "plan", "hold"], span: { deck: 3, decide: 3, plan: 2, sell: 2 } });
 }
 
 async function runNow(meta) {
@@ -869,6 +987,7 @@ async function viewMarket() {
     $$("#secTbl th").forEach((th) => (th.onclick = () => { if (st.sort === th.dataset.k) st.asc = !st.asc; else { st.sort = th.dataset.k; st.asc = th.dataset.k === "name"; } drawT(); }));
   };
   drawT();
+  await LAY.apply("market", app(), { keys: [[/^Vì sao đèn/, "why-light"]] });
 }
 
 // ================================================================ SÓNG & MÔ HÌNH (dùng chung)
@@ -1660,6 +1779,7 @@ async function viewPortfolio() {
       await save();
     };
     $("#del").onclick = async () => { const s = $("#hs").value.trim().toUpperCase(); const i = pf.holdings.findIndex((x) => x.symbol === s); if (i < 0) { toast("Không có mã này trong danh mục"); return; } pf.holdings.splice(i, 1); await save(); };
+    LAY.apply("portfolio", app(), { keys: [[/^Kế hoạch cơ cấu/, "rebal"]] });
   };
   function rebalance(P, cash, denom) {
     const lines = [], cap = (t.regime.exposure / 100) * denom, maxW = ((risk.max_weight_per_stock ?? 20) / 100) * denom, maxS = ((risk.max_weight_per_sector ?? 30) / 100) * denom;
@@ -2028,6 +2148,8 @@ async function viewStock(sym, tabArg) {
       ${isNum(r.ind_rank) ? `<span class="pill">Hạng ${nf(r.ind_rank, 0)}/${r.ind_n} trong ngành</span>` : ""}</div>
     <div style="flex-basis:100%">${actBar(sym, { label: true, held })}</div>
   </div>
+  <div class="subtabs stick" role="tablist" id="stabs">${[["ov", "Tổng quan"], ["vl", "Dự phóng & định giá"], ["rp", "Báo cáo phân tích"], ["fa", "Cơ bản"], ["ta", "Kỹ thuật"], ["wv", "Sóng & mô hình"], ["sm", "Tạo lập & dòng tiền"], ["pe", "Cùng ngành"]]
+    .map(([k, n]) => `<button role="tab" data-t="${k}">${n}</button>`).join("")}</div>
   ${(() => { const C = ctxRecs(secs || {}, d.sector, d.industry), b = C.ind || C.sec || {}, M = C.mkt || {}, pe0 = fa.pe ?? r.pe, pb0 = fa.pb ?? r.pb;
     const g = (t, meta, items) => `<section class="panel sg"><div class="ph"><h3>${t}</h3><span class="meta">${meta}</span></div>${kpis(items, false, "c3")}</section>`;
     return `<div class="snap">${g("Định giá", "so với ngành · thị trường", [
@@ -2059,11 +2181,11 @@ async function viewStock(sym, tabArg) {
       ${seasonPanel(d.season, d.season_support, { oos: secs?.season?.oos?.stock })}</div>
   </div>
   <div class="g g-main sec">
-    <div>
+    <section class="panel chartp" data-card="chart" data-title="Biểu đồ giá">
       <div class="toolbar" id="tools"></div>
       <div class="chart" id="pChart"></div>
       <div class="chart xs" id="oChart" style="margin-top:4px"></div>
-    </div>
+    </section>
     <div class="stack">
       <section class="panel"><div class="ph"><h2>Kỹ thuật: ${esc(ta.label)}</h2><span class="meta">${ta.score}/100</span></div><div class="gauge"><i style="left:${ta.score}%"></i></div>
         ${kpis(Object.entries(ta.groups || {}).map(([g, s]) => [esc(g), `${esc(s.signal)} <small>${s.score}</small>`, s.signal === "Mua" ? "up" : s.signal === "Bán" ? "down" : ""]))}
@@ -2083,9 +2205,11 @@ async function viewStock(sym, tabArg) {
     </div>
   </div>
   ${d._locked ? lockBox("stock_full", "Phân tích đầy đủ mã " + sym + ": vùng mua, kế hoạch theo phong cách, sóng & SMC, hành vi giá, mã liên quan", true) : relPanel(d.rel, sym, new Set((pfS.data?.holdings || []).map((h) => h.symbol)))}
-  <div class="subtabs" role="tablist">${[["ov", "Tổng quan"], ["ta", "Kỹ thuật"], ["wv", "Sóng & mô hình"], ["sm", "Tạo lập & dòng tiền"], ["fa", "Cơ bản"], ["vl", "Dự phóng & định giá"], ["rp", "Báo cáo phân tích"], ["pe", "Cùng ngành"]]
-    .map(([k, n]) => `<button role="tab" data-t="${k}">${n}</button>`).join("")}</div>
+  <div id="ovExtra">${tabOverview(d)}</div>
   <div id="tab"></div>`;
+  const LS = await LAY.apply("stock", app(), { strip: [sym, d.name, d.industry, d.sector],
+    keys: [[/^Định giá$/, "snap-val"], [/^Kinh doanh/, "snap-biz"], [/^Giá & thanh khoản/, "snap-px"], [/^Định giá:/, "val"], [/^Triển vọng/, "outlook"], [/^Kỹ thuật/, "tech"], [/^P\/E .* theo quý/, "pe-hist"], [/^Mã liên quan/, "rel"]],
+    order: ["snap-val", "snap-biz", "snap-px", "val", "chart", "tech"], span: { chart: 2, rel: 3, "pe-hist": 3 } });
 
   // ---- biểu đồ giá (đổi khung: ngày / tuần / tháng / quý / năm – chỉ báo tính lại trên nến của khung)
   const TFO = tfSeries(d);
@@ -2178,16 +2302,19 @@ async function viewStock(sym, tabArg) {
   drawChart();
 
   // ---- các tab
-  const tabs = { ov: tabOverview, ta: tabTech, wv: (x) => `<div class="g g2"><section class="panel">${wavesBlock(x.waves)}</section><section class="panel"><div class="ph"><h2>Mức giá quan trọng</h2></div>${levelsKv(x.waves)}</section></div>`,
+  const tabs = { ov: () => "", ta: tabTech, wv: (x) => `<div class="g g2"><section class="panel">${wavesBlock(x.waves)}</section><section class="panel"><div class="ph"><h2>Mức giá quan trọng</h2></div>${levelsKv(x.waves)}</section></div>`,
     sm: tabSmart, fa: tabFund, vl: tabVal, rp: tabReport, pe: tabPeers };
-  const show = (k) => {
+  const show = (k, jump) => {
     $$(".subtabs button").forEach((b) => b.classList.toggle("on", b.dataset.t === k));
+    if (LS) { LS.grid.classList.toggle("onlychart", ["ta", "wv", "sm"].includes(k)); LS.grid.hidden = !["ov", "ta", "wv", "sm"].includes(k); LS.bar.hidden = k !== "ov"; }
     $("#tab").innerHTML = tabs[k](d);
+    if (jump) { const st = $("#stabs"); const y = st.getBoundingClientRect().top + window.scrollY - stickTop(); if (window.scrollY > y) window.scrollTo({ top: y }); }
     if (k === "vl") bindVal(d);
     if (k === "rp") bindReport();
     if (k === "sm") { L.smc = true; $$('[data-l="smc"]').forEach((b) => b.classList.add("on")); redraw(); }
   };
-  $$(".subtabs button").forEach((b) => (b.onclick = () => { history.replaceState(null, "", `#/s/${sym}/${b.dataset.t}`); show(b.dataset.t); }));
+  $$(".subtabs button").forEach((b) => (b.onclick = () => { history.replaceState(null, "", `#/s/${sym}/${b.dataset.t}`); show(b.dataset.t, true); }));
+  $("#stabs").style.top = stickTop() + "px";
   show(tabs[tabArg] ? tabArg : "ov");
   bindStyleLevels();
 }
@@ -2676,6 +2803,7 @@ const HELP_FAQ = [
   ["Khuyến nghị", "Giá đã giảm sàn nhiều phiên, P/E chỉ 4x – có phải cơ hội vàng?", "Kiểm chứng 560 đợt 2016–2026: mua ngay khi sập hoặc bắt nhịp hồi sớm thường thua thị trường và còn sụt thêm ~30%. Cơ hội có thật nhưng đến muộn hơn: khi đủ 120 phiên từ lúc có cờ và 60 phiên liền không giảm sàn, nhất là DN còn lãi, nợ thấp. Trang mã đếm ngược số phiên còn phải chờ; thêm mã vào Theo dõi để được báo đúng lúc."],
   ["Khuyến nghị", "Giá trị hợp lý tính thế nào? Tôi muốn dùng giả định của mình.", "P/E và P/B mục tiêu theo trung vị ngành (điều chỉnh theo ROE của mã), DCF dòng tiền cho cổ đông và DDM khi phù hợp; lợi nhuận đỉnh/đáy chu kỳ được chuẩn hoá. Trong trang mã → tab Dự phóng & định giá, sửa tăng trưởng, biên lợi nhuận… giá trị hợp lý tính lại ngay và có thể lưu."],
   ["Khuyến nghị", "DCF có tính lãi vay, nợ vay và kế hoạch đầu tư (mua tàu, xây nhà máy) không?", "Có. Mô hình dự phóng rõ từng dòng: EBIT − lãi vay (lãi suất thực tế = chi phí lãi 12 tháng ÷ dư nợ vay bình quân) → lợi nhuận; dòng tiền cho cổ đông = lợi nhuận + khấu hao − đầu tư TSCĐ − tăng vốn lưu động + vay ròng (dư nợ đi theo tỷ lệ nợ/vốn chủ). Đầu tư TSCĐ đi từ nhịp 2 năm gần nhất về mức duy trì. Kế hoạch chưa có trong BCTC (vd. PVT đóng tàu mới, DN vay xây nhà máy) nhập ở mục Kế hoạch đầu tư mới: tổng vốn, số năm, % vay, doanh thu và biên khi chạy đủ – giá trị tính lại ngay. Có thêm kiểm tra chéo FCFF/WACC; DN đang đầu tư lớn có cảnh báo riêng."],
+  ["Bắt đầu", "Sắp xếp lại các thẻ theo ý mình thế nào?", "Ở trang Hôm nay, Thị trường, Danh mục, Bản tin và trang mã có nút “⊞ Tuỳ chỉnh bố cục”. Bấm vào: kéo biểu tượng ⠿ để đổi chỗ thẻ (hoặc dùng ↑ ↓), chọn Hẹp / Vừa / Rộng để đổi độ rộng, – để thu gọn (bấm tiêu đề để mở lại), ✕ để ẩn (mở lại ở mục “Đã ẩn”). Bố cục lưu theo tài khoản, dùng chung cho mọi mã; “Về mặc định” để quay lại. Trang mã có thanh mục dính trên cùng: Dự phóng & định giá, Báo cáo phân tích… chỉ một chạm, không phải kéo xuống."],
   ["Khuyến nghị", "Tab “Báo cáo phân tích” trong trang mã là gì?", "Bản phân tích kiểu báo cáo CTCK, tự lập cho mọi mã có BCTC: kết quả kinh doanh 3 năm + dự phóng 5 năm, giả định chính, dự phóng FCFF (LNST + khấu hao + lãi vay sau thuế − đầu tư VLĐ − đầu tư TSCĐ), định giá FCFF (PV dòng tiền + PV giá trị cuối kỳ + tiền − nợ vay − lợi ích thiểu số), bảng độ nhạy WACC × tăng trưởng dài hạn, tổng hợp các phương pháp định giá, rủi ro giảm giá có lượng hoá (lãi suất +2 điểm %, biên gộp −2 điểm %, tăng trưởng thấp hơn…) và so sánh P/E, P/B, ROA, ROE dự phóng với các DN cùng ngành. Khấu hao và đầu tư tính theo tài sản cố định (không theo doanh thu). In hoặc lưu PDF được; báo cáo dùng giả định anh/chị đã lưu."],
   ["Khuyến nghị", "P/E trước và sau chia cổ tức khác nhau thế nào? Dùng số nào?", "Chia cổ tức bằng cổ phiếu / thưởng r% không tạo thêm giá trị: sau ngày GDKHQ giá giảm còn giá ÷ (1 + r), số cổ phiếu tăng (1 + r) lần, EPS giảm theo – P/E đúng thì KHÔNG đổi. Sai lệch xảy ra trong 2–6 tuần cổ phiếu mới chưa lên sàn: giá đã giảm nhưng số cổ phiếu (EPS) vẫn cũ, P/E trông rẻ hơn thật (chia 50% → rẻ giả 33%). Hệ thống luôn tính P/E, P/B, EPS, giá trị hợp lý theo số cổ phiếu SAU chia và ghi rõ P/E nếu tính theo số cũ. Cổ tức tiền các năm trước cũng được quy về số cổ phiếu hiện tại để lợi suất, tỷ lệ chi trả, DDM không cao giả. Trước ngày GDKHQ cổ tức tiền, giá còn gồm quyền nhận tiền – trang mã hiện thêm P/E sau khi trừ cổ tức để so với mã đã trả xong."],
   ["Danh mục", "Bảng “Nếu làm theo hệ thống” tính thế nào?", "Lãi/lỗ của anh/chị dựng lại từ nhật ký giao dịch + danh mục theo giá đóng cửa từng ngày (gồm phí). “Theo hệ thống” = cùng tổng vốn đi theo danh mục mẫu của phong cách đang chọn – gồm cả phần tiền mặt theo đèn: các tháng trước khi có theo dõi thực tế dùng kết quả mô phỏng (đánh dấu mp), từ khi có theo dõi thực tế dùng số thật (tt). Cần ≥ 6 tháng mới nên kết luận."],
@@ -5234,6 +5362,7 @@ async function viewDigest(date, home = false) {
   <p class="faint" style="font-size:.72rem;margin-top:8px">Bản tin tự động tạo từ số liệu sau phiên – thông tin tham khảo, không phải khuyến nghị đầu tư.</p>`;
   $("#dgSel").onchange = (e) => (location.hash = "#/digest/" + e.target.value);
   bindDecision();
+  await LAY.apply(home ? "digest-home" : "digest", app());
 }
 
 // ---- thanh đầu trang: chuông + tài khoản

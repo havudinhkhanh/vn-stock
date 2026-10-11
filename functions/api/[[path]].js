@@ -8,7 +8,7 @@ import {
 } from "../_lib/core.js";
 
 // ---------------------------------------------------------------- chế độ cũ (một chủ sở hữu)
-const KEYS = new Set(["portfolio", "assumptions", "groups", "profile", "journal", "watchlist", "views"]);
+const KEYS = new Set(["portfolio", "assumptions", "groups", "profile", "journal", "watchlist", "views", "ui"]);
 function legacyAuthorized(request, env) {
   const email = (request.headers.get("cf-access-authenticated-user-email") || "").toLowerCase();
   if (!email) return false;

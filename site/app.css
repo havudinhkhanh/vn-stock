@@ -795,8 +795,8 @@ tr.fboff td{opacity:.5}
 /* ---------- trang mã: dải số liệu nhóm + hàng quyết định 3 cột ---------- */
 .snap{display:grid;gap:10px;grid-template-columns:minmax(0,1fr);margin-top:2px}
 .snap .sg{padding:8px 10px}
-.snap .ph{margin-bottom:6px}
-.snap .ph h3{font-size:.78rem;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-2)}
+.sg .ph{margin-bottom:6px}
+.sg .ph h3{font-size:.78rem;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-2)}
 .kpis.c3{grid-template-columns:repeat(3,minmax(0,1fr))}
 .kpis.c3>div:nth-child(3n){border-right:0}
 .kpis.c3>div:nth-last-child(-n+3){border-bottom:0}
@@ -807,7 +807,7 @@ tr.fboff td{opacity:.5}
   .g-dec{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.g-dec>:nth-child(3){grid-column:1/-1}}
 @media (min-width:1180px){.g-dec{grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr)}}
 @media (min-width:1180px) and (max-width:1500px){.g-dec .fbt b{font-size:1.7rem}}
-.snap .sg{display:flex;flex-direction:column}.snap .sg>.kpis{flex:1;align-content:stretch}
+.sg{display:flex;flex-direction:column}.sg>.kpis{flex:1;align-content:stretch}
 
 /* ---------- biến động & trong phiên ---------- */
 .tabs{grid-template-columns:repeat(8,1fr)}
@@ -1020,6 +1020,35 @@ th.brand{color:var(--brand)}
 @media (min-width:860px){.snap{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media (min-width:860px) and (max-width:1179px){.snap{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .snap{align-items:stretch}
-.snap .kpis.c3{grid-auto-rows:minmax(70px,1fr)}
-.snap .kpis.c3>div{display:flex;flex-direction:column;justify-content:flex-start;gap:2px}
-.snap .kpis.c3 dd small{margin-top:1px}
+.sg .kpis.c3{grid-auto-rows:minmax(70px,1fr)}
+.sg .kpis.c3>div{display:flex;flex-direction:column;justify-content:flex-start;gap:2px}
+.sg .kpis.c3 dd small{margin-top:1px}
+/* ---------- bố cục cá nhân (kéo – thả) ---------- */
+.lay{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;grid-auto-flow:row dense;margin-top:12px;align-items:stretch}
+.lay>.lc{min-width:0;position:relative;display:flex;flex-direction:column}
+.lay>.lc>.panel,.lay>.lc>.deck,.lay>.lc>[data-card]{margin:0!important;flex:1;min-width:0}
+.lay>.lc.s1{grid-column:span 1}.lay>.lc.s2{grid-column:span 2}.lay>.lc.s3{grid-column:1/-1}
+.lay>.lc.hid{display:none}
+.lay>.lc:has(> section[hidden]){display:none}
+.lay>.lc:not(:has(> :not(.lbar))){display:none}
+.lay>.lc.col>:not(.lbar)>:not(.ph):not(summary){display:none}
+.lay>.lc.col>.panel{flex:0 0 auto;cursor:pointer}
+.lay>.lc.col>.panel .ph::after{content:"▸ mở";font-size:.7rem;color:var(--ink-3);margin-left:8px}
+.lay.onlychart>.lc:not([data-k="chart"]){display:none}.lay.onlychart>.lc[data-k="chart"]{grid-column:1/-1}
+.lbar{display:none}
+.lay.editing>.lc{outline:2px dashed color-mix(in srgb,var(--brand) 45%,transparent);outline-offset:2px;border-radius:10px}
+.lay.editing>.lc.hid{display:none}
+.lay.editing .lbar{display:flex;align-items:center;gap:6px;padding:4px 6px;background:var(--brand);color:#fff;border-radius:8px 8px 0 0;font-size:.74rem;position:sticky;top:0;z-index:5}
+.lbar b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lbar .lh{cursor:grab;font-size:1rem;padding:0 4px;touch-action:none;user-select:none}
+.lbar .lbtn{display:flex;gap:2px}
+.lbar button{background:rgba(255,255,255,.18);color:#fff;border:0;border-radius:4px;min-width:24px;height:22px;font-size:.72rem;cursor:pointer;padding:0 5px}
+.lbar button:hover{background:rgba(255,255,255,.35)}
+.lghost{opacity:.35}
+.laytool{display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end;margin-top:10px}
+.laytool.on{position:sticky;top:calc(var(--stick,84px) + var(--stabs,0px));z-index:15;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:6px 10px;justify-content:flex-start}
+.laytool .lhelp{font-size:.76rem;flex:1;min-width:200px}.laytray{display:flex;gap:4px;flex-wrap:wrap;align-items:center;font-size:.74rem}
+@media (min-width:860px) and (max-width:1179px){.lay{grid-template-columns:repeat(2,minmax(0,1fr))}.lay>.lc.s2,.lay>.lc.s3{grid-column:1/-1}}
+@media (max-width:859px){.lay{grid-template-columns:minmax(0,1fr)}.lay>.lc.s1,.lay>.lc.s2,.lay>.lc.s3{grid-column:1/-1}.lbar [data-ls]{display:none}}
+/* thanh mục trang mã dính trên cùng */
+.subtabs.stick{position:sticky;z-index:18;background:var(--bg);padding:6px 0;margin:8px 0 0}
