@@ -4631,6 +4631,8 @@ function initSearch() {
     if (e.key === "Enter") { pick(list[sel].symbol); e.preventDefault(); }
     if (e.key === "Escape") box.hidden = true;
   });
+  q.addEventListener("focus", () => document.body.classList.add("typing"));
+  q.addEventListener("blur", () => setTimeout(() => document.body.classList.remove("typing"), 200));
   document.addEventListener("click", (e) => { if (!e.target.closest(".search")) box.hidden = true; });
   box.addEventListener("click", () => { box.hidden = true; q.value = ""; });
 }
