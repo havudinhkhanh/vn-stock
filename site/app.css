@@ -1016,3 +1016,10 @@ th.brand{color:var(--brand)}
 /* ô tìm mã: gợi ý luôn nằm trên thanh tab; điện thoại: ẩn thanh tab dưới khi đang gõ (bàn phím đẩy thanh tab lên che gợi ý) */
 .sugg{z-index:60}
 @media (max-width:700px){body.typing .tabs{display:none}.sugg{max-height:min(340px,45vh)}}
+/* trang mã: 3 khung chỉ số đầu trang – ô đều nhau, hàng thẳng hàng giữa các khung */
+@media (min-width:860px){.snap{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (min-width:860px) and (max-width:1179px){.snap{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.snap{align-items:stretch}
+.snap .kpis.c3{grid-auto-rows:minmax(70px,1fr)}
+.snap .kpis.c3>div{display:flex;flex-direction:column;justify-content:flex-start;gap:2px}
+.snap .kpis.c3 dd small{margin-top:1px}
