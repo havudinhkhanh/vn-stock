@@ -99,7 +99,8 @@ const FC = {
   },
   project(base, a) {
     const n = base.years, rows = [], shares = base.shares, ct = base.model === "CT";
-    let equity = base.equity, niPrev = base.ni, revCore = base.revenue, revPrev = base.revenue, debtPrev = base.debt || 0, planDebt = 0;
+    let equity = base.equity, niPrev = base.ni, revCore = base.revenue, revPrev = base.revenue, debtPrev = base.debt || 0, planDebt = 0, faPrev = +base.fa0 || 0;
+    const faMode = base.capex_mode === "fa" && base.fa0, eq0 = base.equity, ta0 = base.ta;
     const P = FC.path(a, n);
     for (let t = 1; t <= n; t++) {
       const [g, gmT, sgaT] = P[t - 1];
@@ -122,14 +123,16 @@ const FC = {
         const niAll = pbt - tax;
         ni = niAll * (1 - base.minority);
         const f = (t - 1) / Math.max(1, n - 1);
-        const capexR = a.capex1 + (a.capex_lt - a.capex1) * f;
-        const da = a.da * revCore + (inv > 0 && t > ny ? inv / 15 : 0);
-        const capex = capexR * revCore + capexPlan;
+        const capexR = isNum(a.capex1) ? a.capex1 + (a.capex_lt - a.capex1) * f : 0;
+        let da, capex;
+        if (faMode) { da = a.da * faPrev; capex = (+a.capex0 || 0) * (1 - f) + a.capex_lt * faPrev * f + capexPlan; faPrev = faPrev + capex - da; }
+        else { da = a.da * revCore + (inv > 0 && t > ny ? inv / 15 : 0); capex = capexR * revCore + capexPlan; }
         const dnwc = a.nwc * (rev - revPrev);
         const borrow = debt - debtPrev;
         fcfe = (niAll + da - capex - dnwc + borrow) * (1 - base.minority);
-        const fcff = ebit * (1 - a.tax) + da - capex - dnwc;
-        row = { revenue: rev, gross_profit: gp, sga, ebit, interest, pbt, ni, da, capex, dnwc, debt, borrow, fcff };
+        const intAt = interest * (1 - a.tax);
+        const fcff = niAll + intAt + da - capex - dnwc;
+        row = { revenue: rev, gross_profit: gp, sga, ebit, interest, pbt, ni, ni_all: niAll, int_at: intAt, da, capex, dnwc, debt, borrow, fcff, fa: faMode ? faPrev : null };
         debtPrev = debt; revPrev = rev;
       } else {
         ni = niPrev * (1 + g);
@@ -140,6 +143,11 @@ const FC = {
       const eps = ni * 1000 / shares, dps = Math.max(0, eps * a.payout);
       const eqPrev = equity;
       equity = equity + ni - dps * shares / 1000;
+      if (ta0) {
+        const taT = ct ? ta0 + (equity - eq0) + (row.debt - (base.debt || 0)) : (eq0 ? ta0 * equity / eq0 : ta0);
+        const taP = rows.length ? rows[rows.length - 1].ta : ta0;
+        row.ta = taT; row.roa = taT && taP ? ni / ((taP + taT) / 2) : null;
+      }
       Object.assign(row, { year_offset: t, g, eps, dps, fcfe, equity, bvps: equity * 1000 / shares, roe: eqPrev > 0 ? ni / eqPrev : null });
       rows.push(row);
       niPrev = ni;
@@ -157,18 +165,25 @@ const FC = {
     return val > 0 ? { v: val / base.shares, tvs: tv / val } : { v: null, tvs: null };
   },
   dcf(base, a, rows, ke) { return FC.dcfD(base, a, rows, ke).v; },
-  fcff(base, a, rows, ke) {
-    if (base.model !== "CT" || !rows.length || !base.price) return null;
-    const E = base.price * base.shares, D = +base.debt || 0, kdAt = (isNum(a.kd) ? a.kd : 0.08) * (1 - a.tax);
-    const g = a.gterm;
-    let w = E + D > 0 ? (E * ke + D * kdAt) / (E + D) : ke;
+  wacc(base, a, ke) {
+    const E = (base.price || 0) * base.shares, D = +base.debt || 0, kdAt = (isNum(a.kd) ? a.kd : 0.08) * (1 - a.tax);
+    const w = E + D > 0 ? (E * ke + D * kdAt) / (E + D) : ke;
+    return { w: Math.max(w, isNum(base.wacc_min) ? base.wacc_min : 0.10, a.gterm + 0.01), wRaw: w, E, D, kdAt };
+  },
+  fcffVal(base, a, rows, w, g = a.gterm) {
     w = Math.max(w, g + 0.01);
     let pv = 0; rows.forEach((r) => (pv += r.fcff / Math.pow(1 + w, r.year_offset)));
     const last = rows[rows.length - 1];
-    const tv = last.ebit * (1 - a.tax) * (1 + g) * (isNum(a.conv_term) ? a.conv_term : 0.7) / (w - g) / Math.pow(1 + w, rows.length);
-    const ev = pv + tv, cash = +base.cash || 0;
-    const eqv = (ev - D + cash) * (1 - base.minority);
-    return { wacc: w, ev, net_debt: D - cash, per_share: eqv > 0 ? eqv / base.shares : null, kd_after_tax: kdAt, d_weight: E + D > 0 ? D / (E + D) : null };
+    const tv = (last.ni_all + last.int_at) * (1 + g) * (isNum(a.conv_term) ? a.conv_term : 0.7) / (w - g), pvTv = tv / Math.pow(1 + w, rows.length);
+    const cash = +base.cash || 0, D = +base.debt || 0, nci = Math.max(+base.nci || 0, (+base.minority || 0) * Math.max(0, pv + pvTv + cash - D)), eqv = pv + pvTv + cash - D - nci;
+    return { pv_fcff: pv, tv, pv_tv: pvTv, ev: pv + pvTv, cash, debt: D, nci, equity_value: eqv, per_share: eqv > 0 ? eqv / base.shares : null };
+  },
+  fcff(base, a, rows, ke) {
+    if (base.model !== "CT" || !rows.length || !base.price) return null;
+    const W = FC.wacc(base, a, ke), v = FC.fcffVal(base, a, rows, W.w), g = a.gterm;
+    const sens = { w: [-0.01, -0.005, 0, 0.005, 0.01].map((d) => W.w + d), g: [-0.005, 0, 0.005].map((d) => g + d) };
+    sens.v = sens.w.map((ww) => sens.g.map((gg) => FC.fcffVal(base, a, rows, ww, gg).per_share));
+    return { ...v, wacc: W.w, wacc_raw: W.wRaw, ke, kd_after_tax: W.kdAt, d_weight: W.E + W.D > 0 ? W.D / (W.E + W.D) : null, net_debt: v.debt - v.cash, shares: base.shares, tv_share: v.ev > 0 ? v.pv_tv / v.ev : null, sens };
   },
   ddm(base, a, rows, ke) {
     if (a.payout <= 0.05) return null;
@@ -2068,7 +2083,7 @@ async function viewStock(sym, tabArg) {
     </div>
   </div>
   ${d._locked ? lockBox("stock_full", "Phân tích đầy đủ mã " + sym + ": vùng mua, kế hoạch theo phong cách, sóng & SMC, hành vi giá, mã liên quan", true) : relPanel(d.rel, sym, new Set((pfS.data?.holdings || []).map((h) => h.symbol)))}
-  <div class="subtabs" role="tablist">${[["ov", "Tổng quan"], ["ta", "Kỹ thuật"], ["wv", "Sóng & mô hình"], ["sm", "Tạo lập & dòng tiền"], ["fa", "Cơ bản"], ["vl", "Dự phóng & định giá"], ["pe", "Cùng ngành"]]
+  <div class="subtabs" role="tablist">${[["ov", "Tổng quan"], ["ta", "Kỹ thuật"], ["wv", "Sóng & mô hình"], ["sm", "Tạo lập & dòng tiền"], ["fa", "Cơ bản"], ["vl", "Dự phóng & định giá"], ["rp", "Báo cáo phân tích"], ["pe", "Cùng ngành"]]
     .map(([k, n]) => `<button role="tab" data-t="${k}">${n}</button>`).join("")}</div>
   <div id="tab"></div>`;
 
@@ -2164,11 +2179,12 @@ async function viewStock(sym, tabArg) {
 
   // ---- các tab
   const tabs = { ov: tabOverview, ta: tabTech, wv: (x) => `<div class="g g2"><section class="panel">${wavesBlock(x.waves)}</section><section class="panel"><div class="ph"><h2>Mức giá quan trọng</h2></div>${levelsKv(x.waves)}</section></div>`,
-    sm: tabSmart, fa: tabFund, vl: tabVal, pe: tabPeers };
+    sm: tabSmart, fa: tabFund, vl: tabVal, rp: tabReport, pe: tabPeers };
   const show = (k) => {
     $$(".subtabs button").forEach((b) => b.classList.toggle("on", b.dataset.t === k));
     $("#tab").innerHTML = tabs[k](d);
     if (k === "vl") bindVal(d);
+    if (k === "rp") bindReport();
     if (k === "sm") { L.smc = true; $$('[data-l="smc"]').forEach((b) => b.classList.add("on")); redraw(); }
   };
   $$(".subtabs button").forEach((b) => (b.onclick = () => { history.replaceState(null, "", `#/s/${sym}/${b.dataset.t}`); show(b.dataset.t); }));
@@ -2357,7 +2373,7 @@ const A_FIELDS = [
   ["g1", "Tăng trưởng năm 1", "%", "g"], ["gmid", "Tăng trưởng năm 3", "%", "g"], ["gterm", "Tăng trưởng dài hạn", "%", "g"], ["gm", "Biên LN gộp hiện tại", "%", "g"], ["gm_lt", "Biên LN gộp dài hạn", "%", "g"],
   ["sga", "Chi phí BH & QL / DT hiện tại", "%", "g"], ["sga_lt", "Chi phí BH & QL / DT dài hạn", "%", "g"],
   ["tax", "Thuế suất", "%", "g"], ["payout", "Tỷ lệ chi trả cổ tức", "%", "g"], ["roe_cap", "ROE bình thường (ngân hàng)", "%", "g"], ["conv_term", "LN thành tiền tự do dài hạn", "%", "g"],
-  ["kd", "Lãi suất vay bình quân", "%", "d"], ["de", "Nợ vay / vốn chủ", "lần", "d"], ["da", "Khấu hao / DT", "%", "d"], ["capex1", "Đầu tư TSCĐ / DT năm 1", "%", "d"], ["capex_lt", "Đầu tư TSCĐ / DT dài hạn (duy trì)", "%", "d"],
+  ["kd", "Lãi suất vay bình quân", "%", "d"], ["de", "Nợ vay / vốn chủ", "lần", "d"], ["da", "Khấu hao / DT", "%", "d"], ["capex1", "Đầu tư TSCĐ / DT năm 1", "%", "d"], ["capex0", "Đầu tư TSCĐ năm 1", "tỷ", "d"], ["capex_lt", "Đầu tư TSCĐ / DT dài hạn (duy trì)", "%", "d"],
   ["nwc", "Vốn lưu động / DT", "%", "d"],
   ["inv", "Tổng vốn dự án mới", "tỷ", "p"], ["inv_y", "Thời gian đầu tư", "năm", "p"], ["inv_debt", "Phần vốn đi vay", "%", "p"], ["inv_rev", "Doanh thu tăng thêm khi chạy đủ", "tỷ/năm", "p"], ["inv_m", "Biên EBIT của phần mới", "%", "p"],
 ];
@@ -2372,10 +2388,9 @@ function invHint(v) {
 }
 function dcfCheck(r, base) {
   if (base.model !== "CT" || !r.ff) return "";
-  const f5 = r.rows.reduce((s, x) => s + x.fcfe, 0), ff = r.ff;
-  return `<p class="faint" style="margin-top:6px;font-size:.76rem">Kiểm tra chéo DCF: dòng tiền doanh nghiệp (FCFF) chiết khấu theo WACC ${nf(ff.wacc * 100, 1)}%
-    (ke và lãi vay sau thuế ${nf(ff.kd_after_tax * 100, 1)}%, nợ chiếm ${nf((ff.d_weight || 0) * 100, 0)}%) → giá trị DN ${nf(ff.ev, 0)} tỷ − nợ ròng ${nf(ff.net_debt, 0)} tỷ
-    = <b>${ff.per_share ? nf(ff.per_share) : "âm"}</b>/cp (FCFE: ${r.dcf ? nf(r.dcf) : "—"}). Tổng FCFE 5 năm ${nf(f5, 0)} tỷ; giá trị cuối kỳ chiếm ${nf((r.tvs || 0) * 100, 0)}% DCF.</p>`;
+  const f5 = r.rows.reduce((s_, x) => s_ + x.fcfe, 0), ff = r.ff;
+  return `<p class="faint" style="margin-top:6px;font-size:.76rem">FCFF: WACC ${nf(ff.wacc * 100, 1)}% (ke ${nf(ff.ke * 100, 1)}%, lãi vay sau thuế ${nf(ff.kd_after_tax * 100, 1)}%, nợ chiếm ${nf((ff.d_weight || 0) * 100, 0)}%) → giá trị DN ${nf(ff.ev, 0)} tỷ + tiền ${nf(ff.cash, 0)} − nợ vay ${nf(ff.debt, 0)} − thiểu số ${nf(ff.nci, 0)}
+    = ${nf(ff.equity_value, 0)} tỷ = <b>${ff.per_share ? nf(ff.per_share) : "âm"}</b>/cp. FCFE: ${r.dcf ? nf(r.dcf) : "—"}/cp, tổng FCFE 5 năm ${nf(f5, 0)} tỷ, giá trị cuối kỳ chiếm ${nf((r.tvs || 0) * 100, 0)}%. Chi tiết dạng báo cáo ở tab <b>Báo cáo phân tích</b>.</p>`;
 }
 function tabVal(d) {
   const v = d.valuation || {};
@@ -2390,8 +2405,9 @@ function tabVal(d) {
       <p class="faint" style="font-size:.76rem;margin-top:4px">Mặc định suy ra từ lịch sử của chính ${esc(d.symbol)} (bảng dưới), kéo dần về mức ngành khi lịch sử thất thường. Tăng trưởng đi từ năm 1 → năm 3 → dài hạn; biên lợi nhuận đi dần từ hiện tại về trung vị nhiều năm.</p>
       ${invHint(v)}
       ${Object.entries(A_GROUPS).map(([gk, gn]) => { const F = A_FIELDS.filter(([k, , , g]) => g === gk && a[k] !== undefined && a[k] !== null); if (!F.length) return "";
+        const FAL = v.model.base?.capex_mode === "fa" ? { da: "Khấu hao / TSCĐ đầu năm", capex1: "Đầu tư TSCĐ / TSCĐ đầu năm – năm 1", capex_lt: "Đầu tư TSCĐ / TSCĐ – dài hạn (duy trì)" } : {};
         return `<h3 class="agrp">${gn}</h3><div class="assump" style="margin-top:6px">${F.map(([k, n, u]) => `
-        <div class="field"><label for="as_${k}">${n} (${u})</label><input id="as_${k}" data-a="${k}" data-u="${u}" inputmode="decimal" value="${aShow(k, u, a[k])}">${v.model.why?.[k] ? `<small class="awhy">${esc(v.model.why[k])}</small>` : ""}</div>`).join("")}
+        <div class="field"><label for="as_${k}">${FAL[k] || n} (${u})</label><input id="as_${k}" data-a="${k}" data-u="${u}" inputmode="decimal" value="${aShow(k, u, a[k])}">${v.model.why?.[k] ? `<small class="awhy">${esc(v.model.why[k])}</small>` : ""}</div>`).join("")}
         ${gk === "g" ? `<div class="field"><label for="as_ke">Chi phí vốn chủ ke (%)</label><input id="as_ke" inputmode="decimal" value="${nf(v.ke, 2).replace(",", ".")}"></div>` : ""}</div>`; }).join("")}
       <p style="margin-top:8px"><button class="btn primary" id="aSave">Lưu giả định cho ${d.symbol}</button> <button class="btn" id="aReset">Về mặc định</button></p>
       <p class="faint" style="font-size:.74rem">Sửa số – kết quả tính lại ngay. Lưu rồi thì lần chạy kế tiếp hệ thống dùng giả định của anh khi ra tín hiệu.</p>
@@ -2400,6 +2416,121 @@ function tabVal(d) {
             ["Đầu tư TSCĐ / DT", "capex_r"], ["Khấu hao / DT", "da_r"], ["Đầu tư TSCĐ (tỷ)", "capex", "n"], ["Nợ vay (tỷ)", "debt", "n"], ["Nợ ròng (tỷ)", "net_debt", "n"], ["Lãi suất vay", "kd"], ["Nợ vay / vốn chủ", "de", "x"]] : [["Tăng trưởng LN", "ni_g"], ["ROE", "roe"]])
           .map(([n, k, f]) => `<tr><td class="l">${n}</td>${v.model.hist.map((h) => `<td class="${k.endsWith("_g") ? cls(h[k]) : ""}">${!isNum(h[k]) ? "—" : f === "n" ? nf(h[k], 0) : f === "x" ? nf(h[k], 2) : pct(h[k] * 100, k === "conv" ? 0 : 1, k.endsWith("_g"))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>` : ""}`)}
   </div>`;
+}
+// ================================================================ BÁO CÁO PHÂN TÍCH (kiểu CTCK) – dự phóng, FCFF, độ nhạy, rủi ro, so sánh ngành
+function rptRisks(d, base, a, ke, res0) {
+  const v = d.valuation, fa = d.fa || {}, r = d.row || {}, out = [];
+  const val = (aa) => { const rows = FC.project(base, aa); return FC.fcff(base, aa, rows, ke)?.per_share ?? FC.dcf(base, aa, rows, ke); };
+  const v0 = res0.ff?.per_share ?? res0.dcf;
+  const chg = (aa) => { const x = val(aa); return isNum(x) && isNum(v0) && v0 > 0 ? (x / v0 - 1) * 100 : null; };
+  const ct = base.model === "CT";
+  if (ct && isNum(a.kd)) { const c = chg({ ...a, kd: a.kd + 0.02 }); if (isNum(c)) out.push(["Lãi suất tăng", `Lãi suất vay bình quân tăng 2 điểm % (từ ${nf(a.kd * 100, 1)}% lên ${nf(a.kd * 100 + 2, 1)}%) làm giá trị/cp thay đổi <b class="${cls(c)}">${pct(c, 1)}</b>; nợ vay hiện ${nf(base.debt, 0)} tỷ, chi phí lãi 12 tháng ${nf(base.interest, 0)} tỷ.`, Math.abs(c)]); }
+  if (ct && isNum(a.gm)) { const c = chg({ ...a, gm: a.gm - 0.02, gm_lt: (a.gm_lt ?? a.gm) - 0.02 }); if (isNum(c)) out.push(["Biên lợi nhuận co lại", `Biên gộp thấp hơn giả định 2 điểm % (giá đầu vào, cạnh tranh, giá bán giảm) → giá trị/cp <b class="${cls(c)}">${pct(c, 1)}</b>.`, Math.abs(c)]); }
+  { const c = chg({ ...a, g1: a.g1 - 0.1, gmid: isNum(a.gmid) ? a.gmid - 0.05 : a.gmid }); if (isNum(c)) out.push(["Tăng trưởng thấp hơn kỳ vọng", `Năm 1 tăng thấp hơn 10 điểm %, năm 3 thấp hơn 5 điểm % so với giả định (${pct(a.g1 * 100, 0)} / ${pct((a.gmid ?? a.g1) * 100, 0)}) → giá trị/cp <b class="${cls(c)}">${pct(c, 1)}</b>.`, Math.abs(c)]); }
+  const hint = base.inv_hint;
+  if (ct && hint?.boom) { const neg = res0.rows.filter((x) => x.fcff < 0).length; out.push(["Chu kỳ đầu tư lớn", `Đầu tư TSCĐ 2 năm gần nhất ${pct(hint.cap_rec * 100, 0, false)} doanh thu${isNum(hint.da_r) ? `, gấp ${nf(hint.cap_rec / Math.max(hint.da_r, 0.005), 1)} lần khấu hao` : ""}${neg ? `; ${neg}/5 năm dự phóng FCFF âm` : ""}. Tài sản mới cần thời gian tạo doanh thu; chậm tiến độ / giá thuê, giá bán thấp hơn kỳ vọng → khấu hao và lãi vay ăn mòn lợi nhuận.`, 8]); }
+  const ebitda = ct ? (res0.rows[0].ebit + res0.rows[0].da) : null, nd = (base.debt || 0) - (base.cash || 0);
+  if (ct && ebitda > 0 && nd / ebitda > 2.5) out.push(["Đòn bẩy cao", `Nợ ròng ${nf(nd, 0)} tỷ = ${nf(nd / ebitda, 1)} lần EBITDA năm tới – lợi nhuận giảm hoặc lãi suất tăng sẽ khuếch đại lên cổ đông.`, 7]);
+  if (v?.flag === "det" || fa.norm?.det) out.push(["Lợi nhuận đang xấu đi", esc(v?.warning || "2 quý gần nhất thấp hơn nhiều so với cùng kỳ."), 9]);
+  if (v?.flag === "event") out.push(["Có sự kiện chưa phản ánh trong BCTC", esc(v?.warning || "Giá sụt mạnh kèm nhiều phiên giảm sàn."), 10]);
+  const tvs = res0.ff?.tv_share ?? res0.tvs;
+  if (isNum(tvs) && tvs > 0.7 && res0.ff?.sens) { const S = res0.ff.sens, all = S.v.flat().filter(isNum); out.push(["Phụ thuộc giả định dài hạn", `${nf(tvs * 100, 0)}% giá trị nằm ở giá trị cuối kỳ: WACC ±1 điểm %, tăng trưởng dài hạn ±0,5 điểm % cho khoảng ${nf(Math.min(...all))} – ${nf(Math.max(...all))}/cp.`, 5]); }
+  if ((fa.nci_share || 0) > 0.15) out.push(["Lợi ích thiểu số lớn", `${nf(fa.nci_share * 100, 0)}% lợi nhuận thuộc cổ đông không kiểm soát (công ty con không sở hữu 100%) – tăng trưởng ở các công ty con này chỉ một phần thuộc cổ đông ${esc(d.symbol)}.`, 4]);
+  const hs = (v?.model?.hist || []).map((h) => h.ni_g).filter(isNum);
+  if (hs.length >= 4) { const sd = Math.sqrt(hs.reduce((s_, x) => s_ + (x - hs.reduce((p, q) => p + q, 0) / hs.length) ** 2, 0) / hs.length); if (sd > 0.35) out.push(["Lợi nhuận mang tính chu kỳ", `Tăng trưởng lợi nhuận các năm qua dao động ±${nf(sd * 100, 0)}%/năm – dự phóng 5 năm có độ bất định cao.`, 6]); }
+  if (isNum(r.avg_value_bn) && r.avg_value_bn < 5) out.push(["Thanh khoản thấp", `Giá trị giao dịch TB ${nf(r.avg_value_bn, 1)} tỷ/phiên – khó mua/bán khối lượng lớn, giá dễ biến động.`, 3]);
+  const pe = fa.pe, pi = d.peers?.median?.pe;
+  if (isNum(pe) && isNum(pi) && pe > pi * 1.3) out.push(["Định giá cao hơn ngành", `P/E ${nf(pe, 1)} so với trung vị ngành ${nf(pi, 1)} – kết quả kém kỳ vọng dễ khiến hệ số P/E co lại.`, 4]);
+  return out.sort((x, y) => y[2] - x[2]);
+}
+function tabReport(d) {
+  if (!can("stock_full")) return lockBox("stock_full", "Báo cáo phân tích (dự phóng, FCFF, độ nhạy, rủi ro, so sánh ngành)");
+  const v = d.valuation || {};
+  if (!v.ok || !v.model) return `<div class="empty">${esc(v.reason || "Không đủ số liệu để lập báo cáo.")}</div>`;
+  const base = v.model.base, a = v.model.assumptions, ke = v.ke / 100, ct = base.model === "CT", fa = d.fa || {};
+  const rows = FC.project(base, a), D = FC.dcfD(base, a, rows, ke), ff = FC.fcff(base, a, rows, ke);
+  const res0 = { rows, dcf: D.v, tvs: D.tvs, ff };
+  const yr0 = new Date().getFullYear(), Y = rows.map((r) => `${yr0 + r.year_offset - 1}F`);
+  const H = (v.model.hist || []).filter((h) => isNum(h.ni)).slice(-3);
+  const n0 = (x) => (isNum(x) ? nf(x, 0) : "—"), neg = (x) => (isNum(x) ? (x < 0 ? `(${nf(-x, 0)})` : nf(x, 0)) : "—");
+  const p1 = (x) => (isNum(x) ? nf(x * 100, 1) + "%" : "—");
+  const sh = base.shares, price = d.row?.price;
+  const fair = v.fair, up = isNum(fair) && price ? (fair / price - 1) * 100 : null;
+  const rec = v.flag === "event" ? ["THEO DÕI – có sự kiện", "ref"] : up >= 20 ? ["MUA – tiềm năng", "up"] : up >= 5 ? ["KHẢ QUAN", "up"] : up > -10 ? ["TRUNG LẬP", "ref"] : ["KÉM KHẢ QUAN", "down"];
+  const tbl = (cap, head, body, note) => `<figure class="rfig"><figcaption>${cap}</figcaption><div class="tw"><table class="rtab"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>${note ? `<p class="faint rnote">${note}</p>` : ""}</figure>`;
+  const tr = (n, cells, cl = "") => `<tr class="${cl}"><td class="l">${n}</td>${cells.map((c) => `<td>${c}</td>`).join("")}</tr>`;
+  let fig = 0; const F = (t) => `Hình ${++fig}: ${t}`;
+  // 1) KQKD lịch sử + dự phóng
+  const hy = H.map((h) => `${h.year}A`);
+  const kq = tbl(F("Kết quả kinh doanh & dự phóng (tỷ đồng)"), `<th class="l"></th>${hy.map((x) => `<th class="ha">${x}</th>`).join("")}${Y.map((x) => `<th>${x}</th>`).join("")}`,
+    (ct ? [tr("Doanh thu thuần", [...H.map((h) => n0(h.rev)), ...rows.map((r) => n0(r.revenue))]), tr("Tăng trưởng", [...H.map((h) => p1(h.rev_g)), ...rows.map((r) => p1(r.g))]),
+      tr("Lợi nhuận gộp", [...H.map((h) => n0(isNum(h.gm) && isNum(h.rev) ? h.gm * h.rev : null)), ...rows.map((r) => n0(r.gross_profit))]),
+      tr("Biên gộp", [...H.map((h) => p1(h.gm)), ...rows.map((r) => p1(r.revenue ? r.gross_profit / r.revenue : null))]),
+      tr("EBIT", [...H.map((h) => n0(h.ebit)), ...rows.map((r) => n0(r.ebit))]), tr("Chi phí lãi vay", [...H.map((h) => n0(h.int)), ...rows.map((r) => n0(r.interest))])] : []).join("")
+    + [tr("LNST cổ đông mẹ", [...H.map((h) => n0(h.ni)), ...rows.map((r) => n0(r.ni))], "b"), tr("Tăng trưởng LN", [...H.map((h) => p1(h.ni_g)), ...rows.map((r, i) => p1(i ? r.ni / rows[i - 1].ni - 1 : base.ni ? r.ni / base.ni - 1 : null))]),
+      tr("EPS (đồng)", [...H.map((h) => n0(h.ni * 1000 / sh)), ...rows.map((r) => n0(r.eps))]), tr("ROE", [...H.map((h) => p1(h.roe)), ...rows.map((r) => p1(r.roe))]),
+      tr("ROA", [...H.map((h) => p1(isNum(h.ta) && h.ta ? h.ni / h.ta : null)), ...rows.map((r) => p1(r.roa))]), tr("P/E theo giá hiện tại", [...H.map((h) => (h.ni > 0 ? nf(price * sh / h.ni, 1) : "—")), ...rows.map((r) => (r.eps > 0 ? nf(price * 1000 / r.eps, 1) : "—"))])].join(""),
+    `Số năm A theo BCTC năm (EPS tính trên số cổ phiếu hiện tại). Năm F: kịch bản cơ sở của hệ thống, theo giả định ở tab Dự phóng & định giá.`);
+  // 2) giả định chính
+  const gs = [[`Tăng trưởng ${ct ? "doanh thu" : "lợi nhuận"} năm 1 → năm 3 → dài hạn`, `${p1(a.g1)} → ${p1(a.gmid)} → ${p1(a.gterm)}`]];
+  if (ct) gs.push(["Biên gộp hiện tại → dài hạn", `${p1(a.gm)} → ${p1(a.gm_lt)}`], ["Chi phí BH & QL / doanh thu", `${p1(a.sga)} → ${p1(a.sga_lt)}`],
+    ["Lãi suất vay bình quân · nợ vay / vốn chủ", `${p1(a.kd)} · ${nf(a.de, 2)} lần`], [base.capex_mode === "fa" ? "Khấu hao / TSCĐ đầu năm" : "Khấu hao / doanh thu", p1(a.da)],
+    base.capex_mode === "fa" ? ["Đầu tư TSCĐ: năm 1 → dài hạn", `${nf(a.capex0, 0)} tỷ → ${p1(a.capex_lt)} TSCĐ/năm (TSCĐ hiện ${nf(base.fa0, 0)} tỷ)`] : ["Đầu tư TSCĐ / doanh thu: năm 1 → dài hạn", `${p1(a.capex1)} → ${p1(a.capex_lt)}`], ["Vốn lưu động / doanh thu", p1(a.nwc)], ["Thuế suất", p1(a.tax)]);
+  if (a.inv > 0) gs.push(["Kế hoạch đầu tư mới", `${nf(a.inv, 0)} tỷ trong ${nf(a.inv_y, 0)} năm, vay ${p1(a.inv_debt)}, doanh thu thêm ${nf(a.inv_rev, 0)} tỷ/năm, biên EBIT ${p1(a.inv_m)}`]);
+  gs.push(["Chi phí vốn chủ (ke)", p1(ke)]); if (ff) gs.push(["WACC", `${p1(ff.wacc)} (lãi vay sau thuế ${p1(ff.kd_after_tax)}, tỷ trọng nợ ${p1(ff.d_weight)}${ff.wacc_raw < ff.wacc - 0.0005 ? `; tính ra ${p1(ff.wacc_raw)}, dùng mức sàn ${p1(ff.wacc)}` : ""})`]);
+  const gsT = `<figure class="rfig"><figcaption>${F("Giả định chính")}</figcaption><table class="rkv"><tbody>${gs.map(([k, x]) => `<tr><td class="l">${k}</td><td>${x}</td></tr>`).join("")}</tbody></table></figure>`;
+  // 3) FCFF + 4) cầu nối định giá
+  let fcffT = "", brT = "", sensT = "";
+  if (ct && ff) {
+    fcffT = tbl(F("Dự phóng FCFF (tỷ đồng)"), `<th class="l"></th>${Y.map((x) => `<th>${x}</th>`).join("")}`,
+      [tr("Lợi nhuận sau thuế", rows.map((r) => n0(r.ni_all))), tr("Chi phí phi tiền mặt (khấu hao)", rows.map((r) => n0(r.da))), tr("Chi phí lãi vay sau thuế", rows.map((r) => n0(r.int_at))),
+        tr("Đầu tư VLĐ", rows.map((r) => neg(-r.dnwc))), tr("Đầu tư TSCĐ", rows.map((r) => neg(-r.capex))), tr("FCFF", rows.map((r) => `<b>${neg(r.fcff)}</b>`), "b")].join(""),
+      "FCFF = LNST + khấu hao + lãi vay × (1 − thuế) − tăng vốn lưu động − đầu tư TSCĐ. Số trong ngoặc là dòng tiền chi ra.");
+    brT = `<figure class="rfig"><figcaption>${F("Định giá theo FCFF")}</figcaption><table class="rkv"><tbody>
+      ${[[`(+) Giá trị hiện tại của FCFF ${Y[0].slice(0, 4)}–${Y[Y.length - 1].slice(0, 4)}`, "Tỷ VNĐ", n0(ff.pv_fcff)], ["(+) Giá trị hiện tại của giá trị DN cuối kỳ", "Tỷ VNĐ", n0(ff.pv_tv)], ["(+) Tiền và đầu tư ngắn hạn", "Tỷ VNĐ", n0(ff.cash)],
+        ["(−) Nợ vay", "Tỷ VNĐ", n0(ff.debt)], ["(−) Lợi ích thiểu số <small>(ước tính)</small>", "Tỷ VNĐ", n0(ff.nci)], ["Giá trị vốn chủ cổ đông công ty mẹ", "Tỷ VNĐ", `<b>${n0(ff.equity_value)}</b>`],
+        ["Số lượng cổ phiếu", "Triệu cp", n0(sh)], ["Giá trị cổ phiếu", "Nghìn đ/cp", `<b>${nf(ff.per_share)}</b>`]].map(([k, u, x]) => `<tr><td class="l">${k}</td><td class="u">${u}</td><td>${x}</td></tr>`).join("")}</tbody></table>
+      <p class="faint rnote">WACC ${p1(ff.wacc)}, tăng trưởng dài hạn ${p1(a.gterm)}; giá trị cuối kỳ = (LNST + lãi vay sau thuế) năm cuối × (1 + g) × tỷ lệ không cần tái đầu tư ${p1(a.conv_term)} ÷ (WACC − g). Lợi ích thiểu số = lớn hơn của số sổ sách ước tính và phần giá trị thuộc cổ đông không kiểm soát theo tỷ lệ lợi nhuận của họ (${p1(base.minority)}) – vì FCFF tính trên LNST toàn bộ.</p></figure>`;
+    const S = ff.sens;
+    sensT = tbl(F("Độ nhạy giá trị cổ phiếu (FCFF, nghìn đ/cp)"), `<th class="l">WACC \\ g</th>${S.g.map((g) => `<th>${p1(g)}</th>`).join("")}`,
+      S.w.map((w, i) => `<tr class="${i === 2 ? "b" : ""}"><td class="l">${p1(w)}</td>${S.v[i].map((x, j) => `<td class="${i === 2 && j === 1 ? "rhl" : ""} ${isNum(x) && price ? cls(x - price) : ""}">${isNum(x) ? nf(x) : "âm"}</td>`).join("")}</tr>`).join(""),
+      `Xanh: cao hơn giá hiện tại ${nf(price)}; đỏ: thấp hơn.`);
+  }
+  // 5) tổng hợp định giá
+  const M = (v.methods || []).filter((m) => isNum(m.value));
+  const W = M.reduce((s_, m) => s_ + (m.w || 0), 0) || 1;
+  const sumT = tbl(F("Tổng hợp định giá"), `<th class="l">Phương pháp</th><th>Giá trị (nghìn đ/cp)</th><th>Xấu – Tốt</th><th>Trọng số</th>`,
+    M.map((m) => `<tr class="${m.w ? "" : "faint"}"><td class="l wrap">${esc(m.name)}</td><td><b>${nf(m.value)}</b></td><td>${nf(m.range?.[0])} – ${nf(m.range?.[1])}</td><td>${m.w ? nf(m.w / W * 100, 0) + "%" : "0%"}</td></tr>`).join("")
+    + `<tr class="b"><td class="l">Giá trị hợp lý (bình quân gia quyền, đã giảm trọng số phương pháp lệch xa)</td><td><b>${nf(fair)}</b></td><td>${nf(v.fair_lo)} – ${nf(v.fair_hi)}</td><td>100%</td></tr>`,
+    `${ct ? "Trọng số gốc: P/E 35%, P/B 15%, DCF (FCFE + FCFF) 25%, DDM 20% khi DN chia phần lớn lợi nhuận." : "Ngân hàng / CTCK / bảo hiểm: P/B hợp lý theo ROE 40%, P/B ngành 25%, P/E ngành 20%, DCF dòng tiền cho cổ đông 15%."} Phương pháp lệch xa trung vị được giảm trọng số. Mua an toàn dưới ${nf(v.buy_below)}.`);
+  // 6) rủi ro
+  const R = rptRisks(d, base, a, ke, res0);
+  const riskT = `<section class="rsec"><h3>Rủi ro giảm giá</h3><ul class="rrisk">${R.map(([t, x]) => `<li><b>${t}:</b> ${x}</li>`).join("") || "<li>Chưa phát hiện rủi ro định lượng nổi bật.</li>"}</ul>
+    <p class="faint rnote">Rủi ro định lượng tự tính từ mô hình; rủi ro vĩ mô / ngành đặc thù (giá cước, giá hàng hoá, chính sách, địa chính trị…) cần tự bổ sung theo tin tức.</p></section>`;
+  // 7) so sánh ngành
+  const P = d.peers?.fwd || [];
+  const avg = (k) => { const x = P.filter((p) => p.s !== d.symbol).map((p) => p[k]).filter((y) => isNum(y) && Math.abs(y) < 200); return x.length ? x.reduce((s_, y) => s_ + y, 0) / x.length : null; };
+  const peerT = P.length > 1 ? tbl(F("So sánh các doanh nghiệp trong ngành"), `<th class="l">Công ty</th><th>Vốn hoá (tỷ)</th><th>P/E TTM</th><th>P/B</th><th>ROA TTM</th><th>ROA ${Y[0]}</th><th>ROA ${Y[1]}</th><th>ROE TTM</th><th>ROE ${Y[0]}</th><th>ROE ${Y[1]}</th>`,
+    P.filter((p) => p.s !== d.symbol).map((p) => `<tr><td class="l"><a href="#/s/${p.s}"><b>${p.s}</b></a> <small class="faint">${esc((p.name || "").slice(0, 34))}</small></td><td>${n0(p.mcap)}</td><td>${nf(p.pe, 1)}</td><td>${nf(p.pb, 2)}</td><td>${nf(p.roa, 1)}</td><td>${nf(p.roa1, 1)}</td><td>${nf(p.roa2, 1)}</td><td>${nf(p.roe, 1)}</td><td>${nf(p.roe1, 1)}</td><td>${nf(p.roe2, 1)}</td></tr>`).join("")
+    + `<tr class="b"><td class="l">Trung bình</td><td></td>${["pe", "pb", "roa", "roa1", "roa2", "roe", "roe1", "roe2"].map((k) => `<td>${nf(avg(k), k === "pb" ? 2 : 1)}</td>`).join("")}</tr>`
+    + (() => { const me = P.find((p) => p.s === d.symbol) || {}; return `<tr class="me"><td class="l"><b>${esc(d.symbol)}</b></td><td>${n0(me.mcap)}</td><td>${nf(me.pe, 1)}</td><td>${nf(me.pb, 2)}</td><td>${nf(me.roa, 1)}</td><td>${nf(me.roa1, 1)}</td><td>${nf(me.roa2, 1)}</td><td>${nf(me.roe, 1)}</td><td>${nf(me.roe1, 1)}</td><td>${nf(me.roe2, 1)}</td></tr>`; })(),
+    "ROA, ROE theo %. Năm F: kịch bản cơ sở của hệ thống cho từng mã (cùng một phương pháp, không phải dự báo của CTCK). Chỉ so với doanh nghiệp niêm yết tại Việt Nam cùng ngành cấp 3.") : "";
+  return `<article class="rpt" id="rpt">
+    <header class="rhead"><div><h2>${esc(d.symbol)} – ${esc(d.name || "")}</h2><p class="muted">${esc(d.exchange || "")} · ${esc(d.sector || "")}${d.industry && d.industry !== d.sector ? " / " + esc(d.industry) : ""} · dữ liệu đến ${esc(d.date || "")}</p></div>
+      <div class="rbox"><span>Khuyến nghị</span><b class="${rec[1]}">${rec[0]}</b><span>Giá hiện tại <b>${nf(price)}</b> · Giá trị hợp lý <b>${nf(fair)}</b> · Tiềm năng <b class="${cls(up)}">${pct(up, 1)}</b></span></div>
+      <span data-nopdf class="rbtn"><button class="btn" id="rpPrint2">🖨️ In</button>${can("pdf") ? ` <button class="btn primary" id="rpPdf2">Lưu PDF</button>` : ""}</span></header>
+    ${corpBox(fa)}
+    <div class="rgrid">${kq}</div>
+    ${ct && ff ? `<div class="rgrid two">${gsT}${fcffT}</div><div class="rgrid two">${brT}${sensT}</div>` : gsT}
+    <div class="rgrid">${sumT}</div>
+    ${riskT}
+    ${peerT}
+    <p class="faint rnote">Báo cáo do hệ thống tự lập từ BCTC và giá thị trường; thông tin tham khảo, không phải khuyến nghị đầu tư cá nhân. Sửa giả định ở tab Dự phóng & định giá rồi bấm Lưu để báo cáo dùng giả định của anh/chị.</p>
+  </article>`;
+}
+function bindReport() {
+  $("#rpPrint2")?.addEventListener("click", () => window.print());
+  $("#rpPdf2")?.addEventListener("click", () => PDFX.thisPage());
 }
 function bindVal(d) {
   const v = d.valuation, base = v.model.base, a0 = { ...v.model.assumptions };
@@ -2421,6 +2552,7 @@ function bindVal(d) {
     const ms = v.methods.map((m) => {
       let val = m.value, lo = m.range?.[0], hi = m.range?.[1];
       if (m.key === "dcf") { val = res.base.dcf; lo = res.bear.dcf; hi = res.bull.dcf; }
+      if (m.key === "fcff") { val = res.base.ff?.per_share; lo = res.bear.ff?.per_share; hi = res.bull.ff?.per_share; }
       if (m.key === "ddm") { val = res.base.ddm; lo = res.bear.ddm; hi = res.bull.ddm; }
       return { ...m, value: val, lo, hi };
     }).filter((m) => isNum(m.value) && m.value > 0);
@@ -2544,6 +2676,7 @@ const HELP_FAQ = [
   ["Khuyến nghị", "Giá đã giảm sàn nhiều phiên, P/E chỉ 4x – có phải cơ hội vàng?", "Kiểm chứng 560 đợt 2016–2026: mua ngay khi sập hoặc bắt nhịp hồi sớm thường thua thị trường và còn sụt thêm ~30%. Cơ hội có thật nhưng đến muộn hơn: khi đủ 120 phiên từ lúc có cờ và 60 phiên liền không giảm sàn, nhất là DN còn lãi, nợ thấp. Trang mã đếm ngược số phiên còn phải chờ; thêm mã vào Theo dõi để được báo đúng lúc."],
   ["Khuyến nghị", "Giá trị hợp lý tính thế nào? Tôi muốn dùng giả định của mình.", "P/E và P/B mục tiêu theo trung vị ngành (điều chỉnh theo ROE của mã), DCF dòng tiền cho cổ đông và DDM khi phù hợp; lợi nhuận đỉnh/đáy chu kỳ được chuẩn hoá. Trong trang mã → tab Dự phóng & định giá, sửa tăng trưởng, biên lợi nhuận… giá trị hợp lý tính lại ngay và có thể lưu."],
   ["Khuyến nghị", "DCF có tính lãi vay, nợ vay và kế hoạch đầu tư (mua tàu, xây nhà máy) không?", "Có. Mô hình dự phóng rõ từng dòng: EBIT − lãi vay (lãi suất thực tế = chi phí lãi 12 tháng ÷ dư nợ vay bình quân) → lợi nhuận; dòng tiền cho cổ đông = lợi nhuận + khấu hao − đầu tư TSCĐ − tăng vốn lưu động + vay ròng (dư nợ đi theo tỷ lệ nợ/vốn chủ). Đầu tư TSCĐ đi từ nhịp 2 năm gần nhất về mức duy trì. Kế hoạch chưa có trong BCTC (vd. PVT đóng tàu mới, DN vay xây nhà máy) nhập ở mục Kế hoạch đầu tư mới: tổng vốn, số năm, % vay, doanh thu và biên khi chạy đủ – giá trị tính lại ngay. Có thêm kiểm tra chéo FCFF/WACC; DN đang đầu tư lớn có cảnh báo riêng."],
+  ["Khuyến nghị", "Tab “Báo cáo phân tích” trong trang mã là gì?", "Bản phân tích kiểu báo cáo CTCK, tự lập cho mọi mã có BCTC: kết quả kinh doanh 3 năm + dự phóng 5 năm, giả định chính, dự phóng FCFF (LNST + khấu hao + lãi vay sau thuế − đầu tư VLĐ − đầu tư TSCĐ), định giá FCFF (PV dòng tiền + PV giá trị cuối kỳ + tiền − nợ vay − lợi ích thiểu số), bảng độ nhạy WACC × tăng trưởng dài hạn, tổng hợp các phương pháp định giá, rủi ro giảm giá có lượng hoá (lãi suất +2 điểm %, biên gộp −2 điểm %, tăng trưởng thấp hơn…) và so sánh P/E, P/B, ROA, ROE dự phóng với các DN cùng ngành. Khấu hao và đầu tư tính theo tài sản cố định (không theo doanh thu). In hoặc lưu PDF được; báo cáo dùng giả định anh/chị đã lưu."],
   ["Khuyến nghị", "P/E trước và sau chia cổ tức khác nhau thế nào? Dùng số nào?", "Chia cổ tức bằng cổ phiếu / thưởng r% không tạo thêm giá trị: sau ngày GDKHQ giá giảm còn giá ÷ (1 + r), số cổ phiếu tăng (1 + r) lần, EPS giảm theo – P/E đúng thì KHÔNG đổi. Sai lệch xảy ra trong 2–6 tuần cổ phiếu mới chưa lên sàn: giá đã giảm nhưng số cổ phiếu (EPS) vẫn cũ, P/E trông rẻ hơn thật (chia 50% → rẻ giả 33%). Hệ thống luôn tính P/E, P/B, EPS, giá trị hợp lý theo số cổ phiếu SAU chia và ghi rõ P/E nếu tính theo số cũ. Cổ tức tiền các năm trước cũng được quy về số cổ phiếu hiện tại để lợi suất, tỷ lệ chi trả, DDM không cao giả. Trước ngày GDKHQ cổ tức tiền, giá còn gồm quyền nhận tiền – trang mã hiện thêm P/E sau khi trừ cổ tức để so với mã đã trả xong."],
   ["Danh mục", "Bảng “Nếu làm theo hệ thống” tính thế nào?", "Lãi/lỗ của anh/chị dựng lại từ nhật ký giao dịch + danh mục theo giá đóng cửa từng ngày (gồm phí). “Theo hệ thống” = cùng tổng vốn đi theo danh mục mẫu của phong cách đang chọn – gồm cả phần tiền mặt theo đèn: các tháng trước khi có theo dõi thực tế dùng kết quả mô phỏng (đánh dấu mp), từ khi có theo dõi thực tế dùng số thật (tt). Cần ≥ 6 tháng mới nên kết luận."],
   ["Danh mục", "Báo cáo tuần gửi lúc nào?", "Sáng thứ Bảy sau tuần giao dịch, cho người có danh mục hoặc nhật ký. Xem ở Danh mục → Báo cáo tuần (in hoặc lưu PDF); gói Pro nhận thêm email (tắt được trong Tài khoản)."],

@@ -230,9 +230,12 @@ def analyze_symbol(sym: str, qs: pd.DataFrame, ys: pd.DataFrame, price: float,
         if bv and eq:
             shares = eq * 1e9 / bv / 1e6
     equity = _num(L.get("equity"))
-    minority = _num(L.get("minority")) or 0
-    eq_parent = equity - minority if equity is not None else None
     ni = T("ni_parent") if T("ni_parent") is not None else T("net_income")
+    # Vốn chủ trên BCĐKT gồm cả lợi ích cổ đông không kiểm soát (thiểu số); nguồn không tách riêng số dư này →
+    # ước tính phần của cổ đông mẹ theo tỷ lệ lợi nhuận 12 tháng thuộc cổ đông mẹ (vd. PVT, FPT có thiểu số lớn).
+    ni_all = T("net_income")
+    msh = float(min(max(1 - ni / ni_all, 0.0), 0.6)) if ni and ni_all and ni > 0 and ni_all > 0 else 0.0
+    eq_parent = equity * (1 - msh) if equity is not None else None
     rev = T("revenue")
     if rev is None and ctype in ("NH", "CK", "BH"):
         rev = T("toi")
@@ -250,6 +253,7 @@ def analyze_symbol(sym: str, qs: pd.DataFrame, ys: pd.DataFrame, price: float,
     # vốn chủ bình quân
     eq_prev = _num(prev.get("equity")) if prev is not None else None
     eq_avg = (equity + eq_prev) / 2 if equity is not None and eq_prev is not None else equity
+    eq_avg = eq_avg * (1 - msh) if eq_avg is not None else None          # ROE = LN cổ đông mẹ ÷ vốn chủ cổ đông mẹ
     ta_prev = _num(prev.get("total_assets")) if prev is not None else None
     ta_avg = (ta + ta_prev) / 2 if ta is not None and ta_prev is not None else ta
     tax_rate = _div(T("tax"), T("pbt"))
@@ -346,7 +350,9 @@ def analyze_symbol(sym: str, qs: pd.DataFrame, ys: pd.DataFrame, price: float,
         "fscore": fscore, "fscore_tests": ftests,
         "dividend": div,
         "tax_rate": _r(tax_rate * 100, 1),
-        "equity_bn": _r(equity, 0), "debt_bn": _r(debt, 0), "cash_bn": _r(cash, 0),
+        "equity_bn": _r(equity, 0), "equity_parent_bn": _r(eq_parent, 0), "nci_bn": _r((equity or 0) - (eq_parent or 0), 0), "nci_share": _r(msh, 3),
+        "assets_bn": _r(ta, 0), "fixed_assets_bn": _r(_num(L.get("fixed_assets")), 0),
+        "debt_bn": _r(debt, 0), "cash_bn": _r(cash, 0),
         "ebit_ttm": _r(ebit, 0),
         # ngân hàng
         "nim": _r(_num(L.get("nim")), 2),

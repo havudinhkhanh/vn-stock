@@ -153,23 +153,31 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
         elif tvs is not None and tvs > 0.85 and f5 is not None and f5 < 0:
             why_off.append(f"5 năm tới dòng tiền cho cổ đông âm {abs(f5):,.0f} tỷ (đang đầu tư/vay) và {tvs * 100:.0f}% giá trị ở cuối kỳ".replace(",", "."))
         lo_, hi_ = sc["bear"]["dcf"], sc["bull"]["dcf"]
-        w_dcf = 0.25 if ctype == "CT" else 0.15
+        w_dcf = 0.125 if ctype == "CT" else 0.15          # CT: DCF chia đôi FCFE / FCFF
         note = ""
         if lo_ and hi_ and hi_ / lo_ > 2.5:
             w_dcf /= 2
             note = f" – giảm ½ trọng số: kịch bản tốt/xấu chênh {hi_ / lo_:.1f} lần"
         ff = sc["base"].get("fcff") or {}
-        if not why_off and ff.get("per_share") and sc["base"]["dcf"]:
-            q = ff["per_share"] / sc["base"]["dcf"]
-            if q > 2 or q < 0.5:
-                w_dcf /= 2
-                note += f" – giảm ½ trọng số: kiểm tra chéo FCFF/WACC lệch {q:.1f} lần"
         lbl = "DCF (dòng tiền tự do cho cổ đông)"
         if ctype == "CT" and a0.get("kd") is not None:
             lbl = f"DCF (FCFE: lãi vay {a0['kd'] * 100:.1f}%, nợ/vốn {a0.get('de', 0):.2f}".replace(".", ",") + (", có kế hoạch đầu tư" if (a0.get("inv") or 0) > 0 else "") + ")"
         methods.append({"key": "dcf", "name": lbl + (f" – không dùng: {'; '.join(why_off)}" if why_off else note),
                         "value": sc["base"]["dcf"], "w": 0.0 if why_off else w_dcf,
                         "range": [lo_, hi_], "off": why_off or None, "fcff": ff or None})
+        # FCFF (chiết khấu theo WACC, trừ nợ ròng & lợi ích thiểu số) – cách các CTCK hay dùng
+        if ctype == "CT" and ff.get("per_share"):
+            ffo = []
+            if (ff.get("tv_share") or 0) > 0.9:
+                ffo.append(f"{ff['tv_share'] * 100:.0f}% giá trị nằm ở giá trị cuối kỳ")
+            fl, fh = (sc["bear"].get("fcff") or {}).get("per_share"), (sc["bull"].get("fcff") or {}).get("per_share")
+            w_ff, nt = 0.125, ""
+            if fl and fh and fh / fl > 2.5:
+                w_ff /= 2
+                nt = f" – giảm ½ trọng số: kịch bản tốt/xấu chênh {fh / fl:.1f} lần"
+            methods.append({"key": "fcff", "name": (f"DCF FCFF (WACC {ff['wacc'] * 100:.1f}%, trừ nợ ròng & thiểu số)".replace(".", ",")
+                                                    + (f" – không dùng: {'; '.join(ffo)}" if ffo else nt)),
+                            "value": ff["per_share"], "w": 0.0 if ffo else w_ff, "range": [fl, fh], "off": ffo or None})
     # 2) DDM
     div = fa.get("dividend") or {}
     payout = (model or {}).get("assumptions", {}).get("payout", 0) if model else 0

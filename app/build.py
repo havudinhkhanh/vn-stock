@@ -235,6 +235,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             return sh / f
         return None
     split_info: dict = {}
+    fwd_by: dict = {}
 
     def corp_view(sym: str, fa: dict, price: float, d_last) -> dict | None:
         """P/E quanh các đợt chia cổ tức: P/E đúng (số CP sau chia), P/E nếu tính theo số CP cũ, P/E trừ cổ tức tiền sắp nhận."""
@@ -447,6 +448,13 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         elif ep:
             ev_active.append({"symbol": s, "sector": r.get("sector"), **{k: ep[k] for k in ("start", "since", "quiet", "dd_now", "n_down", "wait_since", "wait_quiet", "price", "low")}})
         d["val"] = val
+        try:
+            br_ = ((val.get("scenarios") or {}).get("base") or {}).get("rows") or []
+            if len(br_) >= 2:
+                fwd_by[s] = {"roe1": br_[0].get("roe"), "roe2": br_[1].get("roe"), "roa1": br_[0].get("roa"), "roa2": br_[1].get("roa"),
+                             "ni1": br_[0].get("ni"), "ni2": br_[1].get("ni")}
+        except Exception:  # noqa: BLE001
+            pass
         if val.get("ok"):
             u.at[s, "verdict"] = val["verdict"]
             u.at[s, "val_flag"] = val.get("flag")
@@ -851,7 +859,12 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             "peers": {"cols": ["symbol", "price", "mcap_bn", "pe", "pb", "roe", "ni_yoy", "rev_yoy", "de",
                                "fscore", "div_yield", "upside", "composite"], "rows": peer_rows,
                       "median": {k: r.get(f"{k}_ind_med") for k in fu.PEER_METRICS},
-                      "pctl": {k: r.get(f"{k}_pctl") for k in fu.PEER_METRICS}, "n": r.get("peers_n")},
+                      "pctl": {k: r.get(f"{k}_pctl") for k in fu.PEER_METRICS}, "n": r.get("peers_n"),
+                      # so sánh kiểu báo cáo CTCK: P/E, P/B hiện tại + ROA/ROE dự phóng 2 năm (kịch bản cơ sở của từng mã)
+                      "fwd": [{"s": x, "name": u.at[x, "name"], "mcap": _f(u.at[x, "mcap_bn"]), "pe": _f(u.at[x, "pe"]), "pb": _f(u.at[x, "pb"]),
+                               "roa": _f(u.at[x, "roa"]), "roe": _f(u.at[x, "roe"]),
+                               **{k: (_f(100 * v) if v is not None else None) for k, v in (fwd_by.get(x) or {}).items() if k.startswith("ro")}}
+                              for x in list(dict.fromkeys([s] + list(peers["symbol"].head(8))))]},
             "scores": {k: r.get(k) for k in list(st.METHOD_INFO) + ["composite", "rs_rating", "canslim_flags"]},
             "baskets": [b for b in st.BASKETS if r.get(f"in_{b}") is True],
             "levels": lv, "timing": {"ok": ok_t, "reason": why_t},

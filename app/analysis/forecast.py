@@ -64,11 +64,18 @@ def history(ys: pd.DataFrame) -> list[dict]:
         cash = (_num(r.get("cash")) or 0) + (_num(r.get("st_invest")) or 0)
         eb, ebit = _num(r.get("ebitda")), _num(r.get("ebit"))
         cx, it = _num(r.get("capex")), _num(r.get("interest_exp"))
+        row["ebit"] = ebit
         row.update({"capex_r": abs(cx) / rev if cx is not None and rev and rev > 0 else None,
                     "da_r": (eb - ebit) / rev if eb is not None and ebit is not None and rev and rev > 0 and eb >= ebit else None,
                     "debt": debt, "net_debt": debt - cash, "int": abs(it) if it is not None else None,
                     "de": debt / eq if eq and eq > 0 else None,
                     "fa_r": (_num(r.get("fixed_assets")) or 0) / rev if rev and rev > 0 else None, "capex": abs(cx) if cx is not None else None})
+        fa_ = _num(r.get("fixed_assets"))
+        row["fa"], row["ta"] = fa_, _num(r.get("total_assets"))
+        row["da"] = (eb - ebit) if eb is not None and ebit is not None and eb >= ebit else None
+        if prev and prev.get("fa") and prev["fa"] > 0:
+            row["da_fa"] = row["da"] / prev["fa"] if row["da"] is not None else None
+            row["capex_fa"] = abs(cx) / prev["fa"] if cx is not None else None
         if prev and prev.get("debt") is not None and row["int"] and (debt + prev["debt"]) > 0:
             row["kd"] = row["int"] / ((debt + prev["debt"]) / 2) if (debt + prev["debt"]) / 2 > 20 else None
         if prev:
@@ -103,7 +110,7 @@ def build_base(fa: dict, ys: pd.DataFrame, ttm_row: pd.Series | None, sector_gro
     model = "CT" if ctype == "CT" else "FIN"
     shares = fa["shares_mn"]
     ni = fa.get("ni_ttm")
-    eq = fa.get("equity_bn")
+    eq = fa.get("equity_parent_bn") or fa.get("equity_bn")
     if ni is None or eq is None or eq <= 0:
         return None
     nfac = float((fa.get("norm") or {}).get("f") or 1.0)
@@ -153,7 +160,8 @@ def build_base(fa: dict, ys: pd.DataFrame, ttm_row: pd.Series | None, sector_gro
         conv = None
 
     base = {"model": model, "shares": shares, "equity": eq, "ni": ni, "price": fa.get("price"), "bvps": fa.get("bvps"),
-            "years": int(cfg.get("forecast_years", 5))}
+            "years": int(cfg.get("forecast_years", 5)), "nci": fa.get("nci_bn") or 0.0, "ta": fa.get("assets_bn"),
+            "wacc_min": float(cfg.get("wacc_min", 10.0)) / 100}
     a = {"g1": round(g1, 4), "gmid": round(gmid, 4), "gterm": round(gterm, 4), "payout": round(payout, 3),
          "conv": round(conv, 3) if conv is not None else None, "conv_raw": round(conv_raw, 3) if conv_raw is not None else None}
     if model == "CT":
@@ -203,24 +211,39 @@ def build_base(fa: dict, ys: pd.DataFrame, ttm_row: pd.Series | None, sector_gro
         fa_r = _median([h.get("fa_r") for h in H[-2:]], 0.3, 0.0, 5.0)
         capex_lt = float(np.clip(da_r + gterm * fa_r, 0.0, 0.5))
         capex1 = float(np.clip(cap_rec, 0.0, 0.8))
+        # khấu hao & đầu tư theo TÀI SẢN CỐ ĐỊNH (không theo doanh thu: doanh thu thương mại biên thấp không cần thêm tàu/nhà máy)
+        fa0 = g_("fixed_assets") or fa.get("fixed_assets_bn") or (H[-1].get("fa") if H else None)
+        da_fa = _median([h.get("da_fa") for h in H[-3:]], None, 0.02, 0.5)
+        cabs = [h.get("capex") for h in H[-2:] if h.get("capex") is not None]
+        capex0 = float(np.mean(cabs)) if cabs else None          # tỷ đồng: nhịp đầu tư 2 năm gần nhất (không chia cho TSCĐ – TSCĐ hay nhảy khi dự án dở dang hoàn thành)
+        fa_mode = bool(fa0 and rev and fa0 > 0.03 * rev and da_fa is not None and capex0 is not None)
         rec, inv_, cl, sd = g_("receivables") or 0, g_("inventory") or 0, g_("current_liab") or 0, g_("st_debt") or 0
         nwc = float(np.clip((rec + inv_ - (cl - sd)) / rev, -0.3, 0.6)) if rev else 0.0
         ebit_m = (gp - sga_now * rev) / rev if rev else 0.1
-        base.update({"revenue": rev, "interest": interest, "other": other, "minority": minority, "debt": debt0, "cash": cash0})
+        base.update({"revenue": rev, "interest": interest, "other": other, "minority": minority, "debt": debt0, "cash": cash0,
+                     "capex_mode": "fa" if fa_mode else "rev", "fa0": fa0})
         roe_lt = _median([h["roe"] for h in H], 0.12, 0.06, 0.30)
         conv_term = float(np.clip(1 - gterm / max(roe_lt, 0.06), 0.3, 0.95))
         a.pop("conv", None)
+        if fa_mode:
+            da_r, capex1, capex_lt = da_fa, None, float(np.clip(da_fa + gterm, 0.0, 0.6))
         a.update({"gm": round(gm_now, 4), "gm_lt": round(gm_lt, 4), "sga": round(sga_now, 4), "sga_lt": round(sga_lt, 4),
                   "tax": (fa.get("tax_rate") or 20) / 100, "conv_term": round(conv_term, 3),
-                  "kd": round(kd, 4), "de": round(float(np.clip(de0, 0, 3)), 3), "da": round(da_r, 4), "capex1": round(capex1, 4), "capex_lt": round(capex_lt, 4),
+                  "kd": round(kd, 4), "de": round(float(np.clip(de0, 0, 3)), 3), "da": round(da_r, 4), "capex1": round(capex1, 4) if capex1 is not None else None,
+                  "capex0": round(capex0, 0) if fa_mode else None, "capex_lt": round(capex_lt, 4),
                   "nwc": round(nwc, 4), "inv": 0.0, "inv_y": 2.0, "inv_debt": 0.6, "inv_rev": 0.0, "inv_m": round(float(np.clip(ebit_m, 0.02, 0.5)), 4)})
         why["kd"] = (f"lãi vay 12 tháng {interest:,.0f} tỷ ÷ dư nợ vay bình quân {avg_d:,.0f} tỷ".replace(",", ".") if kd0 else "chưa đủ số liệu lãi vay – dùng 8%") + " (giới hạn 3–15%)"
         why["de"] = f"nợ vay {debt0:,.0f} tỷ ÷ vốn chủ {eq:,.0f} tỷ hiện tại – dư nợ tăng theo vốn chủ (vay ròng tính vào dòng tiền)".replace(",", ".")
-        why["da"] = "khấu hao ÷ doanh thu, trung vị 3 năm (EBITDA − EBIT)"
+        why["da"] = ("khấu hao ÷ TSCĐ đầu năm, trung vị 3 năm (EBITDA − EBIT)" if fa_mode else "khấu hao ÷ doanh thu, trung vị 3 năm (EBITDA − EBIT)")
+        why["de"] = f"nợ vay {debt0:,.0f} tỷ ÷ vốn chủ cổ đông mẹ {eq:,.0f} tỷ hiện tại – dư nợ tăng theo vốn chủ (vay ròng tính vào dòng tiền)".replace(",", ".")
         boom = (cap_rec > 0.04 and cap_rec > 1.6 * cap_med and cap_rec > da_r * 1.5) or (cap_rec > 0.1 and cap_rec > 1.8 * max(da_r, 0.005))
         why["capex1"] = (f"nhịp đầu tư TSCĐ 2 năm gần nhất {_pct(cap_rec)} doanh thu (5 năm: {_pct(cap_med)}; khấu hao {_pct(da_r)})"
                          + (" – ĐANG TRONG CHU KỲ ĐẦU TƯ LỚN (mua tài sản / xây nhà máy); nếu biết kế hoạch cụ thể, nhập vào Kế hoạch đầu tư bên dưới" if boom else ""))
         why["capex_lt"] = f"mức duy trì: khấu hao {_pct(da_r)} + tăng trưởng dài hạn × TSCĐ/doanh thu ({fa_r:.2f}) – đầu tư đi dần từ nhịp hiện tại về mức này"
+        if fa_mode:
+            why["capex0"] = (f"bình quân 2 năm gần nhất {capex0:,.0f} tỷ/năm (TSCĐ hiện {fa0:,.0f} tỷ, khấu hao {_pct(da_fa)}/năm) – đi dần về mức duy trì".replace(",", ".")
+                             + (" – ĐANG TRONG CHU KỲ ĐẦU TƯ LỚN; nếu biết kế hoạch cụ thể, nhập ở Kế hoạch đầu tư bên dưới và hạ ô này" if boom else ""))
+            why["capex_lt"] = f"mức duy trì: khấu hao {_pct(da_fa)} + tăng trưởng dài hạn {_pct(gterm)} (TSCĐ tăng cùng tốc độ DN) – đi dần từ nhịp hiện tại về mức này"
         why["nwc"] = "(phải thu + tồn kho − nợ ngắn hạn không phải vay) ÷ doanh thu – doanh thu tăng thì cần thêm vốn lưu động"
         why["inv"] = "kế hoạch đầu tư mới chưa nằm trong số liệu (vd. hợp đồng đóng tàu, nhà máy mới) – mặc định 0, anh tự nhập theo công bố của DN"
         why["inv_m"] = f"biên EBIT của phần doanh thu mới – mặc định bằng biên EBIT hiện tại {_pct(ebit_m)}"
@@ -237,7 +260,8 @@ def build_base(fa: dict, ys: pd.DataFrame, ttm_row: pd.Series | None, sector_gro
     hist = [{"year": h["year"], "rev_g": _r(h["rev_g"], 4), "ni_g": _r(h["ni_g"], 4), "gm": _r(h["gm"], 4), "sga": _r(h["sga"], 4),
              "conv": _r(h["conv"], 3), "roe": _r(h["roe"], 4), "capex_r": _r(h.get("capex_r"), 4), "da_r": _r(h.get("da_r"), 4),
              "capex": _r(h.get("capex"), 0), "debt": _r(h.get("debt"), 0), "net_debt": _r(h.get("net_debt"), 0), "kd": _r(h.get("kd"), 4),
-             "de": _r(h.get("de"), 3)} for h in H[-8:]]
+             "de": _r(h.get("de"), 3), "rev": _r(h.get("rev"), 0), "ni": _r(h.get("ni"), 0), "ta": _r(h.get("ta"), 0), "fa": _r(h.get("fa"), 0),
+             "da": _r(h.get("da"), 0), "da_fa": _r(h.get("da_fa"), 4), "capex_fa": _r(h.get("capex_fa"), 4), "ebit": _r(h.get("ebit"), 0), "int": _r(h.get("int"), 0)} for h in H[-8:]]
     return {"base": base, "assumptions": a, "why": why, "hist": hist}
 
 
@@ -276,10 +300,13 @@ def project(base: dict, a: dict) -> list[dict]:
     rows = []
     equity = base["equity"]
     shares = base["shares"]
+    fa_mode = base.get("capex_mode") == "fa" and base.get("fa0")
+    eq0, ta0 = base["equity"], base.get("ta")
     if base["model"] == "CT":
         rev_core = rev_prev = base["revenue"]
         debt_prev = base.get("debt") or 0.0
         plan_debt = 0.0
+        fa_prev = float(base.get("fa0") or 0.0)
     ni_prev = base["ni"]
     P = path(a, n)
     for t in range(1, n + 1):
@@ -304,15 +331,21 @@ def project(base: dict, a: dict) -> list[dict]:
             ni_all = pbt - tax
             ni = ni_all * (1 - base["minority"])
             f = (t - 1) / max(1, n - 1)
-            capex_r = a["capex1"] + (a["capex_lt"] - a["capex1"]) * f
-            da = a["da"] * rev_core + (inv / 15 if inv > 0 and t > ny else 0.0)
-            capex = capex_r * rev_core + capex_plan
+            capex_r = (a["capex1"] + (a["capex_lt"] - a["capex1"]) * f) if a.get("capex1") is not None else 0.0
+            if fa_mode:
+                da = a["da"] * fa_prev
+                capex = float(a.get("capex0") or 0) * (1 - f) + a["capex_lt"] * fa_prev * f + capex_plan
+                fa_prev = fa_prev + capex - da
+            else:
+                da = a["da"] * rev_core + (inv / 15 if inv > 0 and t > ny else 0.0)
+                capex = capex_r * rev_core + capex_plan
             dnwc = a["nwc"] * (rev - rev_prev)
             borrow = debt - debt_prev
             fcfe = (ni_all + da - capex - dnwc + borrow) * (1 - base["minority"])
-            fcff = ebit * (1 - a["tax"]) + da - capex - dnwc
-            row = {"revenue": rev, "gross_profit": gp, "sga": sga, "ebit": ebit, "interest": interest, "pbt": pbt, "ni": ni,
-                   "da": da, "capex": capex, "dnwc": dnwc, "debt": debt, "borrow": borrow, "fcff": fcff}
+            int_at = interest * (1 - a["tax"])
+            fcff = ni_all + int_at + da - capex - dnwc        # LNST + lãi vay sau thuế + khấu hao − đầu tư TSCĐ − tăng VLĐ
+            row = {"revenue": rev, "gross_profit": gp, "sga": sga, "ebit": ebit, "interest": interest, "pbt": pbt, "ni": ni, "ni_all": ni_all,
+                   "int_at": int_at, "da": da, "capex": capex, "dnwc": dnwc, "debt": debt, "borrow": borrow, "fcff": fcff, "fa": fa_prev if fa_mode else None}
             debt_prev, rev_prev = debt, rev
         else:
             ni = ni_prev * (1 + g)
@@ -323,6 +356,14 @@ def project(base: dict, a: dict) -> list[dict]:
         dps = max(0.0, eps * a["payout"])
         eq_prev = equity
         equity = equity + ni - dps * shares / 1000
+        if ta0:
+            if base["model"] == "CT":
+                ta_t = ta0 + (equity - eq0) + (row["debt"] - (base.get("debt") or 0))
+            else:
+                ta_t = ta0 * equity / eq0 if eq0 else ta0
+            ta_p = rows[-1]["ta"] if rows else ta0
+            row["ta"] = ta_t
+            row["roa"] = ni / ((ta_p + ta_t) / 2) if ta_t and ta_p else None
         row.update({"year_offset": t, "g": g, "eps": eps, "dps": dps, "fcfe": fcfe,
                     "equity": equity, "bvps": equity * 1000 / shares,
                     "roe": ni / eq_prev if eq_prev > 0 else None})
@@ -352,23 +393,43 @@ def dcf_detail(base: dict, a: dict, rows: list[dict], ke: float) -> tuple[float 
     return val / base["shares"], (tv / val if val else None)
 
 
-def fcff_detail(base: dict, a: dict, rows: list[dict], ke: float) -> dict | None:
-    """Kiểm tra chéo: chiết khấu dòng tiền cho toàn doanh nghiệp theo WACC rồi trừ nợ ròng."""
-    if base["model"] != "CT" or not rows or not base.get("price"):
-        return None
-    E = base["price"] * base["shares"]          # nghìn đồng × triệu cp = tỷ đồng
+def wacc_of(base: dict, a: dict, ke: float) -> dict:
+    E = (base.get("price") or 0) * base["shares"]          # nghìn đồng × triệu cp = tỷ đồng
     D = float(base.get("debt") or 0)
     kd_at = float(a.get("kd") or 0.08) * (1 - a["tax"])
     w = (E * ke + D * kd_at) / (E + D) if E + D > 0 else ke
-    g = a["gterm"]
+    # sàn WACC: vay ngân hàng rẻ (DN lớn, quốc doanh) không làm chi phí vốn toàn DN thấp hơn mức này (mặc định 10%)
+    return {"w": max(w, float(base.get("wacc_min") or 0.10), a["gterm"] + 0.01), "w_raw": w, "E": E, "D": D, "kd_at": kd_at}
+
+
+def fcff_value(base: dict, a: dict, rows: list[dict], w: float, g: float | None = None) -> dict:
+    g = a["gterm"] if g is None else g
     w = max(w, g + 0.01)
     pv = sum(r["fcff"] / (1 + w) ** r["year_offset"] for r in rows)
     last = rows[-1]
-    tv = last["ebit"] * (1 - a["tax"]) * (1 + g) * float(a.get("conv_term") or 0.7) / (w - g) / (1 + w) ** len(rows)
-    ev = pv + tv
-    eqv = (ev - D + float(base.get("cash") or 0)) * (1 - base["minority"])
-    return {"wacc": _r(w, 4), "ev": _r(ev, 0), "net_debt": _r(D - float(base.get("cash") or 0), 0), "per_share": _r(eqv / base["shares"], 2) if eqv > 0 else None,
-            "kd_after_tax": _r(kd_at, 4), "d_weight": _r(D / (E + D), 3) if E + D > 0 else None}
+    tv = (last["ni_all"] + last["int_at"]) * (1 + g) * float(a.get("conv_term") or 0.7) / (w - g)
+    pv_tv = tv / (1 + w) ** len(rows)
+    cash, D = float(base.get("cash") or 0), float(base.get("debt") or 0)
+    # lợi ích thiểu số: lớn hơn của sổ sách (ước tính) và phần giá trị theo tỷ lệ lợi nhuận thuộc thiểu số (FCFF tính trên LNST toàn bộ)
+    nci = max(float(base.get("nci") or 0), float(base.get("minority") or 0) * max(0.0, pv + pv_tv + cash - D))
+    eqv = pv + pv_tv + cash - D - nci
+    return {"pv_fcff": pv, "tv": tv, "pv_tv": pv_tv, "ev": pv + pv_tv, "cash": cash, "debt": D, "nci": nci, "equity_value": eqv,
+            "per_share": eqv / base["shares"] if eqv > 0 else None}
+
+
+def fcff_detail(base: dict, a: dict, rows: list[dict], ke: float) -> dict | None:
+    """Định giá theo FCFF (kiểu báo cáo CTCK): PV(FCFF) + PV(giá trị cuối kỳ) + tiền − nợ vay − lợi ích thiểu số = giá trị cổ đông mẹ."""
+    if base["model"] != "CT" or not rows or not base.get("price"):
+        return None
+    W = wacc_of(base, a, ke)
+    v = fcff_value(base, a, rows, W["w"])
+    g = a["gterm"]
+    sens = {"w": [round(W["w"] + d, 4) for d in (-0.01, -0.005, 0, 0.005, 0.01)], "g": [round(g + d, 4) for d in (-0.005, 0, 0.005)]}
+    sens["v"] = [[_r(fcff_value(base, a, rows, ww, gg)["per_share"], 2) for gg in sens["g"]] for ww in sens["w"]]
+    return {"wacc": _r(W["w"], 4), "wacc_raw": _r(W["w_raw"], 4), "ke": _r(ke, 4), "kd_after_tax": _r(W["kd_at"], 4), "d_weight": _r(W["D"] / (W["E"] + W["D"]), 3) if W["E"] + W["D"] > 0 else None,
+            "pv_fcff": _r(v["pv_fcff"], 0), "pv_tv": _r(v["pv_tv"], 0), "ev": _r(v["ev"], 0), "cash": _r(v["cash"], 0), "debt": _r(v["debt"], 0),
+            "nci": _r(v["nci"], 0), "equity_value": _r(v["equity_value"], 0), "net_debt": _r(v["debt"] - v["cash"], 0),
+            "per_share": _r(v["per_share"], 2), "shares": _r(base["shares"], 1), "tv_share": _r(v["pv_tv"] / v["ev"], 3) if v["ev"] > 0 else None, "sens": sens}
 
 
 def dcf_value(base: dict, a: dict, rows: list[dict], ke: float) -> float | None:
@@ -408,6 +469,6 @@ def scenarios(model: dict, ke: float) -> dict:
             "dcf": _r(dv, 2), "tv_share": _r(tvs, 3), "fcff": fcff_detail(base, a, rows, ke),
             "fcfe5": _r(sum(r["fcfe"] for r in rows), 0),
             "ddm": _r(ddm_value(base, a, rows, ke), 2),
-            "rows": [{kk: (_r(v, 2) if isinstance(v, float) else v) for kk, v in r.items()} for r in rows],
+            "rows": [{kk: (_r(v, 4 if kk in ("g", "roe", "roa") else 2) if isinstance(v, float) else v) for kk, v in r.items()} for r in rows],
         }
     return out

@@ -993,3 +993,23 @@ th.brand{color:var(--brand)}
 }
 .corpb{margin-top:8px;border-left:3px solid var(--ref);background:color-mix(in srgb,var(--ref) 8%,transparent);padding:6px 10px;border-radius:6px;display:grid;gap:5px}
 .corpb p{font-size:.78rem;line-height:1.4;margin:0}
+/* báo cáo phân tích kiểu CTCK */
+.rpt{background:var(--surface);border-radius:12px;padding:16px 18px;display:grid;gap:14px}
+.rhead{display:flex;gap:14px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;border-bottom:2px solid var(--brand);padding-bottom:10px}
+.rhead h2{margin:0;font-size:1.25rem}.rbox{display:grid;gap:2px;text-align:right;font-size:.8rem}.rbox>b{font-size:1.05rem}
+.rgrid{display:grid;gap:14px}.rgrid.two{grid-template-columns:repeat(auto-fit,minmax(min(100%,430px),1fr))!important}
+.rfig{margin:0}.rfig figcaption{font-weight:700;font-size:.84rem;margin-bottom:4px}
+.rtab{font-size:.78rem}.rtab td,.rtab th{padding:4px 7px;white-space:nowrap}.rtab tr.b td{font-weight:700;border-top:1px solid var(--line)}
+.rtab th.ha{color:var(--ink-3)}.rtab tr:nth-child(even) td{background:color-mix(in srgb,var(--brand) 4%,transparent)}
+.rtab tr.me td{background:color-mix(in srgb,var(--brand) 12%,transparent)}.rtab td.rhl{outline:2px solid var(--brand);font-weight:700}
+.rkv{width:100%;font-size:.8rem;border-collapse:collapse}.rkv td{padding:5px 8px;border-bottom:1px solid var(--line)}.rkv td:last-child{text-align:right;white-space:nowrap}.rkv td.u{color:var(--ink-3);white-space:nowrap}
+.rkv tr:nth-child(odd) td{background:color-mix(in srgb,var(--brand) 5%,transparent)}
+.rnote{font-size:.7rem;margin-top:4px}.rsec h3{margin:0 0 6px;font-size:.95rem}
+.rrisk{margin:0;padding-left:18px;display:grid;gap:6px;font-size:.8rem;line-height:1.45}
+@media print{.rpt{padding:0}.rgrid.two{grid-template-columns:1fr 1fr}.subtabs,#chartWrap{display:none!important}}
+.rpt,.rpt>*{min-width:0}.rhead>div{flex:1 1 260px;min-width:0}.rhead h2{overflow-wrap:anywhere}
+@media (max-width:640px){.rbox{text-align:left}.rpt{padding:12px}}
+.rkv td:last-child{white-space:normal;overflow-wrap:break-word}.rkv{table-layout:auto}
+.rgrid{grid-template-columns:minmax(0,1fr)}.rfig{min-width:0}
+@media (max-width:640px){.rkv td{font-size:.74rem;padding:4px 5px}.rkv td:last-child{overflow-wrap:anywhere;min-width:7.5em}}
+.rkv td.l{white-space:normal}
