@@ -11,8 +11,14 @@ const wantsHtml = (request, p) => p === "/" || p.endsWith(".html") || !/\.[a-z0-
 
 export async function onRequest(ctx) {
   const { request, env, next } = ctx;
-  if (!env.DB) return next();
   const url = new URL(request.url), p = url.pathname;
+  if (!env.DB) {
+    // Chế độ cũ chỉ an toàn khi có Cloudflare Access đứng trước. Không có Access và cũng chưa gắn D1 → khoá lại,
+    // tránh lộ dữ liệu nếu một lần triển khai bị thiếu cơ sở dữ liệu đăng nhập.
+    if (request.headers.get("cf-access-jwt-assertion") || url.hostname === "localhost" || url.hostname === "127.0.0.1") return next();
+    if (PUBLIC.some((rx) => rx.test(p)) && !p.startsWith("/api/")) return next();
+    return new Response("Hệ thống đăng nhập đang bảo trì – vui lòng thử lại sau ít phút.", { status: 503, headers: { "content-type": "text/plain; charset=utf-8", "retry-after": "300" } });
+  }
   if (PUBLIC.some((rx) => rx.test(p))) return next();
   await ensureSchema(env);
   const s = await getSession(request, env);

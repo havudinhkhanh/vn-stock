@@ -168,6 +168,8 @@ jobs:
           npx --yes wrangler@3 pages deploy --project-name vn-stock --branch main --commit-dirty=true
           # kiểm tra trang đã được khoá đăng nhập chưa (302 sang cloudflareaccess.com = đã khoá)
           curl -s -o /dev/null -w "%{http_code} %{redirect_url}\n" https://vn-stock.pages.dev/ > data/site_check.txt || true
+          # dữ liệu phải bị chặn khi chưa đăng nhập (401 = đúng; 200 = đang lộ)
+          curl -s -o /dev/null -w "data %{http_code}\n" https://vn-stock.pages.dev/data/today.json >> data/site_check.txt || true
 
       - name: Đẩy log chạy & dữ liệu kiểm tra lên nhánh status
         if: always() && steps.slot.outputs.skip != 'true' && steps.slot.outputs.mode == 'full'
