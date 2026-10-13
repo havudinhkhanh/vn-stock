@@ -879,11 +879,13 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             for src in (news_hist.get(s_), news_all.get(s_)):
                 if src is None:
                     continue
-                m = src[(src["time"] >= st_ - pd.Timedelta(days=150)) & (src["time"] <= pd.Timestamp(e["low_date"]) + pd.Timedelta(days=10))]
+                i_ = d_["df"].index.get_indexer([st_])[0]
+                hi_ = d_["df"]["close"].iloc[max(0, i_ - 120):i_ + 1].idxmax() if i_ >= 0 else st_ - pd.Timedelta(days=120)
+                m = src[(src["time"] >= hi_ - pd.Timedelta(days=20)) & (src["time"] <= pd.Timestamp(e["low_date"]) + pd.Timedelta(days=20))]
                 nws += [{"t": str(pd.Timestamp(x.time).date()), "title": x.title, "link": getattr(x, "link", None)} for x in m.itertuples()]
             nws = sorted({n["title"]: n for n in nws}.values(), key=lambda n: n["t"])
             try:
-                e["why"] = evx.describe(e, d_["df"]["close"], d_["df"].get("volume"), idx["close"], f, name, fq_by.get(s_), nws[-8:], s_)
+                e["why"] = evx.describe(e, d_["df"]["close"], d_["df"].get("volume"), idx["close"], f, name, fq_by.get(s_), nws, s_)
             except Exception as ex:  # noqa: BLE001
                 log.debug("mô tả sự kiện %s lỗi: %s", s_, ex)
         return H

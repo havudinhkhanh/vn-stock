@@ -153,6 +153,28 @@ def _vn(x, nd=1) -> str:
     return ("−" if x < 0 else "+") + s
 
 
+# tin CBTT đáng chú ý khi giá sập (điểm càng cao càng có thể là nguyên nhân / hệ quả trực tiếp)
+_KEYS = [(5, ("khởi tố", "bắt tạm giam", "bị bắt", "điều tra", "truy tố", "công an", "thao túng")),
+         (4, ("giải chấp", "bán giải chấp", "call margin", "xử lý tài sản bảo đảm", "phong toả", "phong tỏa", "kê biên")),
+         (4, ("giảm sàn", "giải trình", "biến động giá")),
+         (4, ("ngoại trừ", "từ chối đưa ra ý kiến", "không đưa ra ý kiến", "kiểm toán", "nghi ngờ khả năng hoạt động liên tục")),
+         (4, ("hủy niêm yết", "huỷ niêm yết", "hủy bỏ niêm yết", "cảnh báo", "kiểm soát", "đình chỉ", "tạm ngừng giao dịch", "hạn chế giao dịch")),
+         (3, ("cưỡng chế", "xử phạt", "vi phạm", "truy thu", "nợ quá hạn", "chậm thanh toán", "mất khả năng", "vỡ nợ", "chậm trả")),
+         (3, ("cổ đông lớn", "thay đổi sở hữu", "bán ra", "đăng ký bán", "không còn là cổ đông lớn", "thoái vốn")),
+         (2, ("từ nhiệm", "miễn nhiệm", "đơn từ chức", "thay đổi chủ tịch", "thay đổi tổng giám đốc", "bổ nhiệm")),
+         (2, ("lỗ", "sụt giảm lợi nhuận", "chênh lệch lợi nhuận", "giải trình chênh lệch")),
+         (1, ("trái phiếu", "chậm công bố", "chậm cbtt", "nhắc nhở", "chuyển nhượng"))]
+
+
+def rank_news(news: list[dict]) -> list[dict]:
+    out = []
+    for n in news or []:
+        t = str(n.get("title", "")).lower()
+        sc = max([w for w, ks in _KEYS if any(k in t for k in ks)] or [0])
+        out.append({**n, "score": sc})
+    return out
+
+
 def describe(e: dict, close: pd.Series, vol: pd.Series | None, vni: pd.Series | None, sec_ret, sec_name: str | None,
              fq: pd.DataFrame | None, news: list[dict] | None, sym: str) -> dict:
     """Mô tả một đợt sự kiện: sập theo thị trường / theo ngành / chuyện riêng DN, các phiên giảm sàn, thanh khoản lúc bán tháo,
@@ -181,11 +203,13 @@ def describe(e: dict, close: pd.Series, vol: pd.Series | None, vni: pd.Series | 
         kind = "market"
     elif sr is not None and sr <= -30:
         kind = "sector"
+    elif (mk is not None and mk <= -15) or (sr is not None and sr <= -20):
+        kind = "mixed"
     else:
         kind = "company"
     out["kind"] = kind
     out["label"] = {"market": "Thị trường chung sập", "sector": f"Cả ngành {sec_name or ''} cùng sập".replace("  ", " "),
-                    "company": "Chuyện riêng của doanh nghiệp"}[kind]
+                    "mixed": "Thị trường yếu + chuyện riêng", "company": "Chuyện riêng của doanh nghiệp"}[kind]
     # phiên giảm sàn (≤ −6,5%) từ đỉnh tới đáy
     r = c.pct_change()
     w = r.loc[ph_d:low_d]
@@ -219,7 +243,11 @@ def describe(e: dict, close: pd.Series, vol: pd.Series | None, vni: pd.Series | 
             if k in by and pd.notna(by[k]):
                 fin.append({"q": f"Q{k % 4 + 1}/{(k // 4) % 100:02d}", "ni": _r(by[k], 1), "ly": _r(by.get(k - 4), 1)})
     out["fin"] = fin
-    out["news"] = (news or [])[:6]
+    R = rank_news(news)
+    top = sorted([n for n in R if n["score"] >= 3], key=lambda n: (-n["score"], n["t"]))[:3]
+    keep = {n["title"] for n in sorted(R, key=lambda n: (-n["score"], n["t"]))[:8]}
+    out["news"] = [n for n in sorted(R, key=lambda n: n["t"]) if n["title"] in keep]
+    out["n_news"] = len(R)
     d0, d1 = ph_d - pd.Timedelta(days=10), low_d + pd.Timedelta(days=5)
     out["search"] = (f"https://www.google.com/search?q={sym}+c%E1%BB%95+phi%E1%BA%BFu&tbs=cdr:1,cd_min:{d0.month}/{d0.day}/{d0.year},cd_max:{d1.month}/{d1.day}/{d1.year}")
     # câu tóm tắt
@@ -236,9 +264,11 @@ def describe(e: dict, close: pd.Series, vol: pd.Series | None, vni: pd.Series | 
         T.append("→ Giai đoạn <b>cả thị trường bán tháo</b>" + (" nhưng mã giảm sâu hơn hẳn – có thêm yếu tố riêng." if sd < (mk or 0) - 25 else "; mã giảm theo thị trường."))
     elif kind == "sector":
         T.append(f"→ <b>Cả ngành cùng sập</b> (tin chung của ngành / chính sách)" + (", mã giảm sâu hơn ngành." if sd < (sr or 0) - 20 else "."))
+    elif kind == "mixed":
+        T.append("→ Thị trường / ngành đang giảm nhưng mã sập sâu hơn nhiều: <b>có thêm tin riêng của doanh nghiệp</b> hoặc bị bán giải chấp.")
     else:
         T.append("→ Thị trường và ngành không sập tương ứng: <b>nhiều khả năng là tin riêng của doanh nghiệp</b> "
-                 "(lãnh đạo bị điều tra / bắt, BCTC bất thường hoặc kiểm toán ngoại trừ, cổ đông lớn bị call margin, vi phạm công bố thông tin, mất thanh khoản…).")
+                 "(lãnh đạo bị điều tra, BCTC xấu / kiểm toán ngoại trừ, cổ đông lớn bị giải chấp, mất thanh khoản…).")
     if n_fl:
         s_ = f"{n_fl} phiên giảm ≥ 6,5% trong {len(w)} phiên"
         if best >= 2:
@@ -253,5 +283,7 @@ def describe(e: dict, close: pd.Series, vol: pd.Series | None, vni: pd.Series | 
         neg = [f for f in fin if (f["ni"] or 0) < 0]
         T.append("Lợi nhuận sau thuế các quý quanh sự kiện (tỷ): " + " → ".join(f"{f['q']} {_vn(f['ni'], 0)}" for f in fin) +
                  (". Có quý <b>lỗ</b> – sự kiện đi kèm kết quả kinh doanh xấu đi." if neg and not all((f["ni"] or 0) < 0 for f in fin[:2]) else "."))
+    if top:
+        T.append("Tin công bố đáng chú ý: " + "; ".join(f"«{n['title'][:150]}» ({_d(n['t'])})" for n in sorted(top, key=lambda n: n["t"])) + ".")
     out["text"] = " ".join(T)
     return out

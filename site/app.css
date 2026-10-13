@@ -1333,3 +1333,16 @@ main{padding:16px 22px 48px}
 .evh table{font-size:.78rem}.evh td small{font-size:.9em}
 .evh .chip{padding:2px 9px;font-size:.72rem}
 @media (max-width:640px){.evh-s{margin-left:0}}
+
+.evh tr.evwhy td{padding-top:0;border-top:0;text-align:left;white-space:normal}
+.evd summary{cursor:pointer;color:var(--brass,var(--brand));font-size:.76rem;padding:2px 0 6px}
+.evd p{font-size:.8rem;line-height:1.55;color:var(--ink-2);margin:2px 0 6px;white-space:normal}
+.evd p b{color:var(--ink)}
+.evn{list-style:none;margin:0 0 6px;padding:0;font-size:.78rem;display:grid;gap:3px}
+.evn li{display:flex;gap:8px;align-items:baseline;white-space:normal}.evn time{color:var(--ink-3);font-family:var(--num);flex:none;min-width:58px}
+.evn li a{color:var(--ink-2)}.evn li.hot a{color:var(--ink);font-weight:600}.evn li.hot time{color:var(--down)}
+.pill.evk{font-size:.66rem;padding:1px 7px;vertical-align:1px}
+.pill.evk.market{background:color-mix(in srgb,var(--ref) 18%,transparent);color:var(--ref)}
+.pill.evk.sector{background:color-mix(in srgb,var(--ceil) 18%,transparent);color:var(--ceil)}
+.pill.evk.mixed,.pill.evk.company{background:color-mix(in srgb,var(--down) 16%,transparent);color:var(--down)}
+.evcur{margin-top:8px;border-top:1px solid var(--line);padding-top:8px}

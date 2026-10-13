@@ -2194,7 +2194,7 @@ async function viewStock(sym, tabArg) {
       ["DT 12T", pct(fa.rev_yoy ?? r.rev_yoy), cls(fa.rev_yoy ?? r.rev_yoy)], ["F-Score", `${r.fscore ?? "—"}/9`], ["Vay/Vốn", nf(fa.de ?? r.de)], ["Vốn hoá", mcapFmt(fa.mcap_bn ?? r.mcap_bn)]])}
     ${g("Giá & thanh khoản", "đà giá, sức mạnh, rủi ro", [["1 tháng", pct(r.chg1m), cls(r.chg1m)], ["1 năm", pct(r.chg1y), cls(r.chg1y)], ["Cách đỉnh 52T", pct(ta.from_hi52_pct), "down"],
       ["RS", `${sc.rs_rating ?? r.rs_rating ?? "—"}/100`], ["GTGD/ngày", bn(r.avg_value_bn)], ["Beta", nf(d.beta)]])}</div>`; })()}
-  ${eventBox(v, sym)}
+  ${eventBox(v, sym, d)}
   <div class="g g-dec sec fbrow">
     <div class="stack">${fbPanel(d, FJ).replace('panel sec fbp', 'panel fbp')}${stepsBlock.replace('panel sec steps', 'panel steps')}</div>
     <div class="stack">
@@ -2874,7 +2874,7 @@ const HELP_FAQ = [
   ["Danh mục", "Mức dừng lỗ, chốt lời được tính thế nào?", "Theo phong cách của từng mã: dừng lỗ theo ATR và đỉnh sau mua (dời lên theo giá, tối đa −20%), chốt một phần khi vượt giá trị hợp lý, bán khi luận điểm cơ bản gãy, xem lại sau 60 phiên nếu vốn đứng yên. Có thể đặt mức riêng cho từng mã."],
   ["Danh mục", "Tôi đã bán mà hệ thống vẫn báo mã đó?", "Ghi lệnh bán ở Danh mục → Nhật ký giao dịch (hoặc bấm “Bán” cạnh mức thoát) để danh mục cập nhật. Thông báo theo danh mục đã lưu ở lượt chạy gần nhất."],
   ["Thông báo", "Làm sao nhận thông báo trên điện thoại?", "Tài khoản → Nhận thông báo → “Bật trên thiết bị này” và cho phép thông báo. Android/máy tính: dùng Chrome, Edge hoặc Firefox. iPhone/iPad (iOS 16.4+): mở trang bằng Safari → nút Chia sẻ → Thêm vào Màn hình chính → mở trang từ biểu tượng mới → bật lại. Thông báo đẩy và email thuộc gói Pro."],
-  ["Biểu đồ", "Các dấu ⚡ Sự kiện / Đáy / 🎯 Vào trên biểu đồ giá là gì?", "Mỗi lần hệ thống gắn cờ \"có sự kiện\" (giá sụt ≥ 45% so với đỉnh 120 phiên kèm chuỗi phiên giảm sàn) được đánh dấu ⚡ đúng ngày có cờ, chấm Đáy là giá thấp nhất của đợt, mũi tên 🎯 Vào là ngày sự kiện đã nguội (≥ 120 phiên và ≥ 60 phiên liền không giảm sàn) kèm % giá 120 phiên sau đó. Bảng dưới biểu đồ liệt kê mọi đợt của mã với kết quả 60/120/250 phiên và so với VN-Index; bấm Xem để phóng biểu đồ tới đợt đó (đợt cũ hơn 3 năm tự chuyển sang nến tuần). Đợt đang đủ điều kiện vào có thêm đường Vùng vào SK, Cắt lỗ SK, Mục tiêu SK. Bấm vào thông báo sự kiện cũng mở thẳng biểu đồ đúng đợt. Tắt/bật bằng nút Sự kiện trên thanh công cụ."],
+  ["Biểu đồ", "Các dấu ⚡ Sự kiện / Đáy / 🎯 Vào trên biểu đồ giá là gì?", "Mỗi lần hệ thống gắn cờ \"có sự kiện\" (giá sụt ≥ 45% so với đỉnh 120 phiên kèm chuỗi phiên giảm sàn) được đánh dấu ⚡ đúng ngày có cờ, chấm Đáy là giá thấp nhất của đợt, mũi tên 🎯 Vào là ngày sự kiện đã nguội (≥ 120 phiên và ≥ 60 phiên liền không giảm sàn) kèm % giá 120 phiên sau đó. Bảng dưới biểu đồ liệt kê mọi đợt của mã với kết quả 60/120/250 phiên và so với VN-Index; bấm Xem để phóng biểu đồ tới đợt đó (đợt cũ hơn 3 năm tự chuyển sang nến tuần). Đợt đang đủ điều kiện vào có thêm đường Vùng vào SK, Cắt lỗ SK, Mục tiêu SK. Bấm vào thông báo sự kiện cũng mở thẳng biểu đồ đúng đợt. Tắt/bật bằng nút Sự kiện trên thanh công cụ. Mỗi đợt có mục “Sự kiện này là gì?”: hệ thống so mức sụt với VN-Index và ngành cùng kỳ để xếp loại (thị trường chung sập / cả ngành sập / thị trường yếu + chuyện riêng / chuyện riêng của doanh nghiệp), đếm chuỗi phiên giảm sàn, xem khối lượng lúc sàn (trắng bên mua hay bán tháo ồ ạt), lợi nhuận các quý quanh đó, và liệt kê tin công bố thông tin của doanh nghiệp / Sở GDCK trong giai đoạn đó (từ 2018) – tin in đậm là loại hay gắn với giá sập: điều tra, giải chấp, giải trình giảm sàn, kiểm toán ngoại trừ, cổ đông lớn bán."],
   ["Thông báo", "Khi nào tôi nhận thông báo?", "Sau các lượt 11:35, 14:35 và 15:35, chỉ khi có việc mới: chạm/sắp chạm mức thoát, khuyến nghị bán/cắt lỗ, cảnh báo giá, mã mới vào danh sách MUA, dòng tiền lớn với mã của anh/chị, mã có sự kiện / đến điểm vào sau sự kiện. Mỗi việc chỉ báo một lần."],
   ["Thông báo", "Nhận quá nhiều / quá ít thông báo?", "Tài khoản → chọn mức gửi đẩy và email (Tất cả / Bình thường / Chỉ việc quan trọng / Tắt) và bỏ chọn loại không cần. Chuông trên web luôn giữ đủ để xem lại."],
   ["Thông báo", "Bật rồi mà không nhận được thông báo đẩy?", "Kiểm tra: trình duyệt/điện thoại cho phép thông báo của trang; iPhone phải mở từ biểu tượng ngoài màn hình chính; chế độ Tập trung/Không làm phiền đang tắt. Bấm “Gửi thử” trong trang Tài khoản để kiểm tra thiết bị."],
@@ -3484,24 +3484,36 @@ function evHistStrip(d) {
   return `<div class="evh"><div class="evh-h"><b>⚡ Các lần "có sự kiện" của mã</b> <small class="faint">${H.length} lần · giá sụt ≥ 45% kèm chuỗi phiên giảm sàn · bấm Xem để phóng biểu đồ</small>
     ${done.length ? `<span class="evh-s">Sau điểm vào 🎯, 120 phiên: <b class="${cls(avg)}">${pct(avg, 0)}</b> TB · ${win}/${done.length} lần tăng${isNum(avgF) ? ` · nếu mua ngay lúc có cờ: <b class="${cls(avgF)}">${pct(avgF, 0)}</b>` : ""}</span>` : ""}</div>
     <div class="tw"><table class="evt"><thead><tr><th class="l">Có cờ ⚡</th><th class="l">Điểm vào 🎯</th><th>60 phiên</th><th>120 phiên</th><th>250 phiên</th><th title="Giá thấp nhất trong 250 phiên sau điểm vào">Sụt sâu nhất</th><th></th></tr></thead><tbody>
-    ${H.slice().reverse().map((e) => `<tr><td class="l">${esc(fmtD(e.start))}<br><small class="faint">đáy <span class="down">${pct(e.dd_low, 0)}</span> ${esc(fmtD(e.low_date))}</small></td>
+    ${H.slice().reverse().map((e) => `<tr><td class="l">${esc(fmtD(e.start))}${e.why ? ` <span class="pill evk ${e.why.kind}">${esc(e.why.label)}</span>` : ""}<br><small class="faint">đáy <span class="down">${pct(e.dd_low, 0)}</span> ${esc(fmtD(e.low_date))}</small></td>
       <td class="l">${e.cool ? `${esc(fmtD(e.cool))}<br><small class="faint">giá ${nf(e.px_cool)}</small>` : e.open ? '<small class="ref">đang chờ nguội</small>' : '<small class="faint">không nguội<br>(sự kiện lặp lại)</small>'}</td>
       <td>${e.cool ? rc(e.r60, e.x60) : ""}</td><td>${e.cool ? rc(e.r120, e.x120) : ""}</td><td>${e.cool ? rc(e.r250, e.x250) : ""}</td>
       <td>${e.cool && isNum(e.mdd) ? `<span class="${e.mdd < -10 ? "down" : ""}">${pct(e.mdd, 0)}</span>` : ""}</td>
-      <td><button class="chip" data-evgo="${esc(e.start)}" data-evto="${esc(e.cool || "")}">Xem</button></td></tr>`).join("")}</tbody></table></div></div>`;
+      <td><button class="chip" data-evgo="${esc(e.start)}" data-evto="${esc(e.cool || "")}">Xem</button></td></tr>
+      ${e.why ? `<tr class="evwhy"><td colspan="7">${evWhy(e.why)}</td></tr>` : ""}`).join("")}</tbody></table></div></div>`;
 }
 document.addEventListener("click", (e) => { const b = e.target.closest?.("[data-evgo]"); if (b && window.__evGo) { e.preventDefault(); window.__evGo(b.dataset.evgo, b.dataset.evto || null); } });
+function evWhy(w) {
+  const N = w.news || [];
+  const gq = (t) => `https://www.google.com/search?q=${encodeURIComponent(t)}`;
+  return `<details class="evd"><summary>Sự kiện này là gì?${w.n_news ? ` <small class="faint">· ${w.n_news} tin công bố quanh đợt</small>` : ""}</summary>
+    <p>${w.text}</p>
+    ${N.length ? `<ul class="evn">${N.map((n) => `<li class="${n.score >= 3 ? "hot" : ""}"><time>${esc(fmtD(n.t))}</time> <a href="${esc(n.link || gq(n.title))}" target="_blank" rel="noopener">${esc(n.title)}</a></li>`).join("")}</ul>`
+      : `<p class="faint">Chưa có tin công bố cho giai đoạn này (nguồn tin lịch sử có từ 2018).</p>`}
+    <p class="faint" style="font-size:.72rem">Tin in đậm là tin thường gắn với giá sập (điều tra, giải chấp, giải trình giảm sàn, kiểm toán ngoại trừ, cổ đông lớn bán…). <a href="${esc(w.search)}" target="_blank" rel="noopener">Tìm báo chí giai đoạn này trên Google ↗</a></p></details>`;
+}
 const fmtD = (s) => (s ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(2, 4)}` : "");
-function eventBox(v, sym) {
+function eventBox(v, sym, d) {
   const P = v?.post_event, E = v?.event;
+  const W = ((d?.ev_hist || []).find((x) => x.start === (P || E)?.start) || {}).why;
+  const why = W ? `<div class="evcur"><span class="pill evk ${W.kind}">${esc(W.label)}</span> ${evWhy(W).replace("<details class=\"evd\">", "<details class=\"evd\" open>")}</div>` : "";
   if (P) { const p = P.plan || {};
     return `<section class="panel sec evp"><div class="ph"><h2 data-g="ev_post">🎯 ${esc(sym)}: điểm vào sau sự kiện</h2><span class="pill ${p.quality ? "buy" : ""}">${p.quality ? "đủ điều kiện" : "chỉ theo dõi"}</span></div>
       ${kpis([["Sự kiện từ", esc(P.start)], ["Phiên từ cờ / không giảm sàn", `${P.since} / ${P.quiet}`], ["So với đỉnh trước", pct(P.dd_now, 0), "down"], ["Từ đáy " + esc(P.low_date || ""), pct(P.from_low, 0), "up"],
         ["Vùng vào", `${nf(p.zone?.[0])}–${nf(p.zone?.[1])}`], ["Cắt lỗ", nf(p.stop), "down"], ["Mục tiêu", `${nf(p.t1)} <small>${pct(p.t1_pct, 0)}</small>`, "up"]], false, "c4")}
-      <p class="note" style="margin-top:6px">${esc(p.split || "")}. ${esc(p.edge || "")} <button class="chip" data-evgo="${esc(P.start)}" data-evto="${esc(P.cool || "")}">📈 Xem trên biểu đồ</button></p></section>`; }
+      <p class="note" style="margin-top:6px">${esc(p.split || "")}. ${esc(p.edge || "")} <button class="chip" data-evgo="${esc(P.start)}" data-evto="${esc(P.cool || "")}">📈 Xem trên biểu đồ</button></p>${why}</section>`; }
   if (E) return `<section class="panel sec evp"><div class="ph"><h2 data-g="ev_post">⚡ ${esc(sym)}: có sự kiện – chưa vào</h2><span class="meta">từ ${esc(E.start)}</span></div>
       ${kpis([["So với đỉnh trước", pct(E.dd_now, 0), "down"], ["Phiên giảm sàn", nf(E.n_down, 0)], ["Phiên từ lúc có cờ", `${E.since} <small>cần 120</small>`], ["Phiên không giảm sàn", `${E.quiet} <small>cần 60</small>`]], false, "c4")}
-      <p class="note" style="margin-top:6px">${EV_NOTE} ${E.wait_since || E.wait_quiet ? `Còn chờ: ${[E.wait_since ? E.wait_since + " phiên nữa đủ 120" : "", E.wait_quiet ? E.wait_quiet + " phiên liền không giảm sàn" : ""].filter(Boolean).join(" · ")}. Hệ thống tự báo khi đến điểm vào nếu mã có trong danh sách theo dõi.` : ""} <button class="chip" data-evgo="${esc(E.start)}">📈 Xem trên biểu đồ</button></p></section>`;
+      <p class="note" style="margin-top:6px">${EV_NOTE} ${E.wait_since || E.wait_quiet ? `Còn chờ: ${[E.wait_since ? E.wait_since + " phiên nữa đủ 120" : "", E.wait_quiet ? E.wait_quiet + " phiên liền không giảm sàn" : ""].filter(Boolean).join(" · ")}. Hệ thống tự báo khi đến điểm vào nếu mã có trong danh sách theo dõi.` : ""} <button class="chip" data-evgo="${esc(E.start)}">📈 Xem trên biểu đồ</button></p>${why}</section>`;
   return "";
 }
 function moodStrip(FJ) {

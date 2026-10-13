@@ -527,6 +527,12 @@ def run(force_fin: bool = False, only: list[str] | None = None) -> None:
         update_news(syms)
     except Exception as e:  # noqa: BLE001
         log.warning("Tin tức lỗi: %s", e)
+    try:
+        from . import news_hist
+        news_hist.update(prices, liquid_symbols(prices, float(config.get("universe.fin_min_avg_value_bn", 0.3))) if not only else [s for s in syms if s in only],
+                         float(config.get("data.news_hist_budget_sec", 240)))
+    except Exception as e:  # noqa: BLE001
+        log.warning("Tin lịch sử quanh sự kiện lỗi: %s", e)
     update_shares([s for s in div_syms if s in set(syms)] if not only else [s for s in syms if s in only])
     div_syms = [s for s in div_syms if s in set(syms)] if not only else [s for s in syms if s in only]
     update_dividends(div_syms, mark=not only)
