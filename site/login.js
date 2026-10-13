@@ -52,7 +52,7 @@
   handle($("#f-reset"), async (d) => done(await post("reset", { ...d, token: hash.get("reset") })));
 
   if (invite) { $("#f-signup [name=invite]").value = invite; $("#invHint").textContent = "(đã điền từ liên kết mời)"; }
-  show(hash.get("reset") ? "reset" : invite ? "signup" : "login");
+  show(hash.get("reset") ? "reset" : invite || hash.has("signup") ? "signup" : "login");
 
   // đã đăng nhập rồi thì vào thẳng
   fetch("/api/auth/me", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j) => { if (j && j.me && !j.legacy && !hash.get("reset")) location.replace(next); }).catch(() => {});

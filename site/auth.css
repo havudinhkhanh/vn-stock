@@ -36,3 +36,5 @@ body.authpage{background:var(--bg);min-height:100vh;padding:0}
 .auth-card{border-color:var(--line-2);border-radius:10px;box-shadow:none;border-top:2px solid var(--brass)}
 .auth-tabs button.on{box-shadow:none;border:1px solid var(--line)}
 .auth-card input:focus{outline:0;border-color:var(--brass);box-shadow:0 0 0 3px color-mix(in srgb,var(--brass) 18%,transparent)}
+
+.blogl{margin:18px 0 0;font-size:.85rem;text-align:center}.blogl a{color:var(--brass,#CBA765)}

@@ -11,3 +11,7 @@ __pycache__/
 .DS_Store
 /watchlist.json
 /profile.json
+/site/ban-tin/
+/site/sitemap.xml
+/site/robots.txt
+/site/rss.xml

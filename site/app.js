@@ -5508,7 +5508,8 @@ async function viewDigest(date, home = false) {
   <div class="ph"><h1>Bản tin thị trường</h1><span class="meta">
     ${i < dates.length - 1 ? `<a class="btn" href="#/digest/${dates[i + 1].date}">← ${esc(dates[i + 1].date.slice(5))}</a>` : ""}
     <select id="dgSel">${dates.map((x) => `<option value="${x.date}" ${x.date === d ? "selected" : ""}>${new Date(x.date).toLocaleDateString("vi-VN", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" })}</option>`).join("")}</select>
-    ${i > 0 ? `<a class="btn" href="#/digest/${dates[i - 1].date}">${esc(dates[i - 1].date.slice(5))} →</a>` : ""}</span></div>
+    ${i > 0 ? `<a class="btn" href="#/digest/${dates[i - 1].date}">${esc(dates[i - 1].date.slice(5))} →</a>` : ""}
+    <a class="btn" target="_blank" rel="noopener" title="Bài viết công khai (không cần đăng nhập) – chia sẻ lên Facebook, Zalo" href="/ban-tin/chung-khoan-hom-nay-${d.slice(8, 10)}-${d.slice(5, 7)}-${d.slice(0, 4)}/">Bản công khai ↗</a></span></div>
   <section class="panel hero dg"><div class="ph"><h2>Phiên ${new Date(d).toLocaleDateString("vi-VN", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" })}</h2><span class="pill ${lightC === "up" ? "buy" : lightC === "down" ? "sell" : ""}">Đèn ${esc(LIGHT_VI[D.regime?.light] || "—")}</span></div>
     <ul class="dgl">${(D.lines || []).map((l) => `<li>${esc(l)}</li>`).join("")}</ul>
     ${D.regime?.text ? `<p class="muted" style="font-size:.8rem;margin-top:4px">${esc(D.regime.text)}</p>` : ""}</section>

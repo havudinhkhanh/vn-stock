@@ -766,6 +766,11 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         today["digest_line"] = dline
     except Exception as e:  # noqa: BLE001
         log.exception("Bản tin thị trường lỗi: %s", e)
+    try:
+        from . import blog as blog_
+        blog_.build(out_dir.parent, store, idx["close"], {s: u.at[s, "name"] for s in u.index if "name" in u.columns and isinstance(u.at[s, "name"], str)})
+    except Exception as e:  # noqa: BLE001
+        log.exception("Bản tin công khai (SEO) lỗi: %s", e)
     # ------------------------------------------------------------ phần riêng từng người dùng
     owner_today, owner_watch = today, None
     pctx = {"u": u, "g": g, "cfg0": cfg0, "regime": regime, "last_date": last_date, "plan_syms": plan_syms, "active_style": active_style,

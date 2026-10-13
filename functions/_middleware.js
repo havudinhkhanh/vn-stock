@@ -3,7 +3,7 @@
 import { can, ensureSchema, getSession, PLANS, withCookie } from "./_lib/core.js";
 
 const PUBLIC = [/^\/login(\.html)?$/, /^\/login\.js$/, /^\/auth\.css$/, /^\/app\.css$/, /^\/icon\.svg$/, /^\/manifest\.webmanifest$/, /^\/sw\.js$/,
-  /^\/vendor\//, /^\/favicon\.ico$/, /^\/api\//];
+  /^\/vendor\//, /^\/favicon\.ico$/, /^\/ban-tin(\/|$)/, /^\/(robots\.txt|sitemap\.xml|rss\.xml)$/, /^\/api\//];
 const RULES = PLANS.paths.map((r) => ({ ...r, rx: new RegExp(r.re) }));
 const STRIP = PLANS.strip.map((r) => ({ ...r, rx: new RegExp(r.re) }));
 
