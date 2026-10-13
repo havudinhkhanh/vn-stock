@@ -141,3 +141,117 @@ def history(close: pd.Series | None, vni: pd.Series | None = None, max_n: int = 
             e["open"] = bool(n - 1 - st <= WINDOW_END)     # đợt còn đang diễn ra (chưa nguội)
         out.append(e)
     return out[-max_n:]
+
+
+def _d(x) -> str:
+    t = pd.Timestamp(x)
+    return f"{t.day:02d}/{t.month:02d}/{t.year % 100:02d}"
+
+
+def _vn(x, nd=1) -> str:
+    s = f"{abs(x):,.{nd}f}".replace(",", "_").replace(".", ",").replace("_", ".")
+    return ("−" if x < 0 else "+") + s
+
+
+def describe(e: dict, close: pd.Series, vol: pd.Series | None, vni: pd.Series | None, sec_ret, sec_name: str | None,
+             fq: pd.DataFrame | None, news: list[dict] | None, sym: str) -> dict:
+    """Mô tả một đợt sự kiện: sập theo thị trường / theo ngành / chuyện riêng DN, các phiên giảm sàn, thanh khoản lúc bán tháo,
+    lợi nhuận quý quanh sự kiện, tin tức (nếu có) → câu tóm tắt dễ đọc."""
+    c = close.dropna()
+    c = c[c > 0]
+    st = pd.Timestamp(e["start"])
+    i_st = c.index.get_indexer([st])[0]
+    pre = c.iloc[max(0, i_st - 120):i_st + 1]
+    ph_d = pre.idxmax()
+    low_d = pd.Timestamp(e["low_date"])
+    out: dict = {"hi_date": str(ph_d.date())}
+    sd = (float(c.loc[low_d]) / float(c.loc[ph_d]) - 1) * 100
+    mk = None
+    if vni is not None:
+        v = vni.dropna()
+        try:
+            mk = (float(v.asof(low_d)) / float(v.asof(ph_d)) - 1) * 100
+        except (TypeError, ValueError, ZeroDivisionError):
+            mk = None
+    sr = sec_ret(ph_d, low_d) if sec_ret else None
+    out["mkt"] = _r(mk, 1)
+    out["sec"] = _r(sr, 1)
+    out["sec_name"] = sec_name
+    if mk is not None and mk <= -25:
+        kind = "market"
+    elif sr is not None and sr <= -30:
+        kind = "sector"
+    else:
+        kind = "company"
+    out["kind"] = kind
+    out["label"] = {"market": "Thị trường chung sập", "sector": f"Cả ngành {sec_name or ''} cùng sập".replace("  ", " "),
+                    "company": "Chuyện riêng của doanh nghiệp"}[kind]
+    # phiên giảm sàn (≤ −6,5%) từ đỉnh tới đáy
+    r = c.pct_change()
+    w = r.loc[ph_d:low_d]
+    fl = (w <= DOWN).values
+    n_fl, best, cur, b_from, c_from = int(fl.sum()), 0, 0, None, None
+    for t, f in zip(w.index, fl):
+        if f:
+            cur += 1
+            c_from = c_from or t
+            if cur > best:
+                best, b_from = cur, c_from
+        else:
+            cur, c_from = 0, None
+    out["floors"] = {"n": n_fl, "streak": best, "from": str(b_from.date()) if b_from is not None else None,
+                     "first": str(w.index[fl][0].date()) if n_fl else None, "days": int(len(w))}
+    if vol is not None and n_fl:
+        vv = vol.reindex(c.index)
+        base = vv.iloc[max(0, c.index.get_loc(ph_d) - 60):c.index.get_loc(ph_d)].median()
+        fv = vv.loc[w.index[fl]].median()
+        if base and base > 0 and pd.notna(fv):
+            out["vol_x"] = _r(fv / base, 2)
+    # lợi nhuận quý quanh sự kiện
+    fin = []
+    if fq is not None and not fq.empty:
+        q = fq.dropna(subset=["year", "quarter"]).copy()
+        q["k"] = q["year"].astype(int) * 4 + q["quarter"].astype(int) - 1
+        k0 = st.year * 4 + (st.month - 1) // 3
+        col = "ni_parent" if "ni_parent" in q.columns and q["ni_parent"].notna().any() else "net_income"
+        by = dict(zip(q["k"], q[col]))
+        for k in range(k0 - 2, k0 + 3):
+            if k in by and pd.notna(by[k]):
+                fin.append({"q": f"Q{k % 4 + 1}/{(k // 4) % 100:02d}", "ni": _r(by[k], 1), "ly": _r(by.get(k - 4), 1)})
+    out["fin"] = fin
+    out["news"] = (news or [])[:6]
+    d0, d1 = ph_d - pd.Timedelta(days=10), low_d + pd.Timedelta(days=5)
+    out["search"] = (f"https://www.google.com/search?q={sym}+c%E1%BB%95+phi%E1%BA%BFu&tbs=cdr:1,cd_min:{d0.month}/{d0.day}/{d0.year},cd_max:{d1.month}/{d1.day}/{d1.year}")
+    # câu tóm tắt
+    T = [f"Từ đỉnh {_vn(float(c.loc[ph_d]), 2)[1:]} ({_d(ph_d)}) xuống đáy {_vn(float(c.loc[low_d]), 2)[1:]} ({_d(low_d)}): <b>{_vn(sd, 0)}%</b>"]
+    ctx = []
+    if mk is not None:
+        ctx.append(f"VN-Index cùng kỳ {_vn(mk, 0)}%")
+    if sr is not None:
+        ctx.append(f"ngành {sec_name} (trung vị) {_vn(sr, 0)}%")
+    if ctx:
+        T[0] += ", trong khi " + ", ".join(ctx)
+    T[0] += "."
+    if kind == "market":
+        T.append("→ Giai đoạn <b>cả thị trường bán tháo</b>" + (" nhưng mã giảm sâu hơn hẳn – có thêm yếu tố riêng." if sd < (mk or 0) - 25 else "; mã giảm theo thị trường."))
+    elif kind == "sector":
+        T.append(f"→ <b>Cả ngành cùng sập</b> (tin chung của ngành / chính sách)" + (", mã giảm sâu hơn ngành." if sd < (sr or 0) - 20 else "."))
+    else:
+        T.append("→ Thị trường và ngành không sập tương ứng: <b>nhiều khả năng là tin riêng của doanh nghiệp</b> "
+                 "(lãnh đạo bị điều tra / bắt, BCTC bất thường hoặc kiểm toán ngoại trừ, cổ đông lớn bị call margin, vi phạm công bố thông tin, mất thanh khoản…).")
+    if n_fl:
+        s_ = f"{n_fl} phiên giảm ≥ 6,5% trong {len(w)} phiên"
+        if best >= 2:
+            s_ += f", dài nhất <b>{best} phiên giảm sàn liên tiếp</b> từ {_d(b_from)}"
+        vx = out.get("vol_x")
+        if vx is not None:
+            s_ += (f"; khối lượng phiên sàn chỉ {_vn(vx, 1)[1:]}× bình thường → <b>trắng bên mua</b>, muốn bán cũng không bán được" if vx < 0.6 else
+                   f"; khối lượng phiên sàn {_vn(vx, 1)[1:]}× bình thường → <b>bán tháo ồ ạt</b> (có thể có call margin)" if vx > 1.8 else
+                   f"; khối lượng phiên sàn {_vn(vx, 1)[1:]}× bình thường")
+        T.append(s_ + ".")
+    if fin:
+        neg = [f for f in fin if (f["ni"] or 0) < 0]
+        T.append("Lợi nhuận sau thuế các quý quanh sự kiện (tỷ): " + " → ".join(f"{f['q']} {_vn(f['ni'], 0)}" for f in fin) +
+                 (". Có quý <b>lỗ</b> – sự kiện đi kèm kết quả kinh doanh xấu đi." if neg and not all((f["ni"] or 0) < 0 for f in fin[:2]) else "."))
+    out["text"] = " ".join(T)
+    return out

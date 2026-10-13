@@ -840,6 +840,54 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         except Exception as e:  # noqa: BLE001
             log.exception("Bảng so sánh / báo cáo tuần lỗi: %s", e)
         dump(out_dir / "today.json", today)
+    # tin tức theo mã (để mô tả các đợt sự kiện) + nhóm ngành để so sánh mức sụt
+    try:
+        _nw = store.read("news")
+        news_all = {k: g.sort_values("time") for k, g in _nw.groupby("symbol")} if _nw is not None and not _nw.empty else {}
+    except Exception:  # noqa: BLE001
+        news_all = {}
+    try:
+        _nh = store.read("news_hist")
+        news_hist = {k: g.sort_values("time") for k, g in _nh.groupby("symbol")} if _nh is not None and not _nh.empty else {}
+    except Exception:  # noqa: BLE001
+        news_hist = {}
+    mem_ind = {k: list(v) for k, v in u.groupby("industry").groups.items()}
+    mem_sec = {k: list(v) for k, v in u.groupby("sector").groups.items()}
+
+    def _sec_fn(s_, r_):
+        name, mem = r_.get("industry"), [m for m in mem_ind.get(r_.get("industry"), []) if m != s_ and m in wide.columns]
+        if len(mem) < 4:
+            name, mem = r_.get("sector"), [m for m in mem_sec.get(r_.get("sector"), []) if m != s_ and m in wide.columns]
+        def f(d0, d1):
+            if len(mem) < 3:
+                return None
+            a, b = wide[mem].loc[:d0], wide[mem].loc[:d1]
+            if a.empty or b.empty:
+                return None
+            x = (b.iloc[-1] / a.iloc[-1] - 1).dropna()
+            return float(x.median() * 100) if len(x) >= 3 else None
+        return f, name
+
+    def _evh_full(s_, r_, d_):
+        H = _evh(d_["df"]["close"], idx["close"])
+        if not H:
+            return H
+        f, name = _sec_fn(s_, r_)
+        for e in H:
+            st_ = pd.Timestamp(e["start"])
+            nws = []
+            for src in (news_hist.get(s_), news_all.get(s_)):
+                if src is None:
+                    continue
+                m = src[(src["time"] >= st_ - pd.Timedelta(days=150)) & (src["time"] <= pd.Timestamp(e["low_date"]) + pd.Timedelta(days=10))]
+                nws += [{"t": str(pd.Timestamp(x.time).date()), "title": x.title, "link": getattr(x, "link", None)} for x in m.itertuples()]
+            nws = sorted({n["title"]: n for n in nws}.values(), key=lambda n: n["t"])
+            try:
+                e["why"] = evx.describe(e, d_["df"]["close"], d_["df"].get("volume"), idx["close"], f, name, fq_by.get(s_), nws[-8:], s_)
+            except Exception as ex:  # noqa: BLE001
+                log.debug("mô tả sự kiện %s lỗi: %s", s_, ex)
+        return H
+
     for s, d in details.items():
         r = u.loc[s]
         peers = u[(u["industry"] == r["industry"]) & u["has_fin"]].sort_values("mcap_bn", ascending=False)
@@ -872,7 +920,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
                        "v": round(float(getattr(x, "cash_raw", x.cash_pct)) * (10000 if "cash" in str(x.method) else 100), 1)}
                       for x in dv_by[s].sort_values("ex_date").itertuples() if pd.Timestamp(x.ex_date) >= pd.Timestamp(last_date) - pd.Timedelta(days=5 * 365)]
                      if s in dv_by else []),
-            "ev_hist": _evh(d["df"]["close"], idx["close"]),
+            "ev_hist": _evh_full(s, r, d),
             "peers": {"cols": ["symbol", "price", "mcap_bn", "pe", "pb", "roe", "ni_yoy", "rev_yoy", "de",
                                "fscore", "div_yield", "upside", "composite"], "rows": peer_rows,
                       "median": {k: r.get(f"{k}_ind_med") for k in fu.PEER_METRICS},

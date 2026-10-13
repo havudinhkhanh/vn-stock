@@ -42,25 +42,26 @@ def run() -> dict:
         save()
 
     S = requests.Session()
-    for q, nm in ((GQL_NEWS, "gql_news"), (GQL_EV, "gql_events"), (GQL_EV2, "gql_events2")):
-        tryit(nm, lambda q=q: S.post(vci.GRAPHQL, json={"query": q, "variables": {"ticker": "APG", "lang": "vi"}}, headers=UA, timeout=30))
-    for nm, params in (("iq_news_a", {"ticker": "APG", "fromDate": "20220101", "toDate": "20261013", "page": 0, "size": 5}),
-                       ("iq_news_b", {"ticker": "APG", "fromDate": "2022-01-01", "toDate": "2026-10-13", "page": 0, "size": 5}),
-                       ("iq_news_c", {"ticker": "APG", "fromDate": "2022-01-01T00:00:00", "toDate": "2026-10-13T00:00:00", "page": 0, "size": 5}),
-                       ("iq_news_d", {"ticker": "APG", "page": 0, "size": 5, "languageId": 1})):
-        tryit(nm, lambda p=params: S.get(vci.IQ + "/v1/news", params=p, headers=UA, timeout=30))
-    for nm, url in (("iq_comp_news", vci.IQ + "/v1/company/APG/news-events?page=0&size=5"),
-                    ("iq_comp_news2", vci.IQ + "/v1/company/APG/news?page=0&size=5&languageId=1"),
-                    ("iq_events", vci.IQ + "/v1/events?ticker=APG&page=0&size=5")):
-        tryit(nm, lambda u=url: S.get(u, headers=UA, timeout=30))
+    for nm, (tk, a, b) in {"iq_apg_2022": ("APG", "20220301", "20220630"), "iq_apg_2026": ("APG", "20251001", "20260615"),
+                           "iq_dig_2022": ("DIG", "20220101", "20220630"), "iq_hag_2018": ("HAG", "20180101", "20180601"),
+                           "iq_vic_2023": ("VIC", "20230801", "20231110")}.items():
+        def f(tk=tk, a=a, b=b):
+            r = S.get(vci.IQ + "/v1/news", params={"ticker": tk, "fromDate": a, "toDate": b, "page": 0, "size": 50}, headers=UA, timeout=30)
+            j_ = r.json()
+            d = (j_.get("data") or {})
+            C = d.get("content") or []
+            class R:  # noqa: D401
+                status_code = r.status_code
+                text = json.dumps({"total": d.get("totalElements"), "keys": list(C[0].keys()) if C else [], "first": C[0] if C else None,
+                                   "items": [(x.get("publicDate"), x.get("newsTitle"), x.get("newsCategoryCode"), x.get("ticker"), x.get("newsSourceLink")) for x in C]}, ensure_ascii=False)
+            return R()
+        tryit(nm, f)
     H = {"User-Agent": UA["User-Agent"]}
-    tryit("cafef_ajax", lambda: S.get("https://cafef.vn/du-lieu/Ajax/Events_RelatedNews_New.aspx",
-                                      params={"symbol": "APG", "floorID": 0, "configID": 0, "PageIndex": 1, "PageSize": 30, "Type": 2}, headers=H, timeout=30))
-    tryit("cafef_ajax2", lambda: S.get("https://s.cafef.vn/Ajax/Events_RelatedNews_New.aspx",
-                                       params={"symbol": "APG", "floorID": 0, "configID": 0, "PageIndex": 5, "PageSize": 30, "Type": 2}, headers=H, timeout=30))
-    tryit("cafef_tag", lambda: S.get("https://cafef.vn/timeline/apg.chn", headers=H, timeout=30))
-    tryit("vietstock_news", lambda: S.get("https://finance.vietstock.vn/APG/tin-moi-nhat.htm", headers=H, timeout=30))
-    tryit("tcbs_news", lambda: S.get("https://apipubaws.tcbs.com.vn/tcanalysis/v1/news/APG", params={"page": 0, "size": 5}, headers=H, timeout=30))
-    tryit("ssi_news", lambda: S.get("https://iboard-api.ssi.com.vn/statistics/company/news", params={"symbol": "APG", "pageSize": 5, "page": 1}, headers=H, timeout=30))
-    tryit("fireant_news", lambda: S.get("https://restv2.fireant.vn/posts", params={"symbol": "APG", "type": 1, "offset": 0, "limit": 5}, headers=H, timeout=30))
+    for pg_ in (2, 3, 4):
+        tryit(f"cafef_p{pg_}", lambda pg_=pg_: S.get("https://cafef.vn/du-lieu/Ajax/Events_RelatedNews_New.aspx",
+                                                     params={"symbol": "APG", "floorID": 0, "configID": 0, "PageIndex": pg_, "PageSize": 30, "Type": 2}, headers=H, timeout=30))
+    tryit("cafef_hpg_p20", lambda: S.get("https://cafef.vn/du-lieu/Ajax/Events_RelatedNews_New.aspx",
+                                          params={"symbol": "HPG", "floorID": 0, "configID": 0, "PageIndex": 20, "PageSize": 30, "Type": 2}, headers=H, timeout=30))
+    tryit("cafef_type1", lambda: S.get("https://cafef.vn/du-lieu/Ajax/Events_RelatedNews_New.aspx",
+                                        params={"symbol": "APG", "floorID": 0, "configID": 0, "PageIndex": 1, "PageSize": 30, "Type": 1}, headers=H, timeout=30))
     return rep
