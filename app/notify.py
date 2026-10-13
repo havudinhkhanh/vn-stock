@@ -155,7 +155,7 @@ def collect(today: dict, prev: dict, *, live_sent: set | None = None, mine: set 
         if x["symbol"] in mine and x["symbol"] not in ev_prev:
             txt = (f"Giá thấp hơn đỉnh trước sự kiện {abs(x.get('dd_now') or 0):.0f}%, {x.get('n_down')} phiên giảm sàn từ {x['start']}. "
                    "Lịch sử VN: mua ngay hoặc mua nhịp hồi sớm thường thua thị trường; chờ đủ 120 phiên và 60 phiên không giảm sàn.")
-            add("event", f"event:{x['symbol']}:{x['start']}", 2, f"• <b>{x['symbol']}</b>: CÓ SỰ KIỆN – {html.escape(txt)}", f"{x['symbol']}: có sự kiện – chưa vào", txt, sym=x["symbol"])
+            add("event", f"event:{x['symbol']}:{x['start']}", 2, f"• <b>{x['symbol']}</b>: CÓ SỰ KIỆN – {html.escape(txt)}", f"{x['symbol']}: có sự kiện – chưa vào", txt, sym=x["symbol"], url=f"#/s/{x['symbol']}/ev-{x['start']}")
     for x in today.get("post_event") or []:
         if x["symbol"] in pe_prev:
             continue
@@ -166,7 +166,7 @@ def collect(today: dict, prev: dict, *, live_sent: set | None = None, mine: set 
                f"cắt lỗ {_fmt(x['stop'])}, mục tiêu {_fmt(x['t1'])}. {x.get('edge', '')}")
         kind = "event_ok" if mine_x else "event_new"
         add(kind, f"pe:{x['symbol']}:{x['start']}", 2 if (mine_x and x.get("quality")) else 1,
-            f"• <b>{x['symbol']}</b>: SAU SỰ KIỆN – {html.escape(txt)}", f"{x['symbol']}: điểm vào sau sự kiện", txt, sym=x["symbol"])
+            f"• <b>{x['symbol']}</b>: SAU SỰ KIỆN – {html.escape(txt)}", f"{x['symbol']}: điểm vào sau sự kiện", txt, sym=x["symbol"], url=f"#/s/{x['symbol']}/ev-{x['start']}")
     sent_ids = list(sent | {a["id"] for a in today.get("alerts") or []})[-500:]
     state = {"light": reg["light"], "picks": cur_syms if (feats is None or "today" in feats) else prev.get("picks", []),
              "acts": {p["symbol"]: p["action"] for p in acts}, "warnings": pfo.get("warnings", []), "alerts_sent": sent_ids,

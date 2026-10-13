@@ -105,6 +105,13 @@ def _sup_extra(r) -> list:
             (r.get("trend") != "down", "xu hướng ngày không giảm", "xu hướng ngày đang giảm")]
 
 
+def _evh(close, vni):
+    try:
+        return evx.history(close, vni)
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def _ohlc_payload(df: pd.DataFrame, n: int = 750) -> dict:
     d = df.iloc[-n:]
     return {"t": [x.strftime("%Y-%m-%d") for x in d.index],
@@ -865,6 +872,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
                        "v": round(float(getattr(x, "cash_raw", x.cash_pct)) * (10000 if "cash" in str(x.method) else 100), 1)}
                       for x in dv_by[s].sort_values("ex_date").itertuples() if pd.Timestamp(x.ex_date) >= pd.Timestamp(last_date) - pd.Timedelta(days=5 * 365)]
                      if s in dv_by else []),
+            "ev_hist": _evh(d["df"]["close"], idx["close"]),
             "peers": {"cols": ["symbol", "price", "mcap_bn", "pe", "pb", "roe", "ni_yoy", "rev_yoy", "de",
                                "fscore", "div_yield", "upside", "composite"], "rows": peer_rows,
                       "median": {k: r.get(f"{k}_ind_med") for k in fu.PEER_METRICS},

@@ -68,7 +68,8 @@ def episode(close: pd.Series | None) -> dict | None:
             "pre_hi": _r(pre_hi), "low": _r(low), "low_date": str(seg.idxmin().date()), "price": _r(float(c.iloc[-1])),
             "dd_now": _r(100 * (float(c.iloc[-1]) / pre_hi - 1), 1), "from_low": _r(100 * (float(c.iloc[-1]) / low - 1), 1),
             "n_down": int(((r.iloc[st:] <= DOWN)).sum()),
-            "wait_since": max(0, COOL_SINCE - int(since)), "wait_quiet": max(0, COOL_QUIET - int(quiet))}
+            "wait_since": max(0, COOL_SINCE - int(since)), "wait_quiet": max(0, COOL_QUIET - int(quiet)),
+            **({"cool": str(c.index[n - 1 - min(since - COOL_SINCE, quiet - COOL_QUIET)].date())} if phase == "window" else {})}
 
 
 def entry_plan(ep: dict, quality: bool, fair: float | None) -> dict:
@@ -82,3 +83,61 @@ def entry_plan(ep: dict, quality: bool, fair: float | None) -> dict:
             "edge": ("Lịch sử VN 2022–2026, DN có lãi & nợ thấp: 120 phiên sau hơn nhóm chứng +3,2%, 250 phiên +7,2%; 31% số lần lãi ≥ 30% trong 1 năm; "
                      "sụt sâu nhất sau khi mua TB −13%." if quality else
                      "DN đang lỗ hoặc nợ cao: lịch sử không có lợi thế sau sự kiện (≈ 0% so với nhóm chứng) – chỉ theo dõi.")}
+
+
+def history(close: pd.Series | None, vni: pd.Series | None = None, max_n: int = 10) -> list[dict]:
+    """Mọi đợt sự kiện trong lịch sử của mã (để đánh dấu lên biểu đồ và xem sau đó giá đi đâu).
+    Mỗi đợt: ngày có cờ, đáy, ngày "nguội" (điểm vào theo quy tắc ≥ 120 phiên & ≥ 60 phiên liền không giảm sàn),
+    và % giá sau 60 / 120 / 250 phiên tính từ điểm vào (kèm chênh lệch so với VN-Index)."""
+    if close is None:
+        return []
+    c = close.dropna()
+    c = c[c > 0]
+    if len(c) < 140:
+        return []
+    r = c.pct_change()
+    dd = c / c.rolling(120, min_periods=60).max() - 1
+    dnm = (r <= DOWN).values
+    ldn = pd.Series(dnm.astype(float), index=c.index).rolling(60, min_periods=20).sum()
+    flag = ((dd <= DD) & (ldn >= N_DOWN)).values
+    on = np.where(flag)[0]
+    if not len(on):
+        return []
+    starts = [on[0]] + [b for a, b in zip(on[:-1], on[1:]) if b - a >= 60]
+    n = len(c)
+    cs = np.concatenate([[0], np.cumsum(dnm)])           # cs[i+1] = số phiên giảm sàn tới i
+    v = vni.reindex(c.index).ffill() if vni is not None else None
+    px = c.values
+    out = []
+    for k, st in enumerate(starts):
+        nxt = starts[k + 1] if k + 1 < len(starts) else n
+        cool = None
+        for i in range(st + COOL_SINCE, min(n, st + WINDOW_END + 1, nxt)):
+            if cs[i + 1] - cs[i + 1 - COOL_QUIET] == 0 and not flag[i]:
+                cool = i
+                break
+        end = cool if cool is not None else min(n, nxt, st + WINDOW_END + 1) - 1
+        seg = px[st:end + 1]
+        lo_i = st + int(np.argmin(seg))
+        pre_hi = float(px[max(0, st - 120):st + 1].max())
+        e = {"start": str(c.index[st].date()), "px_start": _r(px[st]), "pre_hi": _r(pre_hi), "low_date": str(c.index[lo_i].date()), "low": _r(px[lo_i]),
+             "dd_low": _r(100 * (px[lo_i] / pre_hi - 1), 0), "n_down": int(cs[end + 1] - cs[st])}
+        # mua ngay khi có cờ → 120 phiên sau (để thấy vì sao không nên bắt dao rơi)
+        if st + 120 < n:
+            e["r_start120"] = _r(100 * (px[st + 120] / px[st] - 1), 1)
+        if cool is not None:
+            e["cool"] = str(c.index[cool].date())
+            e["px_cool"] = _r(px[cool])
+            for h in (60, 120, 250):
+                if cool + h < n:
+                    e[f"r{h}"] = _r(100 * (px[cool + h] / px[cool] - 1), 1)
+                    if v is not None and pd.notna(v.iloc[cool]) and pd.notna(v.iloc[cool + h]) and v.iloc[cool] > 0:
+                        e[f"x{h}"] = _r(e[f"r{h}"] - 100 * (float(v.iloc[cool + h]) / float(v.iloc[cool]) - 1), 1)
+            w = px[cool:min(n, cool + 251)]
+            e["mdd"] = _r(100 * (w.min() / px[cool] - 1), 0)
+            e["mx"] = _r(100 * (w.max() / px[cool] - 1), 0)
+            e["days"] = int(n - 1 - cool)
+        else:
+            e["open"] = bool(n - 1 - st <= WINDOW_END)     # đợt còn đang diễn ra (chưa nguội)
+        out.append(e)
+    return out[-max_n:]

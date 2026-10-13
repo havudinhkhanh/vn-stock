@@ -1325,3 +1325,11 @@ main{padding:16px 22px 48px}
   .dpane[data-k="chart"]{height:440px}
   .dgut{display:none}
 }
+
+/* lịch sử sự kiện dưới biểu đồ giá */
+.evh{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
+.evh-h{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;font-size:.82rem;margin-bottom:4px}
+.evh-s{margin-left:auto;font-size:.78rem;color:var(--ink-2)}
+.evh table{font-size:.78rem}.evh td small{font-size:.9em}
+.evh .chip{padding:2px 9px;font-size:.72rem}
+@media (max-width:640px){.evh-s{margin-left:0}}

@@ -2217,6 +2217,7 @@ async function viewStock(sym, tabArg) {
       <div class="toolbar" id="tools"></div>
       <div class="chart" id="pChart"></div>
       <div class="chart xs" id="oChart" style="margin-top:4px"></div>
+      ${evHistStrip(d)}
     </section>
     <div class="stack">
       <section class="panel"><div class="ph"><h2>Kỹ thuật: ${esc(ta.label)}</h2><span class="meta">${ta.score}/100</span></div><div class="gauge"><i style="left:${ta.score}%"></i></div>
@@ -2246,7 +2247,8 @@ async function viewStock(sym, tabArg) {
   // ---- biểu đồ giá (đổi khung: ngày / tuần / tháng / quý / năm – chỉ báo tính lại trên nến của khung)
   const TFO = tfSeries(d);
   let redraw = () => {}, curCharts = [];
-  const L = { lv: true, smc: false, el: false, vsa: false, wy: false, tr: true, dv: true };
+  const L = { lv: true, smc: false, el: false, vsa: false, wy: false, tr: true, dv: true, ev: true };
+  const EVH = d.ev_hist || [], PEV = v?.post_event;
   const drawChart = () => {
   curCharts.forEach((x) => { try { x.remove(); } catch (e) { /* đã huỷ */ } const k = charts.indexOf(x); if (k >= 0) charts.splice(k, 1); });
   curCharts = [];
@@ -2272,6 +2274,11 @@ async function viewStock(sym, tabArg) {
   const pl = (price, color, title, style = 2) => isNum(price) && priceLines.push(cs.createPriceLine({ price, color, lineStyle: style, lineWidth: 1, title, axisLabelVisible: true }));
   const drawLines = () => {
     priceLines.splice(0).forEach((p) => cs.removePriceLine(p));
+    if (L.ev && PEV?.plan) {
+      const p = PEV.plan;
+      pl(p.zone?.[1], css("--brass") || css("--brand"), "Vùng vào SK", 0); pl(p.zone?.[0], css("--brass") || css("--brand"), "", 0);
+      pl(p.stop, css("--down"), "Cắt lỗ SK", 2); pl(p.t1, css("--up"), "Mục tiêu SK", 2);
+    }
     if (L.lv) {
       if (v.ok && v.reliable && v.fair) pl(v.fair, css("--up"), "Hợp lý");
       if (v.ok && v.reliable && v.buy_below) pl(v.buy_below, css("--brand"), "Mua dưới");
@@ -2304,11 +2311,16 @@ async function viewStock(sym, tabArg) {
     if (L.wy && wy2.ok) (wy2.events || []).forEach((x) => add(x.date, ["SC", "ST", "Spring", "LPS", "SOS"].includes(x.event) ? "belowBar" : "aboveBar", css("--brand"), "circle", x.event));
     if (L.tr) myTrades.forEach((x) => add(x.date, x.side === "buy" ? "belowBar" : "aboveBar", x.side === "buy" ? (css("--brass") || css("--brand")) : css("--ink"), x.side === "buy" ? "arrowUp" : "arrowDown", `${x.side === "buy" ? "Mua" : "Bán"} ${nf(x.qty, 0)}`));
     if (L.dv) (d.divs || []).forEach((x) => add(x.d, "aboveBar", css("--ref"), "circle", x.t === "cash" ? `CT ${nf(x.v, 0)}đ` : `CP ${nf(x.v, 0)}%`));
+    if (L.ev) EVH.forEach((e) => {
+      add(e.start, "aboveBar", css("--down"), "arrowDown", "⚡ Sự kiện");
+      if (e.low_date !== e.start) add(e.low_date, "belowBar", css("--ink-3"), "circle", `Đáy ${pct(e.dd_low, 0)}`);
+      if (e.cool) add(e.cool, "belowBar", css("--up"), "arrowUp", `🎯 Vào ${nf(e.px_cool)}` + (isNum(e.r120) ? ` → ${pct(e.r120, 0)}/120p` : isNum(e.r60) ? ` → ${pct(e.r60, 0)}/60p` : ""));
+    });
     return M.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
   };
   redraw = () => { drawLines(); cs.setMarkers(markers()); };
   $("#tools").innerHTML = tfSeg("tfSel", tf) + chartModeSeg() + Object.keys(overlays).map((k) => `<button class="chip ${active.has(k) ? "on" : ""}" data-ov="${k}">${k}</button>`).join("") +
-    `<span class="faint">|</span>` + [["lv", "Mức giá"], ["tr", "Lệnh của tôi"], ["dv", "Cổ tức"], ["smc", "SMC"], ["vsa", "VSA"], ["wy", "Wyckoff"], ["el", "Elliott"]].map(([k, n]) => `<button class="chip ${L[k] ? "on" : ""}" data-l="${k}">${n}</button>`).join("") +
+    `<span class="faint">|</span>` + [["lv", "Mức giá"], ["tr", "Lệnh của tôi"], ["dv", "Cổ tức"], ...(EVH.length ? [["ev", "Sự kiện"]] : []), ["smc", "SMC"], ["vsa", "VSA"], ["wy", "Wyckoff"], ["el", "Elliott"]].map(([k, n]) => `<button class="chip ${L[k] ? "on" : ""}" data-l="${k}">${n}</button>`).join("") +
     `<span style="margin-left:auto" class="seg" id="osc"><button class="on" data-o="rsi">RSI</button><button data-o="macd">MACD</button><button data-o="vol">KL</button><button data-o="obv">OBV</button>${of.history?.length && tf === "D" ? '<button data-o="delta">Delta</button>' : ""}</span>`;
   Object.keys(overlays).forEach(drawOv);
   redraw();
@@ -2316,6 +2328,14 @@ async function viewStock(sym, tabArg) {
   $$("[data-l]").forEach((b) => (b.onclick = () => { L[b.dataset.l] = !L[b.dataset.l]; b.classList.toggle("on"); redraw(); }));
   $$("#tools [data-cm]").forEach((b) => (b.onclick = () => { lsSet("chartMode", b.dataset.cm); drawChart(); }));
   c.timeScale().setVisibleLogicalRange({ from: Math.max(0, o.t.length - TF_VIEW[tf]), to: o.t.length + 3 });
+  window.__evGo = (a, b) => {           // phóng biểu đồ tới một đợt sự kiện (từ trước ngày có cờ tới sau điểm vào)
+    if (tf === "D" && kf(a) < o.t[0] && TFO.W) { lsSet("tf", "W"); drawChart(); return window.__evGo(a, b); }   // đợt cũ hơn dữ liệu nến ngày → xem nến tuần
+    const ix = (x) => { const k = kf(x); let i = o.t.findIndex((t) => t >= k); return i < 0 ? o.t.length - 1 : i; };
+    const i0 = ix(a), i1 = b ? ix(b) : i0, pad = Math.max(10, Math.round((i1 - i0) * 0.25) + (tf === "D" ? 40 : 6));
+    if (!L.ev) { L.ev = true; $("#tools [data-l=ev]")?.classList.add("on"); redraw(); }
+    c.timeScale().setVisibleLogicalRange({ from: Math.max(0, i0 - pad), to: Math.min(o.t.length + 3, i1 + pad + (tf === "D" ? 120 : 20)) });
+    $("#pChart")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
   const oc = mkChart($("#oChart"), { timeScale: { visible: false } });
   curCharts.push(c, oc);
   let oser = [];
@@ -2352,6 +2372,10 @@ async function viewStock(sym, tabArg) {
   $$(".subtabs button").forEach((b) => (b.onclick = () => { history.replaceState(null, "", `#/s/${sym}/${b.dataset.t}`); show(b.dataset.t, true); }));
   $("#stabs").style.top = stickTop() + "px";
   show(tabs[tabArg] ? tabArg : "ov");
+  if (/^ev/.test(tabArg || "")) setTimeout(() => {      // mở từ thông báo sự kiện → phóng biểu đồ tới đợt đó
+    const H = d.ev_hist || [], e = H.find((x) => x.start === tabArg.slice(3)) || H[H.length - 1];
+    if (e) window.__evGo?.(e.start, e.cool);
+  }, 400);
   bindStyleLevels();
 }
 
@@ -2850,6 +2874,7 @@ const HELP_FAQ = [
   ["Danh mục", "Mức dừng lỗ, chốt lời được tính thế nào?", "Theo phong cách của từng mã: dừng lỗ theo ATR và đỉnh sau mua (dời lên theo giá, tối đa −20%), chốt một phần khi vượt giá trị hợp lý, bán khi luận điểm cơ bản gãy, xem lại sau 60 phiên nếu vốn đứng yên. Có thể đặt mức riêng cho từng mã."],
   ["Danh mục", "Tôi đã bán mà hệ thống vẫn báo mã đó?", "Ghi lệnh bán ở Danh mục → Nhật ký giao dịch (hoặc bấm “Bán” cạnh mức thoát) để danh mục cập nhật. Thông báo theo danh mục đã lưu ở lượt chạy gần nhất."],
   ["Thông báo", "Làm sao nhận thông báo trên điện thoại?", "Tài khoản → Nhận thông báo → “Bật trên thiết bị này” và cho phép thông báo. Android/máy tính: dùng Chrome, Edge hoặc Firefox. iPhone/iPad (iOS 16.4+): mở trang bằng Safari → nút Chia sẻ → Thêm vào Màn hình chính → mở trang từ biểu tượng mới → bật lại. Thông báo đẩy và email thuộc gói Pro."],
+  ["Biểu đồ", "Các dấu ⚡ Sự kiện / Đáy / 🎯 Vào trên biểu đồ giá là gì?", "Mỗi lần hệ thống gắn cờ \"có sự kiện\" (giá sụt ≥ 45% so với đỉnh 120 phiên kèm chuỗi phiên giảm sàn) được đánh dấu ⚡ đúng ngày có cờ, chấm Đáy là giá thấp nhất của đợt, mũi tên 🎯 Vào là ngày sự kiện đã nguội (≥ 120 phiên và ≥ 60 phiên liền không giảm sàn) kèm % giá 120 phiên sau đó. Bảng dưới biểu đồ liệt kê mọi đợt của mã với kết quả 60/120/250 phiên và so với VN-Index; bấm Xem để phóng biểu đồ tới đợt đó (đợt cũ hơn 3 năm tự chuyển sang nến tuần). Đợt đang đủ điều kiện vào có thêm đường Vùng vào SK, Cắt lỗ SK, Mục tiêu SK. Bấm vào thông báo sự kiện cũng mở thẳng biểu đồ đúng đợt. Tắt/bật bằng nút Sự kiện trên thanh công cụ."],
   ["Thông báo", "Khi nào tôi nhận thông báo?", "Sau các lượt 11:35, 14:35 và 15:35, chỉ khi có việc mới: chạm/sắp chạm mức thoát, khuyến nghị bán/cắt lỗ, cảnh báo giá, mã mới vào danh sách MUA, dòng tiền lớn với mã của anh/chị, mã có sự kiện / đến điểm vào sau sự kiện. Mỗi việc chỉ báo một lần."],
   ["Thông báo", "Nhận quá nhiều / quá ít thông báo?", "Tài khoản → chọn mức gửi đẩy và email (Tất cả / Bình thường / Chỉ việc quan trọng / Tắt) và bỏ chọn loại không cần. Chuông trên web luôn giữ đủ để xem lại."],
   ["Thông báo", "Bật rồi mà không nhận được thông báo đẩy?", "Kiểm tra: trình duyệt/điện thoại cho phép thông báo của trang; iPhone phải mở từ biểu tượng ngoài màn hình chính; chế độ Tập trung/Không làm phiền đang tắt. Bấm “Gửi thử” trong trang Tài khoản để kiểm tra thiết bị."],
@@ -3450,16 +3475,33 @@ function eventsPanel(t) {
       ${A.map((x) => `<tr><td class="l"><a href="#/s/${x.symbol}"><b>${x.symbol}</b></a></td><td>${esc(x.start)}</td><td class="down">${pct(x.dd_now, 0)}</td><td>${x.n_down}</td><td><small>${x.wait_since ? `${x.wait_since} phiên nữa đủ 120` : ""}${x.wait_since && x.wait_quiet ? " · " : ""}${x.wait_quiet ? `${x.wait_quiet} phiên không giảm sàn` : ""}</small></td></tr>`).join("")}</tbody></table></div></details>` : ""}
     <p class="faint" style="font-size:.72rem;margin-top:6px">${EV_NOTE} Mua 1/2 ngay, 1/2 khi chỉnh về vùng dưới; cắt lỗ −15%; nắm 6–12 tháng. Chỉ 23% số đợt quay lại được ≥ 90% đỉnh cũ trong 1 năm – mục tiêu lấy thận trọng.</p></section>`;
 }
+function evHistStrip(d) {
+  const H = d.ev_hist || [];
+  if (!H.length) return "";
+  const done = H.filter((e) => isNum(e.r120)), win = done.filter((e) => e.r120 > 0).length, avg = done.length ? done.reduce((a, e) => a + e.r120, 0) / done.length : null;
+  const fall = H.filter((e) => isNum(e.r_start120)), avgF = fall.length ? fall.reduce((a, e) => a + e.r_start120, 0) / fall.length : null;
+  const rc = (r, x) => isNum(r) ? `<b class="${cls(r)}">${pct(r, 0)}</b>${isNum(x) ? `<br><small class="faint" title="chênh lệch so với VN-Index cùng kỳ">${x > 0 ? "+" : ""}${nf(x, 0)} so VNI</small>` : ""}` : '<small class="faint">chưa đủ</small>';
+  return `<div class="evh"><div class="evh-h"><b>⚡ Các lần "có sự kiện" của mã</b> <small class="faint">${H.length} lần · giá sụt ≥ 45% kèm chuỗi phiên giảm sàn · bấm Xem để phóng biểu đồ</small>
+    ${done.length ? `<span class="evh-s">Sau điểm vào 🎯, 120 phiên: <b class="${cls(avg)}">${pct(avg, 0)}</b> TB · ${win}/${done.length} lần tăng${isNum(avgF) ? ` · nếu mua ngay lúc có cờ: <b class="${cls(avgF)}">${pct(avgF, 0)}</b>` : ""}</span>` : ""}</div>
+    <div class="tw"><table class="evt"><thead><tr><th class="l">Có cờ ⚡</th><th class="l">Điểm vào 🎯</th><th>60 phiên</th><th>120 phiên</th><th>250 phiên</th><th title="Giá thấp nhất trong 250 phiên sau điểm vào">Sụt sâu nhất</th><th></th></tr></thead><tbody>
+    ${H.slice().reverse().map((e) => `<tr><td class="l">${esc(fmtD(e.start))}<br><small class="faint">đáy <span class="down">${pct(e.dd_low, 0)}</span> ${esc(fmtD(e.low_date))}</small></td>
+      <td class="l">${e.cool ? `${esc(fmtD(e.cool))}<br><small class="faint">giá ${nf(e.px_cool)}</small>` : e.open ? '<small class="ref">đang chờ nguội</small>' : '<small class="faint">không nguội<br>(sự kiện lặp lại)</small>'}</td>
+      <td>${e.cool ? rc(e.r60, e.x60) : ""}</td><td>${e.cool ? rc(e.r120, e.x120) : ""}</td><td>${e.cool ? rc(e.r250, e.x250) : ""}</td>
+      <td>${e.cool && isNum(e.mdd) ? `<span class="${e.mdd < -10 ? "down" : ""}">${pct(e.mdd, 0)}</span>` : ""}</td>
+      <td><button class="chip" data-evgo="${esc(e.start)}" data-evto="${esc(e.cool || "")}">Xem</button></td></tr>`).join("")}</tbody></table></div></div>`;
+}
+document.addEventListener("click", (e) => { const b = e.target.closest?.("[data-evgo]"); if (b && window.__evGo) { e.preventDefault(); window.__evGo(b.dataset.evgo, b.dataset.evto || null); } });
+const fmtD = (s) => (s ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(2, 4)}` : "");
 function eventBox(v, sym) {
   const P = v?.post_event, E = v?.event;
   if (P) { const p = P.plan || {};
     return `<section class="panel sec evp"><div class="ph"><h2 data-g="ev_post">🎯 ${esc(sym)}: điểm vào sau sự kiện</h2><span class="pill ${p.quality ? "buy" : ""}">${p.quality ? "đủ điều kiện" : "chỉ theo dõi"}</span></div>
       ${kpis([["Sự kiện từ", esc(P.start)], ["Phiên từ cờ / không giảm sàn", `${P.since} / ${P.quiet}`], ["So với đỉnh trước", pct(P.dd_now, 0), "down"], ["Từ đáy " + esc(P.low_date || ""), pct(P.from_low, 0), "up"],
         ["Vùng vào", `${nf(p.zone?.[0])}–${nf(p.zone?.[1])}`], ["Cắt lỗ", nf(p.stop), "down"], ["Mục tiêu", `${nf(p.t1)} <small>${pct(p.t1_pct, 0)}</small>`, "up"]], false, "c4")}
-      <p class="note" style="margin-top:6px">${esc(p.split || "")}. ${esc(p.edge || "")}</p></section>`; }
+      <p class="note" style="margin-top:6px">${esc(p.split || "")}. ${esc(p.edge || "")} <button class="chip" data-evgo="${esc(P.start)}" data-evto="${esc(P.cool || "")}">📈 Xem trên biểu đồ</button></p></section>`; }
   if (E) return `<section class="panel sec evp"><div class="ph"><h2 data-g="ev_post">⚡ ${esc(sym)}: có sự kiện – chưa vào</h2><span class="meta">từ ${esc(E.start)}</span></div>
       ${kpis([["So với đỉnh trước", pct(E.dd_now, 0), "down"], ["Phiên giảm sàn", nf(E.n_down, 0)], ["Phiên từ lúc có cờ", `${E.since} <small>cần 120</small>`], ["Phiên không giảm sàn", `${E.quiet} <small>cần 60</small>`]], false, "c4")}
-      <p class="note" style="margin-top:6px">${EV_NOTE} ${E.wait_since || E.wait_quiet ? `Còn chờ: ${[E.wait_since ? E.wait_since + " phiên nữa đủ 120" : "", E.wait_quiet ? E.wait_quiet + " phiên liền không giảm sàn" : ""].filter(Boolean).join(" · ")}. Hệ thống tự báo khi đến điểm vào nếu mã có trong danh sách theo dõi.` : ""}</p></section>`;
+      <p class="note" style="margin-top:6px">${EV_NOTE} ${E.wait_since || E.wait_quiet ? `Còn chờ: ${[E.wait_since ? E.wait_since + " phiên nữa đủ 120" : "", E.wait_quiet ? E.wait_quiet + " phiên liền không giảm sàn" : ""].filter(Boolean).join(" · ")}. Hệ thống tự báo khi đến điểm vào nếu mã có trong danh sách theo dõi.` : ""} <button class="chip" data-evgo="${esc(E.start)}">📈 Xem trên biểu đồ</button></p></section>`;
   return "";
 }
 function moodStrip(FJ) {
@@ -5311,7 +5353,8 @@ const NKIND = { weekly: "Báo cáo tuần (thứ 7)", event: "Mã của anh/ch�
   flag: "Biến động bất thường mã của anh/chị (trong phiên)", light: "Đèn thị trường đổi màu", warn: "Cảnh báo tỷ trọng danh mục", digest: "Bản tin thị trường mỗi phiên" };
 const agoShort = (iso) => { const m = (Date.now() - new Date(iso)) / 60000; return m < 1 ? "vừa xong" : m < 60 ? `${Math.round(m)} phút` : m < 1440 ? `${Math.round(m / 60)} giờ` : new Date(iso).toLocaleDateString("vi-VN"); };
 function ntfRow(n) {
-  return `<a class="ntf ${n.read_at ? "" : "new"} sev${n.sev || 0}" href="${esc(n.url || "#/notifications")}" data-nid="${n.id}"><span class="ni">${NK[n.kind] || "•"}</span>
+  const url = /^event/.test(n.kind || "") && /^#\/s\/[A-Z0-9]+$/.test(n.url || "") ? n.url + "/ev" : n.url;   // thông báo sự kiện → mở biểu đồ đúng đợt
+  return `<a class="ntf ${n.read_at ? "" : "new"} sev${n.sev || 0}" href="${esc(url || "#/notifications")}" data-nid="${n.id}"><span class="ni">${NK[n.kind] || "•"}</span>
     <span class="nb"><b>${esc(n.title)}</b>${n.body ? `<small>${esc(n.body)}</small>` : ""}</span><time>${agoShort(n.created_at)}</time></a>`;
 }
 let __bellN = 0;
