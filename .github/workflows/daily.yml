@@ -55,6 +55,7 @@ jobs:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       SITE_URL: ${{ vars.SITE_URL }}
+      GOOGLE_SITE_VERIFICATION: ${{ vars.GOOGLE_SITE_VERIFICATION }}
       PYTHONUNBUFFERED: "1"
     steps:
       - uses: actions/checkout@v4
