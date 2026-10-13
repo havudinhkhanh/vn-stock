@@ -35,6 +35,10 @@ def main() -> None:
     only = [s.strip().upper() for s in a.only.split(",") if s.strip()] or None
 
     if a.cmd == "probe":
+        if a.symbol == "news":
+            from app.data import probe_news
+            probe_news.run()
+            return
         if a.symbol == "intraday":
             from app.data import probe_intra
             probe_intra.run()
