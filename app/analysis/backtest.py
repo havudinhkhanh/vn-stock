@@ -263,9 +263,16 @@ def run(prices: pd.DataFrame, fq_ttm: pd.DataFrame, divs: pd.DataFrame, listing:
     reg_light = regime_score(idx).reindex(wide.index).ffill().map({3: "green", 2: "yellow", 1: "red", 0: "red"})
     # bắt đầu khi ≥ 60% số mã có BCTC đã có dữ liệu dùng được (tránh giai đoạn rổ trống vì thiếu số liệu)
     first_avail = fund.groupby("symbol")["avail"].min().sort_values()
+    # chỉ tính trên mã có thanh khoản (mã penny / ít giao dịch được tải BCTC gần đây không làm lùi ngày bắt đầu)
+    _liq = wide_val.iloc[-250:].mean()
+    _fa = first_avail[first_avail.index.isin(_liq[_liq >= ucfg["min_val"]].index)]
+    if len(_fa) >= 10:
+        first_avail = _fa
     if len(first_avail) >= 10:
         start = max(start, first_avail.iloc[int(len(first_avail) * 0.6)] + pd.Timedelta(days=380))
     dates = wide.loc[start:].groupby(wide.loc[start:].index.to_period("M")).tail(1).index
+    import logging as _lg
+    _lg.getLogger("backtest").info("Backtest từ %s (%d mã có BCTC tham chiếu, %d kỳ)", str(pd.Timestamp(start).date()), len(first_avail), len(dates))
     if len(dates) < 12:
         return {"ok": False, "reason": "Lịch sử quá ngắn để backtest"}
 
