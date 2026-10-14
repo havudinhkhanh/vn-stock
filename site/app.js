@@ -1187,6 +1187,48 @@ function bindGroupEditor(g, GROUPS, rows) {
   if ($("#gClose")) $("#gClose").onclick = () => (box.hidden = true);
   if ($("#gEditBtn")) $("#gEditBtn").onclick = () => { box.hidden = !box.hidden; if (!box.hidden) box.scrollIntoView({ behavior: "smooth", block: "start" }); };
 }
+// ---- cột ngành bên trái (dùng chung cho trang Toàn cảnh và trang từng ngành/mâm)
+function sectorAside(secs, rows, GROUPS, c) {
+  const L2 = secs.sector || [], L3 = secs.industry || [], LP = secs.peer || [];
+  const byName3 = Object.fromEntries(L3.map((s) => [s.name, s]));
+  const tax = LP.length ? (c.tax || lsGet("secTax", "peer")) : "icb";
+  const link = (n, lv) => secHref(n, lv);
+  const openP = new Set(lsGet("secOpen", [])); if (c.level === "peer" && c.parent) openP.add(c.parent);
+  const PPAR = secs.peer_parents || [...new Set(LP.map((x) => x.parent))];
+  const taxSw = LP.length ? `<div class="taxsw"><button class="${tax === "peer" ? "on" : ""}" data-tax="peer">Theo mâm so sánh</button><button class="${tax === "icb" ? "on" : ""}" data-tax="icb">Theo ngành ICB</button></div>` : "";
+  const sideP = PPAR.map((P) => { const ch = LP.filter((x) => x.parent === P).sort((a, b) => (b.mcap_bn || 0) - (a.mcap_bn || 0)); if (!ch.length) return "";
+    const open = openP.has(P);
+    return `<button data-par="${esc(P)}" class="par ${open ? "open" : ""}" aria-expanded="${open}"><span><i class="car">${open ? "▾" : "▸"}</i>${esc(P)}</span><small></small><small class="faint">${ch.length} mâm</small></button>
+      ${open ? ch.map((x) => `<button class="sub ${c.level === "peer" && x.name === c.name ? "on" : ""}" data-go="${esc(link(x.name, "peer"))}"><span><span class="quad" style="background:${qcol(x.quadrant)}"></span>${esc(x.name)}</span><small class="${cls(x.r1m)}">${pct(x.r1m, 0)}</small><small class="faint">${x.n}</small></button>`).join("") : ""}`; }).join("");
+  const parent2 = c.level === "sector" ? c.name : c.level === "industry" ? c.parent : null;
+  const sub = (sec) => [...new Set(rows.filter((r) => r.sector === sec).map((r) => r.industry).filter(Boolean))].map((n) => ({ name: n, n: rows.filter((r) => r.industry === n).length, rec: byName3[n] })).sort((a, b) => b.n - a.n);
+  const sideI = L2.map((s) => `<button data-go="${esc(link(s.name, "sector"))}" class="${c.level === "sector" && s.name === c.name ? "on" : ""}">
+      <span><span class="quad" style="background:${qcol(s.quadrant)}"></span>${esc(s.name)}</span><small class="${cls(s.r1m)}">${pct(s.r1m, 0)}</small><small class="faint">${s.n}</small></button>
+      ${s.name === parent2 ? sub(s.name).map((x) => `<button class="sub ${c.level === "industry" && x.name === c.name ? "on" : ""}" data-go="${esc(link(x.name, "industry"))}"><span>${x.rec ? `<span class="quad" style="background:${qcol(x.rec.quadrant)}"></span>` : ""}${esc(x.name)}</span><small class="${cls(x.rec?.r1m)}">${x.rec ? pct(x.rec.r1m, 0) : ""}</small><small class="faint">${x.n}</small></button>`).join("") : ""}`).join("");
+  const gCount = (g) => groupMembers(g, rows).length;
+  const gside = `<button data-go="#/sector" class="ovb ${c.level === "overview" ? "on" : ""}"><span>◧ Toàn cảnh tất cả ngành</span><small></small><small></small></button>
+    <div class="slab">NHÓM CỦA TÔI</div>` + GROUPS.map((g) => `<button data-go="#/sector/${enc(g.id)}/g" class="${c.isGroup && c.groupId === g.id ? "on" : ""}"><span>★ ${esc(g.name)}</span><small></small><small class="faint">${gCount(g)}</small></button>`).join("")
+    + `<button data-go="#/sector/new/g" class="${c.isGroup && c.groupId === "new" ? "on" : ""}"><span class="up">＋ Tự nhóm ngành / mã</span><small></small><small></small></button>
+    <div class="slab">${tax === "peer" ? "MÂM SO SÁNH · theo nhóm lớn" : "NGÀNH ICB"}</div>`;
+  const optsP = PPAR.map((P) => `<optgroup label="${esc(P)}">${LP.filter((x) => x.parent === P).map((x) => `<option value="${esc(link(x.name, "peer"))}" ${c.level === "peer" && x.name === c.name ? "selected" : ""}>${esc(x.name)} (${x.n})</option>`).join("")}</optgroup>`).join("");
+  const optsI = `<optgroup label="Ngành ICB">${L2.map((s) => `<option value="${esc(link(s.name, "sector"))}" ${c.level === "sector" && s.name === c.name ? "selected" : ""}>${esc(s.name)} (${s.n})</option>`).join("")}</optgroup>`;
+  const sel = `<select id="secSel" aria-label="Chọn ngành"><option value="#/sector" ${c.level === "overview" ? "selected" : ""}>◧ Toàn cảnh tất cả ngành</option>
+    <optgroup label="Nhóm của tôi">${GROUPS.map((g) => `<option value="#/sector/${enc(g.id)}/g" ${c.isGroup && c.groupId === g.id ? "selected" : ""}>★ ${esc(g.name)} (${gCount(g)})</option>`).join("")}<option value="#/sector/new/g">＋ Tự nhóm ngành / mã</option></optgroup>
+    ${tax === "peer" ? optsP + optsI : optsI + optsP}</select>`;
+  const rrgL = tax === "peer" ? LP.filter((x) => !x.conglo) : L2;
+  return `<aside class="panel flush secaside" id="secAside"><div class="ph"><h2>Ngành</h2><span class="meta">1 tháng · số mã</span></div>
+    <div class="only-m" style="padding:0 10px 10px">${taxSw}${sel}</div>
+    <div class="sec-list only-d" style="padding:0 6px 8px">${taxSw}${gside}${tax === "peer" ? sideP : sideI}</div>
+    <div class="only-d" style="padding:4px 10px 10px">${rrgL.length ? rrgSvg(rrgL, c.name || "", { short: true, labels: false, h: 260, w: 300 }) : ""}</div></aside>`;
+}
+function bindSectorAside(secs, rows, GROUPS, c) {
+  const box = $("#secAside"); if (!box) return;
+  $$("[data-go]", box).forEach((b) => (b.onclick = () => (location.hash = b.dataset.go)));
+  $("#secSel", box)?.addEventListener("change", (e) => (location.hash = e.target.value));
+  const redraw = () => { box.outerHTML = sectorAside(secs, rows, GROUPS, { ...c, tax: lsGet("secTax", "peer") }); bindSectorAside(secs, rows, GROUPS, { ...c, tax: lsGet("secTax", "peer") }); };
+  $$("[data-tax]", box).forEach((b) => (b.onclick = () => { lsSet("secTax", b.dataset.tax); redraw(); }));
+  $$("[data-par]", box).forEach((b) => (b.onclick = () => { const o = new Set(lsGet("secOpen", [])), P = b.dataset.par; o.has(P) ? o.delete(P) : o.add(P); lsSet("secOpen", [...o]); redraw(); }));
+}
 async function viewSector(name, lvArg) {
   const [secs, rows, m, t, gr] = await Promise.all([load("data/sectors.json"), screenerRows(), load("data/market.json"), loadToday(), Store.get("groups")]);
   const L2 = secs.sector || [], L3 = secs.industry || [], LP = secs.peer || [];
@@ -1211,34 +1253,15 @@ async function viewSector(name, lvArg) {
   let customW = lsGet("customW", { ...PRESETS.best.w });
 
   const link = (n, lv) => secHref(n, lv);
-  const most = (k) => { const c = {}; members.forEach((r) => { if (r[k]) c[r[k]] = (c[r[k]] || 0) + (r.mcap_bn || 1); }); return Object.entries(c).sort((a, b) => b[1] - a[1])[0]?.[0]; };
-  const swPeer = level === "peer" ? null : (level === "group" ? LP[0]?.name : most("peer_label")) || LP[0]?.name, swIcb = level === "peer" ? most("sector") || L2[0]?.name : null;
-  const taxSw = LP.length ? `<div class="taxsw"><button class="${tax === "peer" ? "on" : ""}" data-go="${esc(swPeer ? link(swPeer, "peer") : "#")}">Theo mâm so sánh</button><button class="${tax === "icb" ? "on" : ""}" data-go="${esc(swIcb ? link(swIcb, "sector") : "#")}">Theo ngành ICB</button></div>` : "";
-  const PPAR = secs.peer_parents || [...new Set(LP.map((x) => x.parent))];
-  const sideP = PPAR.map((P) => { const ch = LP.filter((x) => x.parent === P).sort((a, b) => (b.mcap_bn || 0) - (a.mcap_bn || 0)); if (!ch.length) return "";
-    const open = P === parent;
-    return `<button data-go="${esc(link(ch[0].name, "peer"))}" class="${open ? "par" : ""}"><span>${esc(P)}</span><small></small><small class="faint">${ch.length}</small></button>
-      ${open ? ch.map((x) => `<button class="sub ${level === "peer" && x.name === name ? "on" : ""}" data-go="${esc(link(x.name, "peer"))}"><span><span class="quad" style="background:${qcol(x.quadrant)}"></span>${esc(x.name)}</span><small class="${cls(x.r1m)}">${pct(x.r1m, 0)}</small><small class="faint">${x.n}</small></button>`).join("") : ""}`; }).join("");
-  const side = tax === "peer" && LP.length ? sideP : L2.map((s) => `<button data-go="${esc(link(s.name, "sector"))}" class="${level === "sector" && s.name === name ? "on" : ""}">
-      <span><span class="quad" style="background:${qcol(s.quadrant)}"></span>${esc(s.name)}</span><small class="${cls(s.r1m)}">${pct(s.r1m, 0)}</small><small class="faint">${s.n}</small></button>
-      ${s.name === parent ? subInd.map((x) => `<button class="sub ${level === "industry" && x.name === name ? "on" : ""}" data-go="${esc(link(x.name, "industry"))}"><span>${x.rec ? `<span class="quad" style="background:${qcol(x.rec.quadrant)}"></span>` : ""}${esc(x.name)}</span><small class="${cls(x.rec?.r1m)}">${x.rec ? pct(x.rec.r1m, 0) : ""}</small><small class="faint">${x.n}</small></button>`).join("") : ""}`).join("");
-  const gCount = (g) => groupMembers(g, rows).length;
-  const gside = `<button data-go="#/sector" class="ovb"><span>◧ Toàn cảnh tất cả ngành</span><small></small><small></small></button><div class="faint" style="font-size:.68rem;padding:6px 8px 2px;letter-spacing:.04em">NHÓM CỦA TÔI</div>` + GROUPS.map((g) => `<button data-go="#/sector/${enc(g.id)}/g" class="${isGroup && group.id === g.id ? "on" : ""}"><span>★ ${esc(g.name)}</span><small></small><small class="faint">${gCount(g)}</small></button>`).join("")
-    + `<button data-go="#/sector/new/g" class="${isGroup && group.id === "new" ? "on" : ""}"><span class="up">＋ Tự nhóm ngành / mã</span><small></small><small></small></button><div class="faint" style="font-size:.68rem;padding:8px 8px 2px;letter-spacing:.04em">NGÀNH CÓ SẴN</div>`;
-  const gopts = `<option value="#/sector">◧ Toàn cảnh tất cả ngành</option><optgroup label="Nhóm của tôi">${GROUPS.map((g) => `<option value="#/sector/${enc(g.id)}/g" ${isGroup && group.id === g.id ? "selected" : ""}>★ ${esc(g.name)} (${gCount(g)})</option>`).join("")}<option value="#/sector/new/g" ${isGroup && group.id === "new" ? "selected" : ""}>＋ Tự nhóm ngành / mã</option></optgroup><optgroup label="Ngành có sẵn">`;
-  const optsP = PPAR.map((P) => `<optgroup label="${esc(P)}">${LP.filter((x) => x.parent === P).map((x) => `<option value="${esc(link(x.name, "peer"))}" ${level === "peer" && x.name === name ? "selected" : ""}>${esc(x.name)} (${x.n})</option>`).join("")}</optgroup>`).join("");
-  const opts = tax === "peer" && LP.length ? `</optgroup>${optsP}<optgroup label="Ngành ICB">` + L2.map((s) => `<option value="${esc(link(s.name, "sector"))}">${esc(s.name)} (${s.n})</option>`).join("") : L2.map((s) => `<option value="${esc(link(s.name, "sector"))}" ${level === "sector" && s.name === name ? "selected" : ""}>${esc(s.name)} (${s.n})</option>
-      ${s.name === parent ? subInd.map((x) => `<option value="${esc(link(x.name, "industry"))}" ${level === "industry" && x.name === name ? "selected" : ""}>  └ ${esc(x.name)} (${x.n})</option>`).join("") : ""}`).join("");
+  const asideCtx = { level, name, parent, tax, isGroup, groupId: group?.id };
   const bt = level === "sector" ? (secs.backtest || {})[name] : null;
   const factOpts = (sel) => Object.entries(FACT).map(([k, [n]]) => `<option value="${k}" ${k === sel ? "selected" : ""}>${esc(n)}</option>`).join("");
 
   app().innerHTML = `
   <div class="g g-side">
-    <aside class="panel flush"><div class="ph"><h2>Ngành</h2><span class="meta">1 tháng · số mã</span></div>
-      <div class="only-m" style="padding:0 10px 10px"><select id="secSel" style="width:100%;padding:6px;border:1px solid var(--line);border-radius:6px;background:var(--surface)">${gopts}${opts}</optgroup></select></div>
-      <div class="sec-list only-d" style="padding:0 6px 8px">${taxSw}${gside}${side}</div>
-      <div class="only-d" style="padding:4px 10px 10px">${L2.length ? rrgSvg(L2, level === "sector" ? name : parent || "", { short: true, labels: false, h: 260, w: 300 }) : ""}</div></aside>
+    ${sectorAside(secs, rows, GROUPS, asideCtx)}
     <div class="stack">
+      <nav class="crumbs"><a href="#/sector">← Toàn cảnh các ngành</a><span>›</span>${isGroup ? "<span>Nhóm của tôi</span>" : level === "peer" ? `<span>Mâm so sánh</span><span>›</span><span>${esc(parent || "")}</span>` : level === "industry" ? `<span>Ngành ICB</span><span>›</span><a href="${link(parent, "sector")}">${esc(parent || "")}</a>` : "<span>Ngành ICB</span>"}<span>›</span><b>${esc(isGroup ? group.name || "Nhóm mới" : name)}</b></nav>
       <div class="ph" style="margin:0"><h1>${esc(isGroup ? group.name || "Nhóm mới" : name)}</h1>
         ${outChip(rec?.outlook, "m3")}${outChip(rec?.outlook, "m12")}
         ${rec?.quadrant ? `<span class="pill" style="color:${qcol(rec.quadrant)}"><span class="quad" style="background:${qcol(rec.quadrant)}"></span>${esc(rec.quadrant)}</span>` : ""}
@@ -1306,8 +1329,7 @@ async function viewSector(name, lvArg) {
     </div>
   </div>`;
 
-  $$("[data-go]").forEach((b) => (b.onclick = () => (location.hash = b.dataset.go)));
-  $("#secSel").onchange = (e) => (location.hash = e.target.value);
+  bindSectorAside(secs, rows, GROUPS, asideCtx);
   const save = () => lsSet("secState", { preset: st.preset, minVal: st.minVal, uptrend: st.uptrend, exch: st.exch, x: st.x, y: st.y, relative: st.relative });
   const weights = () => (st.preset === "custom" ? customW : PRESETS[st.preset].w);
 
@@ -4191,7 +4213,7 @@ async function viewSectors() {
   const listOf = (lv) => lv === "sector" ? S.sector || [] : lv === "industry" ? S.industry || [] : lv === "peer" ? S.peer || [] : groups.map((g) => ({ ...aggRec(groupMembers(g, rows)), name: g.name, _gid: g.id }));
   const href = (s) => (s._gid ? `#/sector/${enc(s._gid)}/g` : secHref(s.name, st.lv));
   const mh = M.val_hist || [];
-  app().innerHTML = `
+  app().innerHTML = `<div class="g g-side">${sectorAside(S, rows, groups, { level: "overview" })}<div class="stack secov">
   <div class="ph"><h1>Toàn cảnh các ngành</h1><span class="meta">${(S.peer || []).length} mâm so sánh · ${(S.sector || []).length} ngành ICB · ${nf(M.n_fin, 0)} DN có BCTC</span></div>
   <div id="oBox">${outlookSection(S, lsGet("oLv2", "peer"), lsGet("oHz", "m3"))}</div>
   ${seasonMatrix(S)}
@@ -4227,7 +4249,8 @@ async function viewSectors() {
     <section class="panel"><div class="ph"><h2>P/E và tăng trưởng lợi nhuận</h2><span class="meta">góc dưới-phải = rẻ mà tăng nhanh</span></div><div id="scPE"></div></section>
   </div>
   <section class="panel flush sec"><div class="ph"><h2>Bảng so sánh tất cả ngành</h2><span class="meta">bấm tiêu đề để sắp xếp · dòng đầu = toàn thị trường</span></div><div class="tw tall"><table id="cmp" class="cmp"></table></div></section>
-  <section class="panel sec"><div class="ph"><h2>P/E từng ngành theo thời gian</h2><span class="meta">đường xanh = ngành (trung vị) · xám = thị trường · dải = 10–90% lịch sử · vòng tròn = hiện tại</span></div><div class="multi" id="multi"></div></section>`;
+  <section class="panel sec"><div class="ph"><h2>P/E từng ngành theo thời gian</h2><span class="meta">đường xanh = ngành (trung vị) · xám = thị trường · dải = 10–90% lịch sử · vòng tròn = hiện tại</span></div><div class="multi" id="multi"></div></section></div></div>`;
+  bindSectorAside(S, rows, groups, { level: "overview" });
 
   const curList = () => listOf(st.lv);
   const draw = () => {

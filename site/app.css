@@ -1370,3 +1370,24 @@ main{padding:16px 22px 48px}
 .taxsw{display:flex;gap:4px;margin:2px 2px 6px}.taxsw button{flex:1;justify-content:center!important;font-size:.74rem!important;border:1px solid var(--line)!important;border-radius:6px}
 .taxsw button.on{background:color-mix(in srgb,var(--brass,var(--brand)) 18%,transparent);color:var(--ink);border-color:var(--brass,var(--brand))!important}
 .sec-list button.par span{font-weight:600}
+/* điều hướng tab Ngành: đường dẫn, cột trái, thẻ bấm được */
+.crumbs{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:.8rem;color:var(--ink-3);margin:0 0 2px}
+.crumbs a{color:var(--brass,var(--brand));font-weight:600;padding:3px 10px;border:1px solid color-mix(in srgb,var(--brass,var(--brand)) 45%,transparent);border-radius:999px}
+.crumbs a:hover{text-decoration:none;background:color-mix(in srgb,var(--brass,var(--brand)) 14%,transparent)}
+.crumbs b{color:var(--ink)}
+.sec-list .slab{font-size:.68rem;padding:8px 8px 2px;letter-spacing:.06em;color:var(--ink-3)}
+.sec-list button.par{font-weight:600;color:var(--ink)}
+.sec-list button.par .car{font-style:normal;display:inline-block;width:14px;color:var(--brass,var(--brand))}
+.sec-list button.ovb.on{background:color-mix(in srgb,var(--brass,var(--brand)) 16%,transparent)}
+.secaside #secSel{width:100%;padding:7px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink);margin-top:6px}
+.secaside .only-m .taxsw{margin:0}
+/* thẻ ngành / mâm: nhìn ra là bấm được */
+.oi{position:relative;cursor:pointer;transition:background .15s,transform .15s}
+.oi .oi-h b{color:var(--ink)}
+.oi:hover .oi-h b{color:var(--brass,var(--brand))}
+.oi .oi-h b::after{content:"  ›";color:var(--brass,var(--brand));opacity:.55;font-weight:700}
+.oi:hover .oi-h b::after{opacity:1}
+.oi:hover{transform:translateX(2px)}
+.pb-row{cursor:pointer}.pb-row:hover .nm{color:var(--brass,var(--brand));text-decoration:underline}
+#cmp td.sym a,#secTbl td.sym a{font-weight:600;text-decoration:underline;text-decoration-color:color-mix(in srgb,currentColor 35%,transparent);text-underline-offset:3px}
+.secov > .ph:first-child{margin-top:0}
