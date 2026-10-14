@@ -393,9 +393,12 @@ PEER_METRICS = ["pe", "pb", "roe", "roa", "net_margin", "gross_margin", "rev_yoy
 LOWER_BETTER = {"pe", "pb", "de"}
 
 
-def peer_stats(snap: pd.DataFrame, group_col: str = "industry") -> pd.DataFrame:
-    """Thêm hạng phần trăm trong ngành cho từng chỉ số (100 = tốt nhất ngành)."""
+def peer_stats(snap: pd.DataFrame, group_col: str = "industry", ref: pd.Series | None = None) -> pd.DataFrame:
+    """Thêm hạng phần trăm trong ngành cho từng chỉ số (100 = tốt nhất ngành).
+    ref: mã dùng để tính TRUNG VỊ ngành (mặc định mọi mã). Truyền nhóm có thanh khoản để mã penny / ít giao dịch
+    (P/E, P/B hay méo) không kéo lệch mức so sánh; nhóm nào có < 3 mã tham chiếu thì dùng mọi mã."""
     snap = snap.copy()
+    refm = ref.reindex(snap.index).fillna(False).astype(bool) if ref is not None else pd.Series(True, index=snap.index)
     for m in PEER_METRICS:
         if m not in snap:
             continue
@@ -404,6 +407,10 @@ def peer_stats(snap: pd.DataFrame, group_col: str = "industry") -> pd.DataFrame:
             x = x.where(x > 0)
         rank = x.groupby(snap[group_col]).rank(pct=True, ascending=m not in LOWER_BETTER)
         snap[f"{m}_pctl"] = (100 * rank).round(0)
-        snap[f"{m}_ind_med"] = x.groupby(snap[group_col]).transform("median")
+        med_all = x.groupby(snap[group_col]).transform("median")
+        xr = x.where(refm)
+        med_ref = xr.groupby(snap[group_col]).transform("median")
+        n_ref = xr.groupby(snap[group_col]).transform("count")
+        snap[f"{m}_ind_med"] = med_ref.where(n_ref >= 3, med_all)
     snap["peers_n"] = snap.groupby(group_col)["symbol"].transform("count")
     return snap

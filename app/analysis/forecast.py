@@ -222,6 +222,7 @@ def build_base(fa: dict, ys: pd.DataFrame, ttm_row: pd.Series | None, sector_gro
         ebit_m = (gp - sga_now * rev) / rev if rev else 0.1
         base.update({"revenue": rev, "interest": interest, "other": other, "minority": minority, "debt": debt0, "cash": cash0,
                      "capex_mode": "fa" if fa_mode else "rev", "fa0": fa0})
+        base["bs0"] = opening_bs(ttm_row, eq, fa0)
         roe_lt = _median([h["roe"] for h in H], 0.12, 0.06, 0.30)
         conv_term = float(np.clip(1 - gterm / max(roe_lt, 0.06), 0.3, 0.95))
         a.pop("conv", None)
@@ -256,13 +257,67 @@ def build_base(fa: dict, ys: pd.DataFrame, ttm_row: pd.Series | None, sector_gro
         roe_now = ni / eq
         roe_med = _median([h["roe"] for h in H] + [roe_now], roe_now, 0.05, 0.30)
         a.update({"roe_cap": round(float(np.clip(roe_med, 0.05, 0.30)), 4)})
+        if ttm_row is not None:
+            gq = lambda k: _num(ttm_row.get(k))  # noqa: E731
+            if gq("total_assets"):
+                base["bs0f"] = {"ta": _r(gq("total_assets"), 1), "loans": _r(gq("loans"), 1), "deposits": _r(gq("deposits"), 1), "eq": _r(gq("equity"), 1)}
+                try:
+                    base["bs0f"]["q"] = f"Q{int(ttm_row['quarter'])}/{int(ttm_row['year'])}"
+                except (TypeError, ValueError, KeyError):
+                    pass
+        base["tax"] = (fa.get("tax_rate") or 20) / 100
         why["roe_cap"] = f"trung vị ROE nhiều năm của chính DN (hiện {_pct(roe_now)})"
     hist = [{"year": h["year"], "rev_g": _r(h["rev_g"], 4), "ni_g": _r(h["ni_g"], 4), "gm": _r(h["gm"], 4), "sga": _r(h["sga"], 4),
              "conv": _r(h["conv"], 3), "roe": _r(h["roe"], 4), "capex_r": _r(h.get("capex_r"), 4), "da_r": _r(h.get("da_r"), 4),
              "capex": _r(h.get("capex"), 0), "debt": _r(h.get("debt"), 0), "net_debt": _r(h.get("net_debt"), 0), "kd": _r(h.get("kd"), 4),
              "de": _r(h.get("de"), 3), "rev": _r(h.get("rev"), 0), "ni": _r(h.get("ni"), 0), "ta": _r(h.get("ta"), 0), "fa": _r(h.get("fa"), 0),
              "da": _r(h.get("da"), 0), "da_fa": _r(h.get("da_fa"), 4), "capex_fa": _r(h.get("capex_fa"), 4), "ebit": _r(h.get("ebit"), 0), "int": _r(h.get("int"), 0)} for h in H[-8:]]
+    base["hs"] = hist_statements(ys)
     return {"base": base, "assumptions": a, "why": why, "hist": hist}
+
+
+def opening_bs(r: pd.Series | None, eq_parent: float, fa0: float | None) -> dict | None:
+    """Bảng cân đối đầu kỳ (quý gần nhất) – điểm xuất phát cho bảng cân đối dự phóng (tính trên web, xem FC.statements trong site/app.js).
+    Khoản mục không dự phóng riêng (tài sản ngắn/dài hạn khác, nợ khác) giữ nguyên; tiền là số dư cuối của lưu chuyển tiền tệ."""
+    if r is None:
+        return None
+    g = lambda k: _num(r.get(k))  # noqa: E731
+    ta, eqt = g("total_assets"), g("equity")
+    if not ta or not eqt:
+        return None
+    cash, sti, rec, inv = g("cash") or 0, g("st_invest") or 0, g("receivables") or 0, g("inventory") or 0
+    ca = g("current_assets") or (cash + sti + rec + inv)
+    fa_ = fa0 if fa0 is not None else (g("fixed_assets") or 0)
+    cl, sd, ld = g("current_liab") or 0, g("st_debt") or 0, g("lt_debt") or 0
+    out = {"cash": cash + sti, "rec": rec, "inv": inv, "oca": max(0.0, ca - cash - sti - rec - inv), "fa": fa_,
+           "olta": ta - ca - fa_, "ta": ta, "opl": max(0.0, cl - sd), "sd": sd, "ld": ld,
+           "eq_p": eq_parent, "nci": eqt - eq_parent}
+    out["olta"] = ta - (out["cash"] + rec + inv + out["oca"] + fa_)   # tài sản dài hạn khác = phần còn lại (bảng cân đối đầu kỳ luôn khớp)
+    out["ol"] = ta - (out["opl"] + sd + ld + eqt)      # nợ khác (dài hạn khác, dự phòng…) = phần còn lại để bảng cân đối khớp
+    try:
+        out["q"] = f"Q{int(r['quarter'])}/{int(r['year'])}"
+    except (TypeError, ValueError, KeyError):
+        pass
+    return {k: (round(v, 1) if isinstance(v, float) else v) for k, v in out.items()}
+
+
+def hist_statements(ys: pd.DataFrame | None, n: int = 3) -> list[dict]:
+    """3 năm BCTC gần nhất (tỷ đồng) để đặt cạnh các năm dự phóng."""
+    if ys is None or ys.empty:
+        return []
+    yy = ys.sort_values("year").drop_duplicates("year", keep="last").tail(n)
+    K = ["revenue", "cogs", "gross_profit", "selling_exp", "admin_exp", "fin_income", "fin_exp", "interest_exp", "ebit", "operating_profit", "pbt", "tax",
+         "net_income", "ni_parent", "minority", "cash", "st_invest", "receivables", "inventory", "current_assets", "fixed_assets", "total_assets",
+         "current_liab", "st_debt", "lt_debt", "total_liab", "equity", "cfo", "capex", "dividends_paid", "cfi", "cff", "ebitda",
+         "toi", "nii", "provision", "loans", "deposits"]
+    out = []
+    for _, r in yy.iterrows():
+        row = {"year": int(r["year"])}
+        for k in K:
+            v = _num(r.get(k))
+            row[k] = round(v, 1) if v is not None else None
+        out.append(row)
+    return out
 
 
 def path(a: dict, n: int):
@@ -323,7 +378,7 @@ def project(base: dict, a: dict) -> list[dict]:
             gp = rev_core * gm_t
             sga = rev_core * sga_t
             ebit = gp - sga + rev_plan * float(a.get("inv_m") or 0)
-            debt = float(a.get("de") or 0) * equity + plan_debt
+            debt = max(0.0, float(a.get("de") or 0) * equity) + plan_debt      # vốn chủ âm (lỗ kéo dài) không làm dư nợ âm
             interest = float(a.get("kd") or 0) * (debt_prev + debt) / 2
             other = base["other"] * (0.8 ** t)
             pbt = ebit - interest + other

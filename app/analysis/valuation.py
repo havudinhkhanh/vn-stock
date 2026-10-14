@@ -120,7 +120,7 @@ def event_flag(close: pd.Series | None) -> dict | None:
 
 
 def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: dict,
-          mos_pct: float, event: dict | None = None) -> dict:
+          mos_pct: float, event: dict | None = None, liq_bn: float | None = None) -> dict:
     price = fa.get("price")
     rf = cfg.get("risk_free", 3.2) / 100
     erp = cfg.get("equity_risk_premium", 8.0) / 100
@@ -259,6 +259,15 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
         if nz.get("pe_med_val"):
             nz["fair_med"] = _r(fair + pm["w_eff"] * (nz["pe_med_val"] - pm["value"]))
     med_used = float(np.median([m["value"] for m in used]))
+    # chiết khấu thanh khoản (mã penny / ít giao dịch): khó mua bán khối lượng lớn, chênh lệch giá mua–bán rộng
+    liq = None
+    if liq_bn is not None:
+        steps = cfg.get("liq_discount") or [[0.1, 25], [0.5, 15], [1.0, 10]]
+        dsc = next((float(x[1]) for x in steps if liq_bn < float(x[0])), 0.0)
+        if dsc > 0:
+            k_ = 1 - dsc / 100
+            fair, fair_lo, fair_hi, med_used = fair * k_, fair_lo * k_, fair_hi * k_, med_used * k_
+            liq = {"avg_bn": _r(liq_bn, 2), "disc": dsc}
     buy_below = min(fair * (1 - mos_pct / 100), med_used * (1 - mos_pct / 200))
     upside = (fair / price - 1) * 100 if price else None
     # Kiểm tra bất thường: giá trị lệch quá xa giá thị trường thường là do số liệu nguồn lỗi
@@ -276,6 +285,10 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
     if nz.get("cash_conv") is not None and nz["cash_conv"] < 0.5 and ctype == "CT":
         w2 = f"Lợi nhuận 12 tháng chưa thành tiền: dòng tiền kinh doanh 4 quý chỉ bằng {nz['cash_conv'] * 100:.0f}% lợi nhuận."
         warning = f"{warning} {w2}" if warning else w2
+    if liq:
+        w5 = (f"Thanh khoản thấp (giá trị giao dịch TB 20 phiên {liq['avg_bn']:.2f} tỷ/phiên): giá trị hợp lý đã trừ chiết khấu thanh khoản "
+              f"{liq['disc']:.0f}% – khó mua/bán khối lượng lớn, giá khớp có thể cách xa giá tham chiếu; hệ thống không đưa mã này vào danh sách MUA.").replace(".", ",", 1)
+        warning = f"{warning} {w5}" if warning else w5
     flag = None
     if det:
         if (det["ni"] or 0) < 0:
@@ -317,5 +330,5 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
             "buy_below": _r(buy_below), "sell_above": _r(fair * 1.10), "upside": _r(upside, 1), "median": _r(med_used),
             "ke_parts": {"rf": _r(rf * 100, 2), "beta": _r(b, 2), "beta_used": _r(max(b, 1.0), 2), "erp": _r(erp * 100, 2), "size": _r(size_p * 100, 1),
                          "floor": cfg.get("ke_min", 12.0)},
-            "verdict": verdict, "reliable": reliable, "warning": warning, "flag": flag, "event": event, "det": det, "methods": methods, "norm": nz, "ke": _r(ke * 100, 2), "beta": _r(b, 2),
+            "liq": liq, "verdict": verdict, "reliable": reliable, "warning": warning, "flag": flag, "event": event, "det": det, "methods": methods, "norm": nz, "ke": _r(ke * 100, 2), "beta": _r(b, 2),
             "scenarios": sc, "model": model, "hist": {k: _r(v, 2) for k, v in hist.items()}}

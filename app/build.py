@@ -351,7 +351,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             "vol_1y": float(c.iloc[-250:].pct_change().std() * np.sqrt(250)) if len(c) > 60 else None,
             "vol_3m": float(c.iloc[-63:].pct_change().std() * np.sqrt(250)) if len(c) > 63 else None,
             "beta": va.beta(c, idx["close"]) if len(c) > 120 else 1.0,
-            "spk": [round(float(x), 2) for x in c.iloc[-30:]] if (s in deep and len(c) >= 30) else None,
+            "spk": [round(float(x), 2) for x in c.iloc[-30:]] if ((s in deep or fa.get("ok")) and len(c) >= 30) else None,
         }
         for k in ("pe", "pb", "ps", "ev_ebitda", "earnings_yield", "roe", "roa", "roic", "gross_margin",
                   "net_margin", "de", "cfo_ni", "rev_yoy", "ni_yoy", "rev_q_yoy", "ni_q_yoy", "rev_cagr3",
@@ -365,7 +365,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         r["has_fin"] = bool(fa.get("ok"))
         r["liquid_ok"] = bool(avg_val.get(s, 0) >= min_val and price >= float(ucfg.get("min_price", 5))
                               and len(df) >= int(ucfg.get("min_history_days", 120)))
-        if s in deep:
+        if s in deep or (fa.get("ok") and len(df) >= 60 and ucfg.get("detail_all_fin", True)):   # mã penny / ít giao dịch có BCTC: vẫn có trang chi tiết + định giá
             pat = pt.analyze(df)
             for key, fn in (("smc", smc_.analyze), ("vsa", vsa_.analyze), ("wyckoff2", vsa_.wyckoff_events)):
                 try:
@@ -416,7 +416,8 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     u = pd.DataFrame.from_dict(rows, orient="index")
     if u.empty:
         raise SystemExit("Không có mã nào để phân tích")
-    u = fu.peer_stats(u.reset_index(drop=True).assign(symbol=list(u.index)), "industry").set_index("symbol", drop=False)
+    _u0 = u.reset_index(drop=True).assign(symbol=list(u.index))
+    u = fu.peer_stats(_u0, "industry", ref=_u0["avg_value_bn"].fillna(0) >= float(ucfg.get("fin_min_avg_value_bn", 0.3))).set_index("symbol", drop=False)
     for c in ("ni_yoy", "rev_yoy"):
         sector_growth[c] = u.groupby("industry")[c].median()
 
@@ -445,7 +446,8 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         hist = va.hist_multiples(qs, d["df"]["close"], fa.get("shares_mn"))
         peers = {"pe_ind_med": r.get("pe_ind_med"), "pb_ind_med": r.get("pb_ind_med"), "roe_ind_med": r.get("roe_ind_med")}
         ep = evx.episode(d["df"]["close"])
-        val = va.value(fa, model, peers, hist, r["beta"], vcfg, mos, event=ep if ep and ep["phase"] == "active" else None)
+        val = va.value(fa, model, peers, hist, r["beta"], vcfg, mos, event=ep if ep and ep["phase"] == "active" else None,
+                       liq_bn=float(r.get("avg_value_bn") or 0))
         if ep and ep["phase"] == "window":
             qual = bool((fa.get("ni_ttm") or 0) > 0 and (fa.get("de") if fa.get("de") is not None else 0) < 1.5)
             ep["plan"] = evx.entry_plan(ep, qual, val.get("fair") if val.get("reliable") else None)

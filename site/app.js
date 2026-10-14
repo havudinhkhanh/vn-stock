@@ -115,7 +115,7 @@ const FC = {
         const rev = revCore + revPlan;
         const gp = revCore * gmT, sga = revCore * sgaT;
         const ebit = gp - sga + revPlan * (+a.inv_m || 0);
-        const debt = (+a.de || 0) * equity + planDebt;
+        const debt = Math.max(0, (+a.de || 0) * equity) + planDebt;
         const interest = (+a.kd || 0) * (debtPrev + debt) / 2;
         const other = base.other * Math.pow(0.8, t);
         const pbt = ebit - interest + other;
@@ -192,6 +192,38 @@ const FC = {
     const tv = (rows[rows.length - 1].dps * (1 + g)) / (ke - g);
     const v = (pv + tv / Math.pow(1 + ke, rows.length)) / 1000;
     return v > 0 ? v : null;
+  },
+  // ---- 3 báo cáo tài chính dự phóng liên kết (KQKD → LCTT → CĐKT), từ cùng các dòng của project():
+  //   LCTT: HĐKD = LNST + khấu hao − tăng VLĐ; HĐĐT = − đầu tư TSCĐ; HĐTC = vay ròng − cổ tức (mẹ + thiểu số)
+  //   CĐKT: tiền = tiền đầu kỳ + lưu chuyển thuần; TSCĐ = đầu kỳ + đầu tư − khấu hao; VLĐ = đầu kỳ + tăng VLĐ (phải trả theo doanh thu,
+  //   phần còn lại chia phải thu / tồn kho theo tỷ lệ đầu kỳ); vay = dư nợ mô hình; vốn chủ = đầu kỳ + LN − cổ tức; khoản khác giữ nguyên.
+  statements(base, a, rows) {
+    const B = base.bs0;
+    if (base.model !== "CT" || !B || !rows.length) return null;
+    const sh = base.shares, rev0 = base.revenue || 1, ri = B.rec + B.inv, wRec = ri > 0 ? B.rec / ri : 1;
+    const dsh = B.sd + B.ld > 0 ? B.sd / (B.sd + B.ld) : 0.5;
+    let cash = B.cash, fa = B.fa, nwc = B.rec + B.inv - B.opl, nci = B.nci, eqP = base.equity, debtP = base.debt || 0;
+    const out = [];
+    rows.forEach((r) => {
+      const niNci = r.ni_all - r.ni, divP = r.dps * sh / 1000, divN = Math.max(0, niNci) * (a.payout || 0);
+      const cfo = r.ni_all + r.da - r.dnwc, cfi = -r.capex, cff = r.borrow - divP - divN, net = cfo + cfi + cff;
+      const cash0 = cash; cash += net; fa += r.capex - r.da; nwc += r.dnwc; nci += niNci - divN;
+      const opl = B.opl * r.revenue / rev0, recInv = nwc + opl, rec = recInv * wRec, inv = recInv - rec;
+      const cashB = Math.max(0, cash), gap = Math.max(0, -cash);   // tiền âm = thiếu vốn → thể hiện thành khoản phải huy động thêm
+      const ta = cashB + rec + inv + B.oca + fa + B.olta, eqT = r.equity + nci, liab = opl + r.debt + gap + B.ol;
+      const gpD = r.ebit + r.sga, other = r.pbt - r.ebit + r.interest, tax = r.pbt - r.ni_all;
+      out.push({
+        is: { revenue: r.revenue, cogs: -(r.revenue - gpD), gp: gpD, sga: -r.sga, ebit: r.ebit, ebitda: r.ebit + r.da, other, interest: -r.interest, pbt: r.pbt, tax: -tax,
+          ni_all: r.ni_all, nci: -niNci, ni: r.ni, eps: r.eps, dps: r.dps, gm: r.revenue ? gpD / r.revenue : null, nm: r.revenue ? r.ni / r.revenue : null },
+        cf: { ni_all: r.ni_all, da: r.da, dnwc: -r.dnwc, cfo, capex: -r.capex, cfi, borrow: r.borrow, div_p: -divP, div_n: -divN, cff, net, cash0, cash1: cash, fcff: r.fcff, fcfe: r.fcfe },
+        bs: { cash: cashB, cash_raw: cash, gap, rec, inv, oca: B.oca, ca: cashB + rec + inv + B.oca, fa, olta: B.olta, ta, opl, sd: r.debt * dsh, ld: r.debt * (1 - dsh), ol: B.ol, liab, eq_p: r.equity, nci, eq: eqT, le: liab + eqT,
+          chk: ta - (liab + eqT), net_debt: r.debt + gap - cashB, de: r.equity > 0 ? (r.debt + gap) / r.equity : null, cur: opl + r.debt * dsh + gap > 0 ? (cashB + rec + inv + B.oca) / (opl + r.debt * dsh + gap) : null,
+          roe: r.roe, roa: null, bvps: r.bvps },
+      });
+      eqP = r.equity; debtP = r.debt;
+    });
+    out.forEach((x, i) => { const taP = i ? out[i - 1].bs.ta : B.ta; x.bs.roa = x.is.ni / ((taP + x.bs.ta) / 2); });
+    return out;
   },
 };
 
@@ -2177,7 +2209,9 @@ async function viewStock(sym, tabArg) {
     <div class="tags" style="margin-left:auto">${d.in_plan ? '<span class="pill buy">Trong danh sách MUA</span>' : ""}${(d.baskets || []).map((b) => `<span class="pill brand">${esc(BASKET_SHORT[b] || b)}</span>`).join("")}
       <span class="pill ${r.trend === "up" ? "buy" : r.trend === "down" ? "sell" : ""}">Xu hướng ${TREND_VI[r.trend] || "—"}</span>
       ${secRec ? `<span class="pill" title="Vị trí ngành trên biểu đồ xoay vòng"><span class="quad" style="background:${qcol(secRec.quadrant)}"></span>Ngành ${esc(secRec.quadrant)}</span>` : ""}
-      ${isNum(r.ind_rank) ? `<span class="pill">Hạng ${nf(r.ind_rank, 0)}/${r.ind_n} trong ngành</span>` : ""}</div>
+      ${isNum(r.ind_rank) ? `<span class="pill">Hạng ${nf(r.ind_rank, 0)}/${r.ind_n} trong ngành</span>` : ""}
+      ${isNum(r.avg_value_bn) && r.avg_value_bn < 1 ? `<span class="pill sell" title="Giá trị giao dịch trung bình 20 phiên – khó mua/bán khối lượng lớn; định giá đã trừ chiết khấu thanh khoản">Ít giao dịch · ${nf(r.avg_value_bn, 2)} tỷ/phiên</span>` : ""}
+      ${isNum(last) && last < 5 ? '<span class="pill" title="Giá dưới 5.000đ">Penny</span>' : ""}</div>
     <div style="flex-basis:100%">${actBar(sym, { label: true, held })}</div>
   </div>
   <div class="subtabs stick" role="tablist" id="stabs">${[["ov", "Tổng quan"], ["vl", "Dự phóng & định giá"], ["rp", "Báo cáo phân tích"], ["fa", "Cơ bản"], ["ta", "Kỹ thuật"], ["wv", "Sóng & mô hình"], ["sm", "Tạo lập & dòng tiền"], ["pe", "Cùng ngành"]]
@@ -2579,13 +2613,121 @@ function dcfCheck(r, base) {
   return `<p class="faint" style="margin-top:6px;font-size:.76rem">FCFF: WACC ${nf(ff.wacc * 100, 1)}% (ke ${nf(ff.ke * 100, 1)}%, lãi vay sau thuế ${nf(ff.kd_after_tax * 100, 1)}%, nợ chiếm ${nf((ff.d_weight || 0) * 100, 0)}%) → giá trị DN ${nf(ff.ev, 0)} tỷ + tiền ${nf(ff.cash, 0)} − nợ vay ${nf(ff.debt, 0)} − thiểu số ${nf(ff.nci, 0)}
     = ${nf(ff.equity_value, 0)} tỷ = <b>${ff.per_share ? nf(ff.per_share) : "âm"}</b>/cp. FCFE: ${r.dcf ? nf(r.dcf) : "—"}/cp, tổng FCFE 5 năm ${nf(f5, 0)} tỷ, giá trị cuối kỳ chiếm ${nf((r.tvs || 0) * 100, 0)}%. Chi tiết dạng báo cáo ở tab <b>Báo cáo phân tích</b>.</p>`;
 }
+// ---- hiển thị 3 báo cáo dự phóng (cạnh 3 năm thực tế gần nhất)
+const FS_UI = { tab: lsGet("fsTab", "is"), sc: "base" };
+function fsFin(base, rows, opt = {}) {
+  // ngân hàng / CTCK / bảo hiểm: mô hình dự phóng thẳng lợi nhuận & vốn chủ (tổng tài sản theo đòn bẩy hiện tại);
+  // thu nhập, chi phí, dự phòng ước theo CƠ CẤU năm gần nhất. Không lập lưu chuyển tiền tệ (không có ý nghĩa với ngân hàng).
+  const H = (base.hs || []).filter((h) => isNum(h.net_income) || isNum(h.total_assets)), last = H[H.length - 1] || {}, B = base.bs0f || {};
+  if (!H.length || !rows.length) return "";
+  const sh = base.shares, yr0 = new Date().getFullYear(), FY = rows.map((r) => `${yr0 + r.year_offset - 1}F`);
+  const nn = (x) => (!isNum(x) ? "—" : Math.abs(x) < 0.5 ? "0" : x < 0 ? `(${nf(-x, 0)})` : nf(x, 0)), pp = (x) => (isNum(x) ? nf(x * 100, 1) + "%" : "—"), xx = (x) => (isNum(x) ? nf(x, 2) : "—");
+  const tax = isNum(last.tax) && last.pbt > 0 ? last.tax / last.pbt : base.tax ?? 0.2, nci = isNum(last.net_income) && last.net_income ? last.ni_parent / last.net_income : 1;
+  const bank = isNum(last.toi) && last.toi > 0;
+  const top = bank ? last.toi : last.revenue, k = (x) => (isNum(x) && isNum(top) && top ? x / top : null);
+  const F = rows.map((r) => {
+    const ni_all = r.ni / (nci || 1), pbt = ni_all / (1 - tax), tt = isNum(last.pbt) && last.pbt > 0 && isNum(top) ? pbt * top / last.pbt : null;
+    const opx = isNum(k(last.admin_exp)) && tt ? -tt * k(last.admin_exp) : null;
+    const ta = r.ta ?? null, f = isNum(ta) && B.ta ? ta / B.ta : null;
+    return { top: tt, nii: bank && tt ? tt * k(last.nii) : null, opex: opx, prov: bank && tt && isNum(opx) ? -(tt + opx - pbt) : null, pbt, tax: -(pbt - ni_all), ni_all, ni: r.ni, eps: r.eps, dps: r.dps,
+      roe: r.roe, roa: r.roa, ta, loans: f && B.loans ? B.loans * f : null, deposits: f && B.deposits ? B.deposits * f : null, eq: r.equity, bvps: r.bvps };
+  });
+  F.forEach((x) => { x.ol = isNum(x.ta) ? x.ta - (x.deposits || 0) - x.eq : null; x.ldr = x.loans && x.deposits ? x.loans / x.deposits : null; x.lev = x.ta ? x.eq / x.ta : null; });
+  const tab = opt.tab === "bs" ? "bs" : "is";
+  const L = tab === "is" ? [[bank ? "Tổng thu nhập hoạt động" : "Doanh thu", "top", (h) => (bank ? h.toi : h.revenue), "b"], ["  Thu nhập lãi thuần", "nii", (h) => h.nii, "i"],
+      ["Chi phí hoạt động", "opex", (h) => (isNum(h.admin_exp) ? -h.admin_exp : null)], ["Chi phí dự phòng rủi ro tín dụng", "prov", (h) => (isNum(h.provision) ? -Math.abs(h.provision) : null)],
+      ["Lợi nhuận trước thuế", "pbt", (h) => h.pbt, "b"], ["Thuế TNDN", "tax", (h) => (isNum(h.tax) ? -h.tax : null)], ["Lợi nhuận sau thuế", "ni_all", (h) => h.net_income],
+      ["LNST cổ đông công ty mẹ", "ni", (h) => h.ni_parent, "b"], ["EPS (đồng, theo số CP hiện tại)", "eps", (h) => (isNum(h.ni_parent) ? h.ni_parent * 1000 / sh : null)],
+      ["Cổ tức tiền / CP (đồng)", "dps", (h) => (isNum(h.dividends_paid) ? -h.dividends_paid * 1000 / sh : null)], ["ROE", "roe", (h) => (h.equity > 0 ? h.ni_parent / h.equity : null), "", pp], ["ROA", "roa", (h) => (h.total_assets ? h.ni_parent / h.total_assets : null), "", pp]]
+    : [["Tổng tài sản", "ta", (h) => h.total_assets, "b", null, B.ta], ["  Cho vay khách hàng", "loans", (h) => h.loans || null, "", null, B.loans], ["Tiền gửi khách hàng", "deposits", (h) => h.deposits || null, "", null, B.deposits],
+      ["Nợ phải trả khác", "ol", (h) => (isNum(h.total_assets) && isNum(h.equity) ? h.total_assets - (h.deposits || 0) - h.equity : null), "", null, isNum(B.ta) && isNum(B.eq) ? B.ta - (B.deposits || 0) - B.eq : null],
+      ["Vốn chủ sở hữu", "eq", (h) => h.equity, "b", null, B.eq], ["Cho vay / tiền gửi (LDR)", "ldr", (h) => (h.loans && h.deposits ? h.loans / h.deposits : null), "", pp, B.loans && B.deposits ? B.loans / B.deposits : null],
+      ["Vốn chủ / tổng tài sản", "lev", (h) => (h.total_assets ? h.equity / h.total_assets : null), "", pp, B.ta ? B.eq / B.ta : null], ["BVPS (đồng)", "bvps", () => null, "", null, base.equity * 1000 / sh]];
+  const showB = tab === "bs" && B.ta;
+  const head = `<th class="l">Tỷ đồng</th>${H.map((h) => `<th class="ha">${h.year}A</th>`).join("")}${showB ? `<th class="ha">${esc(B.q || "Đầu kỳ")}</th>` : ""}${FY.map((y) => `<th>${y}</th>`).join("")}`;
+  const body = L.filter(([, kk, hf]) => F.some((x) => isNum(x[kk]) && x[kk] !== 0) || H.some((h) => isNum(hf(h)) && hf(h) !== 0)).map(([n, kk, hf, st, fmt, bv]) => { const f = fmt || nn;
+    return `<tr class="${st === "b" ? "b" : st === "i" ? "fi" : ""}"><td class="l">${esc(n.trim())}</td>${H.map((h) => `<td class="ha">${f(hf(h))}</td>`).join("")}${showB ? `<td class="ha">${f(bv)}</td>` : ""}${F.map((x) => `<td>${f(x[kk])}</td>`).join("")}</tr>`; }).join("");
+  const note = tab === "is" ? `Ngân hàng / CTCK / bảo hiểm: hệ thống dự phóng thẳng lợi nhuận (tăng trưởng theo giả định, ROE hội tụ về mức bình thường). ${bank ? "Thu nhập hoạt động, chi phí và dự phòng năm F ước theo cơ cấu năm gần nhất (chi phí/thu nhập, thuế giữ nguyên)" : "Doanh thu năm F ước theo tỷ lệ lợi nhuận/doanh thu năm gần nhất"} – để thấy quy mô, không phải dự phóng từng dòng.`
+    : "Tổng tài sản tăng cùng vốn chủ (giữ đòn bẩy hiện tại); cho vay, tiền gửi giữ tỷ lệ trên tổng tài sản của quý gần nhất. Không lập lưu chuyển tiền tệ cho ngân hàng/CTCK (dòng tiền của tổ chức tài chính không dùng để định giá).";
+  const tbl = `<div class="tw"><table class="fst ${opt.bare ? "rtab" : ""}"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+  if (opt.bare) return tbl + `<p class="faint rnote">${note}</p>`;
+  return `<div class="fsbar"><span class="seg" id="fsTab">${[["is", "Kết quả kinh doanh"], ["bs", "Cân đối kế toán"]].map(([kk, n]) => `<button data-fs="${kk}" class="${kk === tab ? "on" : ""}">${n}</button>`).join("")}</span>
+    ${opt.scen ? `<span class="seg" id="fsSc">${[["bear", "Xấu"], ["base", "Cơ sở"], ["bull", "Tốt"]].map(([kk, n]) => `<button data-fsc="${kk}" class="${kk === FS_UI.sc ? "on" : ""}">${n}</button>`).join("")}</span>` : ""}</div>${tbl}
+    <p class="faint" style="margin-top:6px;font-size:.74rem">${note}</p>`;
+}
+function fsView(base, rows, a, opt = {}) {
+  if (base.model !== "CT") return fsFin(base, rows, { ...opt, tab: opt.tab || FS_UI.tab });
+  const S = FC.statements(base, a, rows);
+  if (!S) return "";
+  const H = (base.hs || []).filter((h) => isNum(h.revenue) || isNum(h.total_assets)), sh = base.shares, B = base.bs0;
+  const yr0 = new Date().getFullYear(), FY = rows.map((r) => `${yr0 + r.year_offset - 1}F`);
+  const nn = (x) => (!isNum(x) ? "—" : Math.abs(x) < 0.5 ? "0" : x < 0 ? `(${nf(-x, 0)})` : nf(x, 0));
+  const pp = (x) => (isNum(x) ? nf(x * 100, 1) + "%" : "—"), xx = (x) => (isNum(x) ? nf(x, 2) : "—");
+  const sub = (x, y) => (isNum(x) && isNum(y) ? x - y : null), add = (...v) => (v.every(isNum) ? v.reduce((p, q) => p + q, 0) : null);
+  const neg = (x) => (isNum(x) ? -x : null);
+  const tab = opt.tab || FS_UI.tab;
+  const L = {
+    is: [["Doanh thu thuần", "revenue", (h) => h.revenue, "b"], ["Giá vốn hàng bán", "cogs", (h) => neg(h.cogs)], ["Lợi nhuận gộp", "gp", (h) => h.gross_profit, "b"],
+      ["  Biên lợi nhuận gộp", "gm", (h) => (h.revenue ? h.gross_profit / h.revenue : null), "i", pp],
+      ["Chi phí bán hàng & quản lý", "sga", (h) => neg(add(h.selling_exp || 0, h.admin_exp || 0))], ["Lợi nhuận từ HĐKD (EBIT)", "ebit", (h) => h.ebit, "b"],
+      ["Thu nhập tài chính & khác (ròng, trừ lãi vay)", "other", (h) => sub(add(h.pbt, h.interest_exp), h.ebit)], ["Chi phí lãi vay", "interest", (h) => neg(h.interest_exp)],
+      ["Lợi nhuận trước thuế", "pbt", (h) => h.pbt, "b"], ["Thuế TNDN", "tax", (h) => neg(h.tax)], ["Lợi nhuận sau thuế", "ni_all", (h) => h.net_income],
+      ["Lợi ích cổ đông thiểu số", "nci", (h) => neg(h.minority)], ["LNST cổ đông công ty mẹ", "ni", (h) => h.ni_parent, "b"],
+      ["  Biên lợi nhuận ròng", "nm", (h) => (h.revenue ? h.ni_parent / h.revenue : null), "i", pp], ["EBITDA", "ebitda", (h) => h.ebitda],
+      ["EPS (đồng, theo số CP hiện tại)", "eps", (h) => (isNum(h.ni_parent) ? h.ni_parent * 1000 / sh : null)], ["Cổ tức tiền / CP (đồng)", "dps", (h) => (isNum(h.dividends_paid) ? -h.dividends_paid * 1000 / sh : null)]],
+    cf: [["Lợi nhuận sau thuế", "ni_all", (h) => h.net_income], ["Khấu hao", "da", (h) => sub(h.ebitda, h.ebit)],
+      ["Thay đổi vốn lưu động & khác", "dnwc", (h) => sub(h.cfo, add(h.net_income, sub(h.ebitda, h.ebit) ?? 0))],
+      ["Lưu chuyển tiền từ HĐ kinh doanh", "cfo", (h) => h.cfo, "b"], ["Đầu tư tài sản cố định", "capex", (h) => h.capex],
+      ["Lưu chuyển tiền từ HĐ đầu tư", "cfi", (h) => h.cfi, "b"], ["Vay ròng (vay mới − trả nợ)", "borrow", () => null],
+      ["Cổ tức trả cổ đông công ty mẹ", "div_p", (h) => h.dividends_paid], ["Cổ tức trả cổ đông thiểu số", "div_n", () => null],
+      ["Lưu chuyển tiền từ HĐ tài chính", "cff", (h) => h.cff, "b"], ["Lưu chuyển tiền thuần", "net", (h) => add(h.cfo, h.cfi, h.cff), "b"],
+      ["Tiền & đầu tư ngắn hạn đầu kỳ", "cash0", () => null], ["Tiền & đầu tư ngắn hạn cuối kỳ", "cash1", (h) => add(h.cash || 0, h.st_invest || 0), "b"],
+      ["Dòng tiền tự do (HĐKD − đầu tư TSCĐ)", "fcf", (h) => add(h.cfo, h.capex), "hl"], ["Dòng tiền tự do doanh nghiệp (FCFF)", "fcff", () => null], ["Dòng tiền tự do cho cổ đông (FCFE)", "fcfe", () => null]],
+    bs: [["TÀI SẢN", null, null, "sec"], ["Tiền & đầu tư ngắn hạn", "cash", (h) => add(h.cash || 0, h.st_invest || 0), "", null, "cash"], ["Phải thu", "rec", (h) => h.receivables, "", null, "rec"],
+      ["Hàng tồn kho", "inv", (h) => h.inventory, "", null, "inv"], ["Tài sản ngắn hạn khác", "oca", (h) => sub(h.current_assets, add(h.cash || 0, h.st_invest || 0, h.receivables || 0, h.inventory || 0)), "", null, "oca"],
+      ["Tài sản ngắn hạn", "ca", (h) => h.current_assets, "b", null, (b) => b.cash + b.rec + b.inv + b.oca], ["Tài sản cố định", "fa", (h) => h.fixed_assets, "", null, "fa"],
+      ["Tài sản dài hạn khác", "olta", (h) => sub(h.total_assets, add(h.current_assets, h.fixed_assets)), "", null, "olta"], ["TỔNG TÀI SẢN", "ta", (h) => h.total_assets, "t", null, "ta"],
+      ["NGUỒN VỐN", null, null, "sec"], ["Phải trả & nợ ngắn hạn khác (không gồm vay)", "opl", (h) => sub(h.current_liab, h.st_debt || 0), "", null, "opl"],
+      ["Vay ngắn hạn", "sd", (h) => h.st_debt, "", null, "sd"], ["Vay dài hạn", "ld", (h) => h.lt_debt, "", null, "ld"],
+      ["Vốn cần huy động thêm (vay / phát hành)", "gap", () => null, "", null, () => 0],
+      ["Nợ khác", "ol", (h) => sub(h.total_assets, add(h.current_liab, h.lt_debt || 0, h.equity)), "", null, "ol"], ["Nợ phải trả", "liab", (h) => h.total_liab, "b", null, (b) => b.opl + b.sd + b.ld + b.ol],
+      ["Vốn chủ cổ đông công ty mẹ", "eq_p", () => null, "", null, () => base.equity], ["Lợi ích cổ đông thiểu số", "nci", () => null, "", null, "nci"],
+      ["Vốn chủ sở hữu", "eq", (h) => h.equity, "b", null, (b) => base.equity + b.nci], ["TỔNG NGUỒN VỐN", "le", (h) => h.total_assets, "t", null, "ta"],
+      ["CHỈ SỐ", null, null, "sec"], ["Nợ ròng (vay − tiền)", "net_debt", (h) => sub(add(h.st_debt || 0, h.lt_debt || 0), add(h.cash || 0, h.st_invest || 0)), "", null, (b) => b.sd + b.ld - b.cash],
+      ["Nợ vay / vốn chủ (lần)", "de", (h) => (h.equity > 0 ? ((h.st_debt || 0) + (h.lt_debt || 0)) / h.equity : null), "", xx, (b) => ((b.sd + b.ld) / base.equity)],
+      ["Thanh toán hiện hành (lần)", "cur", (h) => (h.current_liab > 0 ? h.current_assets / h.current_liab : null), "", xx, (b) => (b.opl + b.sd > 0 ? (b.cash + b.rec + b.inv + b.oca) / (b.opl + b.sd) : null)],
+      ["ROE (cổ đông mẹ)", "roe", (h) => (h.equity > 0 && isNum(h.ni_parent) ? h.ni_parent / h.equity : null), "", pp], ["ROA", "roa", (h) => (h.total_assets ? h.ni_parent / h.total_assets : null), "", pp], ["BVPS (đồng)", "bvps", () => null, "", null, () => base.equity * 1000 / sh]],
+  }[tab];
+  const sec = { is: "is", cf: "cf", bs: "bs" }[tab];
+  const val = (i, k) => (k === "fcf" ? S[i].cf.cfo + S[i].cf.capex : S[i][sec][k]);
+  const showB = tab === "bs" && B;
+  const head = `<th class="l">Tỷ đồng</th>${H.map((h) => `<th class="ha">${h.year}A</th>`).join("")}${showB ? `<th class="ha" title="Số dư quý gần nhất – điểm xuất phát của dự phóng">${esc(B.q || "Đầu kỳ")}</th>` : ""}${FY.map((y) => `<th>${y}</th>`).join("")}`;
+  const body = L.filter(([, k]) => k !== "gap" || S.some((x) => x.bs.gap > 0.5)).map(([n, k, hf, st, fmt, bf]) => {
+    if (st === "sec") return `<tr class="fsec"><td class="l" colspan="${1 + H.length + (showB ? 1 : 0) + FY.length}">${n}</td></tr>`;
+    const f = fmt || nn;
+    const bv = showB ? (typeof bf === "function" ? bf(B) : bf ? B[bf] : null) : null;
+    return `<tr class="${st === "b" ? "b" : st === "t" ? "b ft" : st === "i" ? "fi" : st === "hl" ? "fhl" : ""}"><td class="l">${esc(n.trim())}</td>${H.map((h) => `<td class="ha">${f(hf ? hf(h) : null)}</td>`).join("")}${showB ? `<td class="ha">${f(bv)}</td>` : ""}${S.map((_, i) => { const x = val(i, k); return `<td class="${k === "cash" || k === "cash1" ? (x < 0 ? "down" : "") : ""}">${f(x)}</td>`; }).join("")}</tr>`;
+  }).join("");
+  const negCash = S.map((x, i) => [FY[i], x.bs.cash_raw]).filter(([, c]) => c < 0);
+  const bad = S.some((x) => Math.abs(x.bs.chk) > 1);
+  const note = { is: "Năm A: BCTC năm của doanh nghiệp. Năm F: kịch bản đang chọn – doanh thu, biên gộp, chi phí theo giả định; lãi vay = lãi suất × dư nợ bình quân; thu nhập tài chính & khác giảm 20%/năm.",
+    cf: "HĐKD = LNST + khấu hao − tăng vốn lưu động. HĐĐT năm F chỉ gồm đầu tư TSCĐ (cộng kế hoạch đầu tư mới nếu có); năm A gồm cả mua bán khoản đầu tư khác. HĐTC = vay ròng theo tỷ lệ nợ vay/vốn chủ − cổ tức (theo tỷ lệ chi trả). Tiền cuối kỳ chính là dòng Tiền trên bảng cân đối.",
+    bs: "Tiền = số dư cuối của lưu chuyển tiền tệ; TSCĐ = đầu kỳ + đầu tư − khấu hao; phải thu, tồn kho, phải trả đi theo doanh thu và giả định vốn lưu động; vay = nợ vay/vốn chủ × vốn chủ (+ vay dự án); vốn chủ = đầu kỳ + LNST − cổ tức. Tài sản và nợ khác giữ nguyên số đầu kỳ." }[tab];
+  if (opt.bare) return `<div class="tw"><table class="rtab fst"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div><p class="faint rnote">${note}</p>`;
+  return `<div class="fsbar"><span class="seg" id="fsTab">${[["is", "Kết quả kinh doanh"], ["cf", "Lưu chuyển tiền tệ"], ["bs", "Cân đối kế toán"]].map(([k, n]) => `<button data-fs="${k}" class="${k === tab ? "on" : ""}">${n}</button>`).join("")}</span>
+    ${opt.scen ? `<span class="seg" id="fsSc">${[["bear", "Xấu"], ["base", "Cơ sở"], ["bull", "Tốt"]].map(([k, n]) => `<button data-fsc="${k}" class="${k === FS_UI.sc ? "on" : ""}">${n}</button>`).join("")}</span>` : ""}</div>
+    <div class="tw"><table class="fst"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
+    ${negCash.length && tab !== "is" ? `<p class="note" style="margin-top:6px">⚠️ Thiếu tiền ở ${negCash.map(([y, c]) => `${y} (${nf(-c, 0)} tỷ)`).join(", ")}: với giả định này dòng tiền không đủ chi trả – doanh nghiệp phải <b>vay thêm ngoài tỷ lệ nợ/vốn đang giả định, phát hành thêm cổ phiếu hoặc giảm cổ tức / đầu tư</b>. Bảng cân đối ghi phần này ở dòng "Vốn cần huy động thêm"; lãi của khoản này chưa tính vào kết quả kinh doanh (nếu vay thật, lợi nhuận sẽ thấp hơn).</p>` : ""}
+    ${bad ? `<p class="note">Bảng cân đối lệch ${nf(Math.max(...S.map((x) => Math.abs(x.bs.chk))), 0)} tỷ – báo lỗi giúp em.</p>` : ""}
+    <p class="faint" style="margin-top:6px;font-size:.74rem">${note}</p>`;
+}
 function tabVal(d) {
   const v = d.valuation || {};
   if (!v.ok || !v.model) return `<div class="empty">${esc(v.reason || "Không đủ số liệu để dự phóng (doanh nghiệp lỗ, vốn chủ âm hoặc thiếu BCTC).")}</div>`;
   const a = v.model.assumptions;
   return `<div class="g g-main"><div class="stack">
     ${panel("Giá trị hợp lý", `${corpBox(d.fa)}<div id="vOut"></div>`)}
-    ${panel("Bảng dự phóng (kịch bản cơ sở)", `<div id="pOut"></div><p class="faint" style="margin-top:6px;font-size:.74rem">Doanh thu tăng theo giả định, giảm dần về mức dài hạn; biên lợi nhuận và chi phí theo tỷ lệ doanh thu; lợi nhuận khác giảm 20%/năm.
+    ${panel("Báo cáo tài chính dự phóng", `<div id="pOut"></div><p class="faint" style="margin-top:6px;font-size:.74rem">Doanh thu tăng theo giả định, giảm dần về mức dài hạn; biên lợi nhuận và chi phí theo tỷ lệ doanh thu; lợi nhuận khác giảm 20%/năm.
       Lãi vay = lãi suất × dư nợ bình quân (dư nợ = nợ/vốn × vốn chủ + vay cho dự án mới); FCFE = LN + khấu hao − đầu tư TSCĐ − tăng vốn lưu động + vay ròng.
       Ngân hàng/CTCK/bảo hiểm dự phóng thẳng lợi nhuận. Kịch bản Xấu/Tốt điều chỉnh tăng trưởng và biên lợi nhuận.</p>`, "tỷ đồng")}</div>
     ${panel("Giả định dự phóng", `${v.model.overridden?.length ? `<p class="note">Đang dùng giả định anh đã sửa: ${esc(v.model.overridden.join(", "))}</p>` : ""}
@@ -2658,6 +2800,8 @@ function tabReport(d) {
       tr("EPS (đồng)", [...H.map((h) => n0(h.ni * 1000 / sh)), ...rows.map((r) => n0(r.eps))]), tr("ROE", [...H.map((h) => p1(h.roe)), ...rows.map((r) => p1(r.roe))]),
       tr("ROA", [...H.map((h) => p1(isNum(h.ta) && h.ta ? h.ni / h.ta : null)), ...rows.map((r) => p1(r.roa))]), tr("P/E theo giá hiện tại", [...H.map((h) => (h.ni > 0 ? nf(price * sh / h.ni, 1) : "—")), ...rows.map((r) => (r.eps > 0 ? nf(price * 1000 / r.eps, 1) : "—"))])].join(""),
     `Số năm A theo BCTC năm (EPS tính trên số cổ phiếu hiện tại). Năm F: kịch bản cơ sở của hệ thống, theo giả định ở tab Dự phóng & định giá.`);
+  const fsRpt = !ct ? `<div class="rgrid"><figure class="rfig"><figcaption>${F("Kết quả kinh doanh & cân đối dự phóng (tỷ đồng)")}</figcaption>${fsFin(base, rows, { tab: "is", bare: true })}${fsFin(base, rows, { tab: "bs", bare: true })}</figure></div>` : ct && base.bs0 ? `<div class="rgrid"><figure class="rfig"><figcaption>${F("Bảng cân đối kế toán dự phóng (tỷ đồng)")}</figcaption>${fsView(base, rows, a, { tab: "bs", bare: true })}</figure></div>
+      <div class="rgrid"><figure class="rfig"><figcaption>${F("Lưu chuyển tiền tệ dự phóng (tỷ đồng)")}</figcaption>${fsView(base, rows, a, { tab: "cf", bare: true })}</figure></div>` : "";
   // 2) giả định chính
   const gs = [[`Tăng trưởng ${ct ? "doanh thu" : "lợi nhuận"} năm 1 → năm 3 → dài hạn`, `${p1(a.g1)} → ${p1(a.gmid)} → ${p1(a.gterm)}`]];
   if (ct) gs.push(["Biên gộp hiện tại → dài hạn", `${p1(a.gm)} → ${p1(a.gm_lt)}`], ["Chi phí BH & QL / doanh thu", `${p1(a.sga)} → ${p1(a.sga_lt)}`],
@@ -2708,6 +2852,7 @@ function tabReport(d) {
       <span data-nopdf class="rbtn"><button class="btn" id="rpPrint2">🖨️ In</button>${can("pdf") ? ` <button class="btn primary" id="rpPdf2">Lưu PDF</button>` : ""}</span></header>
     ${corpBox(fa)}
     <div class="rgrid">${kq}</div>
+    ${fsRpt}
     ${ct && ff ? `<div class="rgrid two">${gsT}${fcffT}</div><div class="rgrid two">${brT}${sensT}</div>` : gsT}
     <div class="rgrid">${sumT}</div>
     ${riskT}
@@ -2751,13 +2896,14 @@ function bindVal(d) {
     used.forEach((m) => (m.we = m.w / (1 + 3 * Math.abs(Math.log(m.value / med)))));
     const ws = used.reduce((s, m) => s + m.we, 0) || 1;
     used.forEach((m) => (m.we /= ws));
-    const fair = used.reduce((s, m) => s + m.value * m.we, 0);
-    const medU = medOf(used.map((m) => m.value));
+    const kLiq = 1 - (v.liq?.disc || 0) / 100;            // chiết khấu thanh khoản (mã ít giao dịch) – như phía máy chủ
+    const fair = used.reduce((s, m) => s + m.value * m.we, 0) * kLiq;
+    const medU = medOf(used.map((m) => m.value)) * kLiq;
     const buy = Math.min(fair * (1 - d.mos / 100), medU * (1 - d.mos / 200)), price = d.row.price, up = (fair / price - 1) * 100;
-    const lo = Math.min(fair, ...used.map((m) => m.lo).filter(isNum).concat([fair * 0.8])), hi = Math.max(fair, ...used.map((m) => m.hi).filter(isNum).concat([fair * 1.2]));
+    const lo = Math.min(fair, ...used.map((m) => m.lo * kLiq).filter(isNum).concat([fair * 0.8])), hi = Math.max(fair, ...used.map((m) => m.hi * kLiq).filter(isNum).concat([fair * 1.2]));
     const L = Math.min(lo, price) * 0.9, R = Math.max(hi, price) * 1.08, X = (x) => ((x - L) / (R - L)) * 100;
     $("#vOut").innerHTML = `
-      ${kpis([["Giá trị hợp lý", nf(fair)], ["Mua an toàn dưới", nf(buy)], ["Giá hiện tại", nf(price)], ["Tiềm năng", pct(up), cls(up)], ["Biên an toàn", d.mos + "%"], ["ke", nf(ke * 100, 1) + "%"]], true)}
+      ${kpis([["Giá trị hợp lý", nf(fair)], ["Mua an toàn dưới", nf(buy)], ["Giá hiện tại", nf(price)], ["Tiềm năng", pct(up), cls(up)], ["Biên an toàn", d.mos + "%"], ["ke", nf(ke * 100, 1) + "%"], ...(v.liq ? [["Chiết khấu thanh khoản", "−" + nf(v.liq.disc, 0) + "%", "down", `Giá trị giao dịch TB ${nf(v.liq.avg_bn, 2)} tỷ/phiên – đã trừ vào giá trị hợp lý`]] : [])], true)}
       ${v.flag ? `<p class="note" style="margin:6px 0">${v.flag === "event" ? "⚠️ <b>Có sự kiện – chưa định giá.</b> " : "⚠️ "}${esc(v.warning || "")}</p>` : ""}
       <div class="vrange" aria-hidden="true"><div class="track"></div>
         <div class="zone" style="left:${X(lo)}%;width:${X(hi) - X(lo)}%;background:color-mix(in srgb,var(--up) 35%,transparent)"></div>
@@ -2775,8 +2921,11 @@ function bindVal(d) {
     const lines = base.model === "CT" ? [["Doanh thu", "revenue", 0], ["LN gộp", "gross_profit", 0], ["EBIT (LN từ kinh doanh)", "ebit", 0], ["− Lãi vay", "interest", 0], ["LN trước thuế", "pbt", 0], ["LN cổ đông mẹ", "ni", 0], ["EPS (đ)", "eps", 0], ["Cổ tức (đ)", "dps", 0],
         ["+ Khấu hao", "da", 0], ["− Đầu tư TSCĐ", "capex", 0], ["− Tăng vốn lưu động", "dnwc", 0], ["+ Vay ròng", "borrow", 0], ["Dư nợ vay cuối năm", "debt", 0], ["Dòng tiền cho cổ đông (FCFE)", "fcfe", 0], ["Dòng tiền doanh nghiệp (FCFF)", "fcff", 0], ["Tăng trưởng", "g", "p"], ["ROE", "roe", "p"]]
       : [["LN cổ đông mẹ", "ni", 0], ["EPS (đ)", "eps", 0], ["Cổ tức (đ)", "dps", 0], ["BVPS (đ)", "bvps", 0], ["Tăng trưởng LN", "g", "p"], ["ROE", "roe", "p"]];
-    $("#pOut").innerHTML = `<div class="tw"><table><thead><tr><th class="l">Tỷ đồng</th>${rows.map((r) => `<th>${yr0 + r.year_offset - 1}F</th>`).join("")}</tr></thead><tbody>
-      ${lines.map(([n, k, f]) => `<tr><td class="l">${n}</td>${rows.map((r) => `<td>${f === "p" ? pct((r[k] ?? 0) * 100, 1, false) : nf(r[k], 0)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+    const fsH = fsView(base, res[FS_UI.sc].rows, a, { scen: true });
+    $("#pOut").innerHTML = (fsH ? fsH + `<details class="sec"><summary>Bảng tóm tắt dòng tiền dùng để định giá (kịch bản cơ sở)</summary>` : "") + `<div class="tw"><table><thead><tr><th class="l">Tỷ đồng</th>${rows.map((r) => `<th>${yr0 + r.year_offset - 1}F</th>`).join("")}</tr></thead><tbody>
+      ${lines.map(([n, k, f]) => `<tr><td class="l">${n}</td>${rows.map((r) => `<td>${f === "p" ? pct((r[k] ?? 0) * 100, 1, false) : nf(r[k], 0)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>${fsH ? "</details>" : ""}`;
+    $$("#pOut [data-fs]").forEach((b) => (b.onclick = () => { FS_UI.tab = b.dataset.fs; lsSet("fsTab", FS_UI.tab); calc(); }));
+    $$("#pOut [data-fsc]").forEach((b) => (b.onclick = () => { FS_UI.sc = b.dataset.fsc; calc(); }));
     return a;
   };
   $$("[data-a], #as_ke").forEach((el) => (el.oninput = calc));
@@ -2874,6 +3023,8 @@ const HELP_FAQ = [
   ["Danh mục", "Mức dừng lỗ, chốt lời được tính thế nào?", "Theo phong cách của từng mã: dừng lỗ theo ATR và đỉnh sau mua (dời lên theo giá, tối đa −20%), chốt một phần khi vượt giá trị hợp lý, bán khi luận điểm cơ bản gãy, xem lại sau 60 phiên nếu vốn đứng yên. Có thể đặt mức riêng cho từng mã."],
   ["Danh mục", "Tôi đã bán mà hệ thống vẫn báo mã đó?", "Ghi lệnh bán ở Danh mục → Nhật ký giao dịch (hoặc bấm “Bán” cạnh mức thoát) để danh mục cập nhật. Thông báo theo danh mục đã lưu ở lượt chạy gần nhất."],
   ["Thông báo", "Làm sao nhận thông báo trên điện thoại?", "Tài khoản → Nhận thông báo → “Bật trên thiết bị này” và cho phép thông báo. Android/máy tính: dùng Chrome, Edge hoặc Firefox. iPhone/iPad (iOS 16.4+): mở trang bằng Safari → nút Chia sẻ → Thêm vào Màn hình chính → mở trang từ biểu tượng mới → bật lại. Thông báo đẩy và email thuộc gói Pro."],
+  ["Định giá", "Bảng dự phóng 3 báo cáo (KQKD, lưu chuyển tiền tệ, cân đối kế toán) tính thế nào?", "Tab Dự phóng & định giá → Báo cáo tài chính dự phóng: 3 năm thực tế (A) đặt cạnh 5 năm dự phóng (F), chọn kịch bản Xấu / Cơ sở / Tốt. Ba bảng liên kết với nhau: lợi nhuận từ KQKD → lưu chuyển tiền (LNST + khấu hao − tăng vốn lưu động − đầu tư TSCĐ + vay ròng − cổ tức) → tiền cuối kỳ trên bảng cân đối; TSCĐ = đầu kỳ + đầu tư − khấu hao; vốn chủ = đầu kỳ + LNST − cổ tức; tổng tài sản luôn bằng tổng nguồn vốn. Sửa giả định (tăng trưởng, biên, lãi suất, nợ vay/vốn, đầu tư TSCĐ, vốn lưu động, kế hoạch đầu tư mới) thì cả 3 bảng tính lại ngay. Nếu dòng tiền không đủ chi, bảng cân đối hiện dòng \"Vốn cần huy động thêm\". Ngân hàng / CTCK / bảo hiểm: KQKD và cân đối theo cơ cấu năm gần nhất, không lập lưu chuyển tiền tệ."],
+  ["Định giá", "Mã penny / ít giao dịch có được định giá không?", "Có. Mọi mã có BCTC đều có trang chi tiết và định giá (hệ thống tải dần BCTC cho mã ít giao dịch qua các lượt chạy, làm mới khoảng 3 tuần/lần). Mã có giá trị giao dịch TB 20 phiên dưới 1 tỷ/phiên được trừ chiết khấu thanh khoản vào giá trị hợp lý: dưới 0,1 tỷ −25%, dưới 0,5 tỷ −15%, dưới 1 tỷ −10%, và gắn nhãn \"Ít giao dịch\". Trung vị ngành để so sánh P/E, P/B chỉ tính trên mã có thanh khoản để mã penny không kéo lệch. Mã ít giao dịch không vào danh sách MUA của hệ thống."],
   ["Biểu đồ", "Các dấu ⚡ Sự kiện / Đáy / 🎯 Vào trên biểu đồ giá là gì?", "Mỗi lần hệ thống gắn cờ \"có sự kiện\" (giá sụt ≥ 45% so với đỉnh 120 phiên kèm chuỗi phiên giảm sàn) được đánh dấu ⚡ đúng ngày có cờ, chấm Đáy là giá thấp nhất của đợt, mũi tên 🎯 Vào là ngày sự kiện đã nguội (≥ 120 phiên và ≥ 60 phiên liền không giảm sàn) kèm % giá 120 phiên sau đó. Bảng dưới biểu đồ liệt kê mọi đợt của mã với kết quả 60/120/250 phiên và so với VN-Index; bấm Xem để phóng biểu đồ tới đợt đó (đợt cũ hơn 3 năm tự chuyển sang nến tuần). Đợt đang đủ điều kiện vào có thêm đường Vùng vào SK, Cắt lỗ SK, Mục tiêu SK. Bấm vào thông báo sự kiện cũng mở thẳng biểu đồ đúng đợt. Tắt/bật bằng nút Sự kiện trên thanh công cụ. Mỗi đợt có mục “Sự kiện này là gì?”: hệ thống so mức sụt với VN-Index và ngành cùng kỳ để xếp loại (thị trường chung sập / cả ngành sập / thị trường yếu + chuyện riêng / chuyện riêng của doanh nghiệp), đếm chuỗi phiên giảm sàn, xem khối lượng lúc sàn (trắng bên mua hay bán tháo ồ ạt), lợi nhuận các quý quanh đó, và liệt kê tin công bố thông tin của doanh nghiệp / Sở GDCK trong giai đoạn đó (từ 2018) – tin in đậm là loại hay gắn với giá sập: điều tra, giải chấp, giải trình giảm sàn, kiểm toán ngoại trừ, cổ đông lớn bán."],
   ["Thông báo", "Khi nào tôi nhận thông báo?", "Sau các lượt 11:35, 14:35 và 15:35, chỉ khi có việc mới: chạm/sắp chạm mức thoát, khuyến nghị bán/cắt lỗ, cảnh báo giá, mã mới vào danh sách MUA, dòng tiền lớn với mã của anh/chị, mã có sự kiện / đến điểm vào sau sự kiện. Mỗi việc chỉ báo một lần."],
   ["Thông báo", "Nhận quá nhiều / quá ít thông báo?", "Tài khoản → chọn mức gửi đẩy và email (Tất cả / Bình thường / Chỉ việc quan trọng / Tắt) và bỏ chọn loại không cần. Chuông trên web luôn giữ đủ để xem lại."],

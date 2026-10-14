@@ -5,7 +5,9 @@ Kết quả "sức khoẻ" từng nguồn ghi vào data/meta.json để hiển t
 """
 from __future__ import annotations
 
+import json
 import logging
+import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
@@ -208,17 +210,25 @@ def _fin_one(sym: str, ctype: str) -> tuple[list[pd.DataFrame], str]:
     return [], "FAIL"
 
 
-def update_financials(listing: pd.DataFrame, symbols: list[str], workers: int = 4, mark: bool = True) -> None:
+def update_financials(listing: pd.DataFrame, symbols: list[str], workers: int = 4, mark: bool = True,
+                      budget_sec: float | None = None) -> list[str]:
     ctype = dict(zip(listing["symbol"], listing.get("com_type", "CT")))
-    frames, used = [], Counter()
+    frames, used, done = [], Counter(), []
+    t0 = time.time()
     with ThreadPoolExecutor(max_workers=workers) as ex:
         futs = {ex.submit(_fin_one, s, ctype.get(s, "CT")): s for s in symbols}
         for n, f in enumerate(as_completed(futs), 1):
+            if f.cancelled():
+                continue
             res, src = f.result()
             used[src] += 1
+            done.append(futs[f])
             frames.extend([r for r in res if r is not None and not r.empty])
             if n % 100 == 0:
                 log.info("BCTC: %d/%d mã (%s)", n, len(symbols), dict(used))
+            if budget_sec and time.time() - t0 > budget_sec:
+                for g_ in futs:
+                    g_.cancel()
     if frames:
         allf = normalize.finalize(pd.concat(frames, ignore_index=True))
         store.upsert("fin_q", allf[allf["quarter"] > 0], ["symbol", "year", "quarter"])
@@ -226,12 +236,42 @@ def update_financials(listing: pd.DataFrame, symbols: list[str], workers: int = 
     if mark:
         store.touch("financials", sources=dict(used), symbols=len(symbols))
     log.info("BCTC xong: %s · request: %s", dict(used), BREAKER.stats)
+    return done
 
 
-def update_dividends(symbols: list[str], workers: int = 2, mark: bool = True) -> None:
+def update_fin_backfill(listing: pd.DataFrame, prices: pd.DataFrame, syms: list[str], liquid: set[str]) -> None:
+    """BCTC cho mã penny / ít giao dịch (ngoài nhóm tải hằng tuần): mỗi lượt chạy tải một lô, mã chưa có BCTC trước,
+    rồi mã lâu chưa cập nhật nhất; mỗi mã làm mới khoảng 3 tuần/lần (đủ bắt kịp BCTC quý)."""
+    per_run = int(config.get("data.fin_backfill_per_run", 220))
+    budget = float(config.get("data.fin_backfill_budget_sec", 420))
+    refresh = int(config.get("data.fin_backfill_refresh_days", 21))
+    p = store.path("fin_meta.json")
+    try:
+        meta = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+    except ValueError:
+        meta = {}
+    recent = prices[prices["date"] >= prices["date"].max() - timedelta(days=90)]
+    traded = set(recent.loc[recent["volume"] > 0, "symbol"])
+    today = pd.Timestamp.now().normalize()
+    cand = [s for s in syms if s not in liquid and s in traded and s not in INDICES]
+    stale = [s for s in cand if s not in meta or (today - pd.Timestamp(meta[s])).days >= refresh]
+    stale.sort(key=lambda s: (s in meta, meta.get(s, "")))
+    todo = stale[:per_run]
+    if not todo:
+        log.info("BCTC mã ít giao dịch: đã đủ (%d mã)", len(cand))
+        return
+    done = update_financials(listing, todo, mark=False, budget_sec=budget)
+    for s in done:
+        meta[s] = str(today.date())
+    p.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    log.info("BCTC mã ít giao dịch: %d/%d mã lượt này · còn %d mã chưa có", len(done), len(todo),
+             len([s for s in cand if s not in meta]))
+
+
+def update_dividends(symbols: list[str], workers: int = 2, mark: bool = True, per_run: int | None = None) -> None:
     """Cổ tức từ lịch sự kiện Vietcap. Máy chủ này chậm nên mỗi lần chỉ tải một phần,
     luân phiên: mã chưa có dữ liệu trước, rồi đến mã lâu chưa cập nhật nhất."""
-    per_run = int(config.get("data.dividends_per_run", 120))
+    per_run = per_run or int(config.get("data.dividends_per_run", 120))
     meta = store.read("div_meta")
     last = dict(zip(meta["symbol"], pd.to_datetime(meta["fetched"]))) if not meta.empty else {}
     order = sorted(symbols, key=lambda s: (s in last, last.get(s, pd.Timestamp(0))))
@@ -270,10 +310,10 @@ def update_dividends(symbols: list[str], workers: int = 2, mark: bool = True) ->
              dict(used), remaining, BREAKER.stats)
 
 
-def update_shares(symbols: list[str], workers: int = 2) -> None:
+def update_shares(symbols: list[str], workers: int = 2, per_run: int | None = None) -> None:
     """Số cổ phiếu hiện tại (trang thông tin DN của Vietcap – máy chủ chậm nên tải luân phiên theo lô).
     Ưu tiên mã vừa / sắp GDKHQ chia cổ phiếu (−60 … +10 ngày): cần biết sớm khi cổ phiếu mới lên sàn để P/E không lệch."""
-    per_run = int(config.get("data.shares_per_run", 120))
+    per_run = per_run or int(config.get("data.shares_per_run", 120))
     cur = store.read("shares_now")
     last = dict(zip(cur["symbol"], pd.to_datetime(cur["date"]))) if not cur.empty else {}
     hot = set()
@@ -502,6 +542,12 @@ def run(force_fin: bool = False, only: list[str] | None = None) -> None:
     else:
         log.info("Chưa tới lịch tải BCTC (cập nhật gần nhất %.1f ngày trước)",
                  store.age_days("financials"))
+    liq_fin = set(liquid_symbols(prices, float(config.get("universe.fin_min_avg_value_bn", 0.3))))
+    if not only and config.get("data.fin_all_symbols", True):
+        try:
+            update_fin_backfill(listing, prices, syms, liq_fin)
+        except Exception as e:  # noqa: BLE001
+            log.warning("BCTC mã ít giao dịch lỗi: %s", e)
     div_syms = liquid_symbols(prices, float(config.get("universe.fin_min_avg_value_bn", 0.3)))
     # dòng lệnh phiên: chỉ khi chạy sau giờ đóng cửa của ngày có giao dịch
     now = datetime.now(tz=__import__("zoneinfo").ZoneInfo("Asia/Ho_Chi_Minh"))
@@ -536,3 +582,14 @@ def run(force_fin: bool = False, only: list[str] | None = None) -> None:
     update_shares([s for s in div_syms if s in set(syms)] if not only else [s for s in syms if s in only])
     div_syms = [s for s in div_syms if s in set(syms)] if not only else [s for s in syms if s in only]
     update_dividends(div_syms, mark=not only)
+    if not only and config.get("data.fin_all_symbols", True):
+        # mã ít giao dịch đã có BCTC: số cổ phiếu & cổ tức tải dần theo lô nhỏ (không chen lượt của nhóm thanh khoản)
+        try:
+            fy = store.read("fin_y")
+            have = set(fy["symbol"]) if not fy.empty else set()
+            thin = [s for s in syms if s in have and s not in set(div_syms)]
+            n_ = int(config.get("data.thin_per_run", 40))
+            update_shares(thin, per_run=n_)
+            update_dividends(thin, mark=False, per_run=n_)
+        except Exception as e:  # noqa: BLE001
+            log.warning("Số CP / cổ tức mã ít giao dịch lỗi: %s", e)

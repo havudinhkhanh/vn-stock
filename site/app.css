@@ -1346,3 +1346,14 @@ main{padding:16px 22px 48px}
 .pill.evk.sector{background:color-mix(in srgb,var(--ceil) 18%,transparent);color:var(--ceil)}
 .pill.evk.mixed,.pill.evk.company{background:color-mix(in srgb,var(--down) 16%,transparent);color:var(--down)}
 .evcur{margin-top:8px;border-top:1px solid var(--line);padding-top:8px}
+
+/* 3 báo cáo dự phóng */
+.fsbar{display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;margin-bottom:6px}
+.fst td,.fst th{white-space:nowrap}
+.fst td.l{white-space:normal;min-width:190px}
+.fst th.ha,.fst td.ha{background:color-mix(in srgb,var(--ink) 4%,transparent);color:var(--ink-2)}
+.fst tr.b td{font-weight:600}
+.fst tr.ft td{border-top:1px solid var(--ink-3);color:var(--ink)}
+.fst tr.fi td{font-style:italic;color:var(--ink-3);font-size:.92em}
+.fst tr.fhl td{color:var(--brass,var(--brand))}
+.fst tr.fsec td{font-size:.7rem;letter-spacing:.08em;color:var(--ink-3);padding-top:10px;background:transparent}
