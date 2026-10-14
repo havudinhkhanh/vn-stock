@@ -689,10 +689,23 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     except Exception as e:  # noqa: BLE001
         log.exception("Phân tích ngành lỗi: %s", e)
         sec_l2, sec_l3 = [], []
+    # tab Ngành theo mâm so sánh (mô hình kinh doanh) – cùng các phép tính như ngành ICB
+    sec_pm = []
+    try:
+        u["peer_grp"] = [pr_.label(k) if isinstance(k, str) and not k.startswith("icb:") else None for k in u["peer"]]
+        sec_pm = sec_.analyze(u, wide, wide_val, idx["close"], fq, "peer_grp")
+        lab2key = {pr_.label(k): k for k in pr_.GROUPS}
+        for rec in sec_pm:
+            k_ = lab2key.get(rec["name"])
+            rec["key"], rec["parent"] = k_, pr_.PARENT_OF.get(k_, "Khác")
+            rec["conglo"] = k_ in pr_.NO_MEDIAN
+            rec["level"] = "peer"
+    except Exception as e:  # noqa: BLE001
+        log.exception("Phân tích ngành theo mâm lỗi: %s", e)
     outlook = {}
     sec_m3 = None
     try:
-        for lv, recs in (("sector", sec_l2), ("industry", sec_l3)):
+        for lv, recs in (("sector", sec_l2), ("industry", sec_l3), ("peer_grp", sec_pm)):
             o = sec_out.run(u, wide, idx["close"], fq, lv)
             if lv == "sector":
                 sec_m3 = (sec_out._LAST.get("score") or {}).get("m3")
@@ -729,7 +742,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     # ------------------------------------------------------------ mùa vụ ngành + kiểm chứng ngoài mẫu
     season = {"thresholds": seas.STRONG, "oos": {}, "sectors": [], "stocks": []}
     try:
-        for lv, recs in (("sector", sec_l2), ("industry", sec_l3)):
+        for lv, recs in (("sector", sec_l2), ("industry", sec_l3), ("peer", sec_pm)):
             ser_ = {rec["name"]: rec.pop("_il") for rec in recs if rec.get("_il") is not None}
             for rec in recs:
                 if rec["name"] in ser_:
@@ -756,7 +769,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             season["oos"]["stock"] = res_
     except Exception as e:  # noqa: BLE001
         log.exception("Mùa vụ ngành lỗi: %s", e)
-    for recs in (sec_l2, sec_l3):
+    for recs in (sec_l2, sec_l3, sec_pm):
         for rec in recs:
             rec.pop("_il", None)
     try:
@@ -777,7 +790,9 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         mkt_val = {}
     dump(out_dir / "peer_groups.json", {"groups": pr_.GROUPS, "n": {k: int(v) for k, v in u["peer"].value_counts().items()},
                                          "map": {k: v for k, v in peermap.items() if v in pr_.GROUPS}})
-    dump(out_dir / "sectors.json", {"sector": sec_l2, "industry": sec_l3, "market": mkt_val, "outlook": outlook, "season": season,
+    if "peer_grp" in outlook:
+        outlook["peer"] = outlook.pop("peer_grp")
+    dump(out_dir / "sectors.json", {"sector": sec_l2, "industry": sec_l3, "peer": sec_pm, "peer_parents": list(pr_.PARENT), "market": mkt_val, "outlook": outlook, "season": season,
                                     "backtest": (backtest or {}).get("sectors", {}),
                                     "backtest_range": [backtest.get("start"), backtest.get("end")] if backtest.get("ok") else None})
 

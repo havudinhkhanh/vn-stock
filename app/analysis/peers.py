@@ -42,6 +42,24 @@ GROUPS = {
     "telecom": "Viễn thông & hạ tầng viễn thông", "it": "Công nghệ & phần mềm", "hardware": "Thiết bị & phần cứng điện tử",
     "conglomerate": "Tập đoàn đa ngành",
 }
+# nhóm lớn để xếp mâm trên tab Ngành
+PARENT = {
+    "Tài chính": ["bank", "broker", "consfin", "fin_other", "ins_nl", "ins_life"],
+    "Bất động sản": ["re_res", "re_ip", "re_lease", "re_svc"],
+    "Xây dựng & vật liệu": ["cons_civil", "cons_infra", "cons_power", "cement", "mat_stone", "mat_finish", "pipe", "consult"],
+    "Thép, kim loại & khoáng sản": ["steel", "metal_nf", "mining", "coal"],
+    "Hóa chất, cao su & nhựa": ["fert", "chem", "agchem", "rubber", "tyre", "plastic", "paper", "wood"],
+    "Dầu khí": ["oil_svc", "oil_ref", "fuel", "gas"],
+    "Điện, nước & môi trường": ["hydro", "thermal", "power_other", "water", "env"],
+    "Vận tải & logistics": ["port", "ship", "airline", "airport", "logistics", "road", "express"],
+    "Công nghiệp & thiết bị": ["machinery", "elec_equip", "auto", "shipbuild"],
+    "Thực phẩm & nông nghiệp": ["dairy", "food", "sugar", "seafood", "livestock", "agri", "beer", "beverage", "tobacco"],
+    "Bán lẻ & tiêu dùng": ["retail", "distribution", "household", "garment", "hotel"],
+    "Y tế": ["pharma", "health"],
+    "Công nghệ, viễn thông & truyền thông": ["it", "telecom", "hardware", "media"],
+    "Đa ngành": ["conglomerate"],
+}
+PARENT_OF = {g: p for p, L in PARENT.items() for g in L}
 NO_MEDIAN = {"conglomerate"}          # đa ngành: không có mâm tương đồng → P/E, P/B theo lịch sử của chính mã
 MKT_MEDIAN = {"airline"}              # chỉ 2 hãng bay, P/E dao động cực mạnh theo chu kỳ → so với mặt bằng toàn thị trường
 MIN_N = {"airline": 2}                # chỉ 2 hãng bay niêm yết: so với nhau còn hơn so với dịch vụ sân bay          # không có mâm tương đồng: không lấy trung vị, không góp vào trung vị của mâm khác

@@ -1366,3 +1366,7 @@ main{padding:16px 22px 48px}
 /* mâm so sánh */
 .pgbox{display:flex;gap:10px;align-items:flex-start;justify-content:space-between;padding:8px 12px;font-size:.8rem;border-bottom:1px solid var(--line);color:var(--ink-2)}
 .pgpick{padding:8px 12px;border-bottom:1px solid var(--line)}.pgpick select{max-width:100%;margin:0 6px}
+
+.taxsw{display:flex;gap:4px;margin:2px 2px 6px}.taxsw button{flex:1;justify-content:center!important;font-size:.74rem!important;border:1px solid var(--line)!important;border-radius:6px}
+.taxsw button.on{background:color-mix(in srgb,var(--brass,var(--brand)) 18%,transparent);color:var(--ink);border-color:var(--brass,var(--brand))!important}
+.sec-list button.par span{font-weight:600}
