@@ -144,12 +144,18 @@ def snapshot_at(t, wide, wide_val, fund, divs, listing_sector, cfg) -> pd.DataFr
     d["div_yield"] = d["div_yield"].where(d["div_yield"] > 0, y_cf).fillna(0).clip(upper=30)
     d["cash_years"] = np.maximum(d["cash_years"], d["cf_years"].fillna(0))
     d["sector"] = listing_sector.reindex(d.index)
+    big = d["sector"].map(d["sector"].value_counts()).fillna(0) >= 5
+    par = pd.Series({s: PARENT_OF_SYM.get(s) for s in d.index}, dtype=object) if PARENT_OF_SYM else d["sector"]
     for m in ("pe", "pb"):
-        d[m + "_pct"] = d.groupby("sector")[m].rank(pct=True)
+        r_own = d.groupby("sector")[m].rank(pct=True)
+        r_par = d.groupby(par.reindex(d.index).fillna(d["sector"]))[m].rank(pct=True)
+        d[m + "_pct"] = r_own.where(big, r_par)
     return d
 
 
 GUARDS = {"min_mcap_bn": 0.0, "value_guard": False, "trend": "not_down"}
+SKIP_SECTORS: set = set()     # mâm không có tính "cùng ngành" (tập đoàn đa ngành) – bỏ khỏi kiểm chứng chọn mã trong mâm
+PARENT_OF_SYM: dict = {}     # mã → nhóm lớn của mâm so sánh (build.py gán) – xếp hạng P/E, P/B trong mâm; mâm < 5 mã thì trong nhóm lớn
 
 
 def pick(d: pd.DataFrame, basket: str, n: int) -> list[str]:
@@ -332,7 +338,7 @@ def run(prices: pd.DataFrame, fq_ttm: pd.DataFrame, divs: pd.DataFrame, listing:
         # ---- theo ngành: top-k tốt nhất trong ngành vs mua đều cả ngành
         if do_sectors and not snap.empty and "sector" in snap:
             for sec, g in snap.groupby("sector"):
-                if len(g) < 5:
+                if len(g) < 5 or sec in SKIP_SECTORS:
                     continue
                 picks = sector_pick(g, sec_k)
                 for key, wts in (("pick", {s: 1 / sec_k for s in picks}),

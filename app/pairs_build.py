@@ -48,7 +48,7 @@ def run(prices: pd.DataFrame, listing: pd.DataFrame, u: pd.DataFrame, idx_close:
     ind = u["peer_label"] if "peer_label" in u else listing.set_index("symbol")["industry"]   # "cùng ngành" = cùng mâm so sánh
     log.info("Mã liên quan: %d mã đủ thanh khoản", len(liq))
     A = pr.analyze(C, idx_close, ind, liq)
-    vp = store.path("pairs_tests.json")
+    vp = store.path("pairs_tests_peer.json")      # kiểm định "cùng mâm" (tệp mới → tính lại theo mâm so sánh)
     if vp.exists() and store.age_days("pairs_tests") <= 6:
         V_ = json.loads(vp.read_text(encoding="utf-8"))
     else:

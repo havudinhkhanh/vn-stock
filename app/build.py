@@ -543,17 +543,27 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     advice = pf.advise(holdings, u, closes, cfg, regime, cash_vnd, capital) if holdings else None
 
     # ------------------------------------------------------------ backtest (theo lịch)
+    # kiểm chứng theo MÂM SO SÁNH: "ngành" trong backtest = mâm (gán cho mọi mã niêm yết, kể cả mã đã huỷ niêm yết còn trong dữ liệu giá)
+    try:
+        _lp = pr_.assign_all(listing.set_index("symbol"), peermap)
+        listing_bt = listing.assign(sector=[pr_.label(k) if not str(k).startswith("icb:") else str(k)[4:] for k in _lp["peer"].reindex(listing["symbol"]).values])
+        bt.SKIP_SECTORS = {pr_.label(k) for k in pr_.NO_MEDIAN}
+        bt.PARENT_OF_SYM.clear()
+        bt.PARENT_OF_SYM.update({s: pr_.PARENT_OF.get(k, "Khác") for s, k in _lp["peer"].items()})
+    except Exception as e:  # noqa: BLE001
+        log.warning("Gán mâm cho backtest lỗi, dùng ngành ICB: %s", e)
+        listing_bt = listing
     bt_path = store.path("backtest.json")
     ps_path = store.path("pattern_stats.json")
     if not skip_backtest and (force_backtest or store.age_days("backtest") > 6 or not bt_path.exists()):
         log.info("Chạy backtest…")
         try:
-            res = bt.run(prices, fq, divs, listing, cfg)
+            res = bt.run(prices, fq, divs, listing_bt, cfg)
             bt_path.write_text(json.dumps(_clean(res), ensure_ascii=False), encoding="utf-8")
             store.touch("backtest")
             try:
                 log.info("Kiểm chứng từng phong cách (lướt sóng, dài hạn, cổ tức)…")
-                sbt = sty.backtest_styles(prices, fq, divs, listing, cfg, bt)
+                sbt = sty.backtest_styles(prices, fq, divs, listing_bt, cfg, bt)
                 sbt["position"] = {k: (res.get("combo_regime") or {}).get(k) for k in ("cagr", "max_dd", "vol", "sharpe", "yearly", "curve", "win_years", "n_years")}
                 sbt["position"]["ok"] = bool(res.get("ok"))
                 store.path("styles_bt.json").write_text(json.dumps(_clean(sbt), ensure_ascii=False), encoding="utf-8")
@@ -561,7 +571,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
                 log.exception("Kiểm chứng phong cách lỗi: %s", e)
             try:
                 log.info("Mô phỏng các mức khẩu vị (cắt lỗ × số mã)…")
-                grid = bt.profile_grid(prices, fq, divs, listing, cfg)
+                grid = bt.profile_grid(prices, fq, divs, listing_bt, cfg)
                 store.path("profile_grid.json").write_text(json.dumps(_clean(grid), ensure_ascii=False), encoding="utf-8")
             except Exception as e:  # noqa: BLE001
                 log.exception("Mô phỏng khẩu vị lỗi: %s", e)
@@ -712,7 +722,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     try:
         for lv, recs in (("sector", sec_l2), ("industry", sec_l3), ("peer_grp", sec_pm)):
             o = sec_out.run(u, wide, idx["close"], fq, lv)
-            if lv == "sector":
+            if lv == "peer_grp":       # điểm triển vọng theo mâm so sánh → chỉ số "triển vọng ngành" trong điểm tương lai/quá khứ
                 sec_m3 = (sec_out._LAST.get("score") or {}).get("m3")
             if not o:
                 continue
@@ -730,7 +740,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         hi_ = pp_.pivot_table(index="date", columns="symbol", values="high").reindex(wide.index)
         lo_ = pp_.pivot_table(index="date", columns="symbol", values="low").reindex(wide.index)
         vo_ = pp_.pivot_table(index="date", columns="symbol", values="volume").reindex(wide.index)
-        fbres = fb_.run(u, wide, hi_, lo_, vo_, idx["close"], fq, sec_m3, "sector")
+        fbres = fb_.run(u, wide, hi_, lo_, vo_, idx["close"], fq, sec_m3, "peer_grp" if "peer_grp" in u.columns else "sector")
         del hi_, lo_, vo_
         for s_, c_ in fbres["current"].items():
             if s_ in u.index:

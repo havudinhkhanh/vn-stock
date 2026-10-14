@@ -1254,7 +1254,7 @@ async function viewSector(name, lvArg) {
 
   const link = (n, lv) => secHref(n, lv);
   const asideCtx = { level, name, parent, tax, isGroup, groupId: group?.id };
-  const bt = level === "sector" ? (secs.backtest || {})[name] : null;
+  const bt = level === "sector" || level === "peer" ? (secs.backtest || {})[name] : null;
   const factOpts = (sel) => Object.entries(FACT).map(([k, [n]]) => `<option value="${k}" ${k === sel ? "selected" : ""}>${esc(n)}</option>`).join("");
 
   app().innerHTML = `
@@ -1324,7 +1324,7 @@ async function viewSector(name, lvArg) {
               : `Ở ngành này, chọn mã theo công thức <b>chưa thắng</b> mua đều cả ngành (${pct(bt.alpha)}/năm) – đừng kỳ vọng nhiều vào việc chọn mã; ưu tiên thời điểm vào ngành và cắt lỗ.`}
               Lần chọn gần nhất: ${(bt.last_picks || []).map((s) => `<a href="#/s/${s}">${s}</a>`).join(", ") || "không có mã đạt (xu hướng giảm)"}.</p>`
             : isGroup ? `<p class="muted">Nhóm tự tạo chưa có backtest riêng. Xem cột <b>Alpha chọn mã</b> ở bảng Thành phần nhóm: ngành nào alpha dương thì xếp hạng trong ngành đó đáng tin hơn.</p>`
-            : `<p class="muted">Backtest chỉ chạy cho ngành cấp 2 có đủ mã thanh khoản và BCTC.${level === "industry" && parent && (secs.backtest || {})[parent] ? ` Xem ngành <a href="${link(parent, "sector")}">${esc(parent)}</a>.` : ""}</p>`}</section>
+            : `<p class="muted">Backtest chọn mã chạy theo mâm so sánh có ≥ 5 mã đủ thanh khoản và BCTC${level === "peer" ? " – mâm này chưa đủ" : level !== "group" ? ` – xem ở trang mâm của các mã (đầu trang mỗi mã có dòng "mâm …")` : ""}.</p>`}</section>
       </div>
     </div>
   </div>`;
@@ -2265,9 +2265,9 @@ async function viewBacktest() {
     ${[[b.combo.name, b.combo], [b.combo_regime.name, b.combo_regime], ["VN-Index", b.benchmark], ...bas.map(([, s]) => [s.name, s])].map(([n, s]) =>
       `<tr><td class="l">${esc(n)}</td>${years.map((y) => `<td class="${cls(s.yearly?.[y])}">${pct(s.yearly?.[y], 0)}</td>`).join("")}</tr>`).join("")}</tbody></table></div></section>
   <div class="g g2 sec">
-    <section class="panel flush"><div class="ph"><h2>Chọn mã trong từng ngành</h2><span class="meta">top 3 "Tốt nhất ngành" vs mua đều cả ngành</span></div>
-      ${SECB.length ? `<div class="tw"><table><thead><tr><th class="l">Ngành</th><th>Top 3/năm</th><th>Cả ngành/năm</th><th>Alpha</th><th>Sụt top 3</th><th>Số mã</th><th class="l">Chọn gần nhất</th></tr></thead><tbody>
-        ${SECB.map(([n, s]) => `<tr><td class="l"><a href="#/sector/${enc(n)}">${esc(n)}</a></td><td class="${cls(s.top?.cagr)}">${pct(s.top?.cagr)}</td><td class="${cls(s.all?.cagr)}">${pct(s.all?.cagr)}</td>
+    <section class="panel flush"><div class="ph"><h2>Chọn mã trong từng mâm</h2><span class="meta">top 3 "Tốt nhất mâm" vs mua đều cả mâm · mâm so sánh theo mô hình kinh doanh</span></div>
+      ${SECB.length ? `<div class="tw"><table><thead><tr><th class="l">Mâm so sánh</th><th>Top 3/năm</th><th>Cả mâm/năm</th><th>Alpha</th><th>Sụt top 3</th><th>Số mã</th><th class="l">Chọn gần nhất</th></tr></thead><tbody>
+        ${SECB.map(([n, s]) => `<tr><td class="l"><a href="${secHref(n, (secs?.peer || []).some((x) => x.name === n) ? "peer" : "sector")}">${esc(n)}</a></td><td class="${cls(s.top?.cagr)}">${pct(s.top?.cagr)}</td><td class="${cls(s.all?.cagr)}">${pct(s.all?.cagr)}</td>
           <td class="${cls(s.alpha)}"><b>${pct(s.alpha)}</b></td><td class="down">${pct(s.top?.max_dd, 0)}</td><td>${nf(s.avg_n, 0)}</td><td class="l">${(s.last_picks || []).map((x) => `<a href="#/s/${x}">${x}</a>`).join(" ") || "—"}</td></tr>`).join("")}</tbody></table></div>
         <p class="faint" style="font-size:.74rem;padding:6px 12px">Alpha dương = ở ngành đó, chọn mã theo cơ bản + xu hướng thật sự có ích. Alpha âm = khó chọn mã, nên coi trọng thời điểm vào ngành.</p>`
         : `<p class="muted" style="padding:0 12px 12px">Có sau lượt backtest kế tiếp.</p>`}</section>
@@ -2611,7 +2611,7 @@ function recentSignals(d) {
 }
 function tabOverview(d) {
   const r = d.row, fa = d.fa || {}, sc = d.scores || {};
-  return `<section class="panel hlp" style="margin-bottom:10px"><div class="ph"><h2>P/E ${esc(d.symbol)} theo quý so với ngành và thị trường</h2><span class="meta">cuối mỗi quý · <a href="#/sector">toàn cảnh các ngành</a></span></div>${peHistChart(d, SECS || {})}</section>
+  return `<section class="panel hlp" style="margin-bottom:10px"><div class="ph"><h2>P/E ${esc(d.symbol)} theo quý so với mâm và thị trường</h2><span class="meta">cuối mỗi quý · <a href="#/sector">toàn cảnh các ngành</a></span></div>${peHistChart(d, SECS || {})}</section>
   <div class="g g2">
     <section class="panel"><div class="ph"><h2>Điểm theo từng phương pháp</h2><span class="meta">0–100, so với toàn thị trường</span></div>
       <div class="tw"><table><tbody>${Object.entries(METHOD_NAMES).map(([k, n]) => `<tr><td class="l" style="font-weight:500">${n}</td><td style="width:50%">${minibar(sc[k] ?? r[k])}</td><td>${scoreCell(sc[k] ?? r[k])}</td>
@@ -3355,14 +3355,15 @@ function valCtx(d, S, opts = {}) {
 function peHistChart(d, S) {
   const vh = d.val_hist || [];
   if (vh.filter((x) => isNum(x.pe)).length < 4) return `<p class="muted">Chưa đủ lịch sử P/E của mã.</p>`;
-  const { sec, ind, mkt } = ctxRecs(S, d.sector, d.industry);
+  const { sec, mkt } = ctxRecs(S, d.sector, d.industry);
+  const pm = (S.peer || []).find((x) => x.name === d.row?.peer_label && !x.conglo);     // mâm so sánh của mã
   const map = (rec) => Object.fromEntries((rec?.val_hist || []).map((x) => [x.p, x.pe]));
-  const mi = map(ind), ms = map(sec), mm = map(mkt);
+  const mp = map(pm), ms = map(sec), mm = map(mkt);
   const series = [{ name: `P/E ${d.symbol}`, color: css("--brand"), width: 2.2, pts: vh.map((x) => ({ x: x.p, y: x.pe })) }];
-  if (ind) series.push({ name: "Nhóm ngành (TV)", color: css("--floor"), pts: vh.map((x) => ({ x: x.p, y: mi[x.p] })) });
-  if (sec) series.push({ name: "Ngành (TV)", color: css("--ref"), pts: vh.map((x) => ({ x: x.p, y: ms[x.p] })) });
+  if (pm) series.push({ name: `Mâm ${pm.name} (TV)`, color: css("--floor"), pts: vh.map((x) => ({ x: x.p, y: mp[x.p] })) });
+  if (sec && !pm) series.push({ name: "Ngành (TV)", color: css("--ref"), pts: vh.map((x) => ({ x: x.p, y: ms[x.p] })) });
   series.push({ name: "Thị trường (TV)", color: css("--ink-3"), dash: "4 3", pts: vh.map((x) => ({ x: x.p, y: mm[x.p] })) });
-  return lineSvg(series, { w: 1000, h: 230, ticks: 10, label: "P/E theo quý so với ngành và thị trường" });
+  return lineSvg(series, { w: 1000, h: 230, ticks: 10, label: "P/E theo quý so với mâm và thị trường" });
 }
 
 // ================================================================ TOÀN CẢNH NGÀNH
