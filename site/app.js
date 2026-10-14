@@ -2299,7 +2299,7 @@ async function viewStock(sym, tabArg) {
     <div class="tags" style="margin-left:auto">${d.in_plan ? '<span class="pill buy">Trong danh sách MUA</span>' : ""}${(d.baskets || []).map((b) => `<span class="pill brand">${esc(BASKET_SHORT[b] || b)}</span>`).join("")}
       <span class="pill ${r.trend === "up" ? "buy" : r.trend === "down" ? "sell" : ""}">Xu hướng ${TREND_VI[r.trend] || "—"}</span>
       ${secRec ? `<span class="pill" title="Vị trí ngành trên biểu đồ xoay vòng"><span class="quad" style="background:${qcol(secRec.quadrant)}"></span>Ngành ${esc(secRec.quadrant)}</span>` : ""}
-      ${isNum(r.ind_rank) ? `<span class="pill">Hạng ${nf(r.ind_rank, 0)}/${r.ind_n} trong ngành</span>` : ""}
+      ${isNum(r.ind_rank) ? `<span class="pill" title="Xếp hạng điểm tổng hợp trong mâm so sánh${d.peers?.group?.label ? ": " + esc(d.peers.group.label) : ""}">Hạng ${nf(r.ind_rank, 0)}/${r.ind_n} trong mâm${d.peers?.group?.label ? " " + esc(d.peers.group.label) : ""}</span>` : ""}
       ${isNum(r.avg_value_bn) && r.avg_value_bn < 1 ? `<span class="pill sell" title="Giá trị giao dịch trung bình 20 phiên – khó mua/bán khối lượng lớn; định giá đã trừ chiết khấu thanh khoản">Ít giao dịch · ${nf(r.avg_value_bn, 2)} tỷ/phiên</span>` : ""}
       ${isNum(last) && last < 5 ? '<span class="pill" title="Giá dưới 5.000đ">Penny</span>' : ""}</div>
     <div style="flex-basis:100%">${actBar(sym, { label: true, held })}</div>
@@ -2491,6 +2491,7 @@ async function viewStock(sym, tabArg) {
     if (jump) { const st = $("#stabs"); const y = st.getBoundingClientRect().top + window.scrollY - stickTop(); if (window.scrollY > y) window.scrollTo({ top: y }); }
     if (k === "vl") bindVal(d);
     if (k === "rp") bindReport();
+    if (k === "pe") bindPeerGroup(d);
     if (k === "sm") { L.smc = true; $$('[data-l="smc"]').forEach((b) => b.classList.add("on")); redraw(); }
   };
   $$(".subtabs button").forEach((b) => (b.onclick = () => { history.replaceState(null, "", `#/s/${sym}/${b.dataset.t}`); show(b.dataset.t, true); }));
@@ -2935,7 +2936,7 @@ function tabReport(d) {
     P.filter((p) => p.s !== d.symbol).map((p) => `<tr><td class="l"><a href="#/s/${p.s}"><b>${p.s}</b></a> <small class="faint">${esc((p.name || "").slice(0, 34))}</small></td><td>${n0(p.mcap)}</td><td>${nf(p.pe, 1)}</td><td>${nf(p.pb, 2)}</td><td>${nf(p.roa, 1)}</td><td>${nf(p.roa1, 1)}</td><td>${nf(p.roa2, 1)}</td><td>${nf(p.roe, 1)}</td><td>${nf(p.roe1, 1)}</td><td>${nf(p.roe2, 1)}</td></tr>`).join("")
     + `<tr class="b"><td class="l">Trung bình</td><td></td>${["pe", "pb", "roa", "roa1", "roa2", "roe", "roe1", "roe2"].map((k) => `<td>${nf(avg(k), k === "pb" ? 2 : 1)}</td>`).join("")}</tr>`
     + (() => { const me = P.find((p) => p.s === d.symbol) || {}; return `<tr class="me"><td class="l"><b>${esc(d.symbol)}</b></td><td>${n0(me.mcap)}</td><td>${nf(me.pe, 1)}</td><td>${nf(me.pb, 2)}</td><td>${nf(me.roa, 1)}</td><td>${nf(me.roa1, 1)}</td><td>${nf(me.roa2, 1)}</td><td>${nf(me.roe, 1)}</td><td>${nf(me.roe1, 1)}</td><td>${nf(me.roe2, 1)}</td></tr>`; })(),
-    "ROA, ROE theo %. Năm F: kịch bản cơ sở của hệ thống cho từng mã (cùng một phương pháp, không phải dự báo của CTCK). Chỉ so với doanh nghiệp niêm yết tại Việt Nam cùng ngành cấp 3.") : "";
+    `ROA, ROE theo %. Năm F: kịch bản cơ sở của hệ thống cho từng mã (cùng một phương pháp, không phải dự báo của CTCK). Chỉ so với doanh nghiệp niêm yết tại Việt Nam cùng mâm so sánh${d.peers?.group?.label ? " (" + esc(d.peers.group.label) + ")" : ""} – nhóm theo mô hình kinh doanh.`) : "";
   return `<article class="rpt" id="rpt">
     <header class="rhead"><div><h2>${esc(d.symbol)} – ${esc(d.name || "")}</h2><p class="muted">${esc(d.exchange || "")} · ${esc(d.sector || "")}${d.industry && d.industry !== d.sector ? " / " + esc(d.industry) : ""} · dữ liệu đến ${esc(d.date || "")}</p></div>
       <div class="rbox"><span>Khuyến nghị</span><b class="${rec[1]}">${rec[0]}</b><span>Giá hiện tại <b>${nf(price)}</b> · Giá trị hợp lý <b>${nf(fair)}</b> · Tiềm năng <b class="${cls(up)}">${pct(up, 1)}</b></span></div>
@@ -3035,6 +3036,32 @@ function bindVal(d) {
     $("#as_ke").value = String(v.ke); calc(); toast("Đã về giả định mặc định");
   };
 }
+// ---- mâm so sánh theo mô hình kinh doanh (app/analysis/peers.py)
+const PEER_SRC = { user: "anh đã chọn", manual: "hệ thống gán theo mô hình kinh doanh", rule: "suy ra từ tên doanh nghiệp", sub: "theo ngành con", icb: "theo ngành ICB" };
+function peerGroupBox(d) {
+  const g = d.peers?.group;
+  if (!g) return "";
+  const n = d.peers?.n;
+  const txt = g.conglo ? `<b>${esc(g.label)}</b> – không có mâm tương đồng, P/E và P/B mục tiêu lấy theo <b>lịch sử của chính ${esc(d.symbol)}</b> (bảng dưới chỉ để tham khảo).`
+    : g.used && g.used !== g.key ? `<b>${esc(g.label)}</b> có ít mã thanh khoản – trung vị đang lấy theo <b>${esc(g.used_label)}</b> (${nf(n, 0)} mã).`
+    : `<b>${esc(g.label)}</b> · trung vị P/E, P/B, ROE lấy từ ${nf(n, 0)} mã có thanh khoản trong mâm (bỏ giá trị ngoại lai, co nhẹ về nhóm gần nhất khi mâm nhỏ).`;
+  return `<div class="pgbox"><span>Mâm so sánh: ${txt} <small class="faint">(${esc(PEER_SRC[g.src] || g.src || "")})</small></span>
+    ${isAdmin() ? `<button class="chip" id="pgEdit">Đổi mâm</button>` : ""}</div><div id="pgPick"></div>`;
+}
+async function bindPeerGroup(d) {
+  const b = $("#pgEdit"); if (!b) return;
+  b.onclick = async () => {
+    const box = $("#pgPick"); if (box.innerHTML) { box.innerHTML = ""; return; }
+    const PG = await tryLoad("data/peer_groups.json"); const G = PG?.groups || {};
+    const cur = d.peers.group.key;
+    box.innerHTML = `<div class="pgpick"><label>Chọn mâm cho ${esc(d.symbol)}: <select id="pgSel">${Object.entries(G).sort((x, y) => x[1].localeCompare(y[1], "vi")).map(([k, n]) => `<option value="${k}" ${k === cur ? "selected" : ""}>${esc(n)}${PG.n?.[k] ? ` (${PG.n[k]} mã)` : ""}</option>`).join("")}</select></label>
+      <button class="btn primary" id="pgSave">Lưu</button> ${d.peers.group.src === "user" ? `<button class="btn" id="pgReset">Về mâm hệ thống gán</button>` : ""}
+      <p class="faint" style="font-size:.74rem;margin:6px 0 0">Áp dụng từ lượt chạy kế tiếp: trung vị P/E, P/B, ROE, tăng trưởng dùng cho định giá, bảng cùng mâm và xếp hạng của ${esc(d.symbol)} đổi theo; mã cũng được tính vào trung vị của mâm mới.</p></div>`;
+    const put = async (fn) => { const { data } = await Store.get("peermap"); const m = data || {}; fn(m); const ok = await Store.put("peermap", m); toast(ok ? "Đã lưu – áp dụng từ lượt chạy kế tiếp" : "Đã lưu trên trình duyệt này"); box.innerHTML = ""; };
+    $("#pgSave").onclick = () => put((m) => { m[d.symbol] = $("#pgSel").value; });
+    $("#pgReset")?.addEventListener("click", () => put((m) => { delete m[d.symbol]; }));
+  };
+}
 function tabPeers(d) {
   const p = d.peers || { cols: [], rows: [] };
   const name = { symbol: "Mã", price: "Giá", mcap_bn: "Vốn hoá", pe: "P/E", pb: "P/B", roe: "ROE", ni_yoy: "LN 12T", rev_yoy: "DT 12T", de: "Vay/Vốn", fscore: "F-Score", div_yield: "Cổ tức", upside: "Tiềm năng", composite: "Điểm" };
@@ -3042,7 +3069,8 @@ function tabPeers(d) {
   const pctl = p.pctl || {};
   const lbl = { pe: "P/E (thấp là tốt)", pb: "P/B (thấp là tốt)", roe: "ROE", roa: "ROA", net_margin: "Biên LN ròng", gross_margin: "Biên LN gộp", rev_yoy: "Tăng trưởng DT", ni_yoy: "Tăng trưởng LN", de: "Vay/Vốn (thấp là tốt)", fscore: "F-Score", div_yield: "Cổ tức", mcap_bn: "Quy mô" };
   return `<div class="g g-main">
-    <section class="panel flush"><div class="ph"><h2>So với các mã cùng ngành</h2><a class="meta" href="#/sector/${enc(d.industry || d.sector || "")}${d.industry && d.industry !== d.sector ? "/l3" : ""}">chạy phương án lọc cả ngành →</a></div>
+    <section class="panel flush"><div class="ph"><h2>So với các mã cùng mâm</h2><a class="meta" href="#/sector/${enc(d.industry || d.sector || "")}${d.industry && d.industry !== d.sector ? "/l3" : ""}">ngành ICB: ${esc(d.industry || d.sector || "")} →</a></div>
+      ${peerGroupBox(d)}
       <div class="tw"><table><thead><tr>${p.cols.map((c) => `<th class="${c === "symbol" ? "sym" : ""}">${name[c] || c}</th>`).join("")}</tr></thead><tbody>
       ${p.rows.map((r) => `<tr class="${r[0] === d.symbol ? "hl" : ""}">${r.map((x, i) => `<td class="${p.cols[i] === "symbol" ? "sym" : ""}">${f(p.cols[i], x)}</td>`).join("")}</tr>`).join("")}</tbody></table></div></section>
     <div class="stack">${valCtx(d, SECS || {})}
@@ -3113,6 +3141,7 @@ const HELP_FAQ = [
   ["Danh mục", "Mức dừng lỗ, chốt lời được tính thế nào?", "Theo phong cách của từng mã: dừng lỗ theo ATR và đỉnh sau mua (dời lên theo giá, tối đa −20%), chốt một phần khi vượt giá trị hợp lý, bán khi luận điểm cơ bản gãy, xem lại sau 60 phiên nếu vốn đứng yên. Có thể đặt mức riêng cho từng mã."],
   ["Danh mục", "Tôi đã bán mà hệ thống vẫn báo mã đó?", "Ghi lệnh bán ở Danh mục → Nhật ký giao dịch (hoặc bấm “Bán” cạnh mức thoát) để danh mục cập nhật. Thông báo theo danh mục đã lưu ở lượt chạy gần nhất."],
   ["Thông báo", "Làm sao nhận thông báo trên điện thoại?", "Tài khoản → Nhận thông báo → “Bật trên thiết bị này” và cho phép thông báo. Android/máy tính: dùng Chrome, Edge hoặc Firefox. iPhone/iPad (iOS 16.4+): mở trang bằng Safari → nút Chia sẻ → Thêm vào Màn hình chính → mở trang từ biểu tượng mới → bật lại. Thông báo đẩy và email thuộc gói Pro."],
+  ["Định giá", "\"Mâm so sánh\" là gì, khác ngành ICB thế nào?", "P/E, P/B mục tiêu, ROE ngành, tăng trưởng ngành và xếp hạng đều so với một mâm các doanh nghiệp CÙNG MÔ HÌNH KINH DOANH (khoảng 70 nhóm: cảng biển, vận tải biển, hàng không, sân bay & dịch vụ hàng không, khí, nước sạch, cao su, phân bón, BĐS nhà ở, BĐS khu công nghiệp, BĐS cho thuê, xây dựng hạ tầng, xi măng, thép, bán lẻ, sữa & thực phẩm có thương hiệu, mía đường, thủy sản, chăn nuôi…) thay vì 36 ngành ICB (vd. ICB xếp ACV chung với cảng biển và chuyển phát, GAS chung với nước sạch, cao su chung với phân bón). Trung vị chỉ tính trên mã có thanh khoản, bỏ giá trị ngoại lai, co nhẹ về nhóm gần nhất khi mâm nhỏ; mâm quá ít mã thì nới sang nhóm gần nhất. Tập đoàn đa ngành (VIC, MSN, REE, GEX…) không có mâm tương đồng → P/E, P/B theo lịch sử của chính mã; hàng không so với mặt bằng toàn thị trường. Quản trị viên đổi mâm từng mã ở tab Cùng ngành → Đổi mâm."],
   ["Danh mục", "Bị chia cổ tức bằng cổ phiếu / thưởng cổ phiếu thì giá vốn trong danh mục xử lý thế nào?", "Sau ngày GDKHQ chia cổ phiếu tỷ lệ r, giá giảm còn giá ÷ (1 + r) và 1 cp thành 1 + r cp – nếu giữ giá vốn cũ sẽ luôn thấy lỗ giả. Hệ thống tự quy đổi: giá vốn/cp = giá vốn ÷ (1 + r), khối lượng cộng thêm phần được chia (làm tròn xuống), TỔNG vốn gốc giữ nguyên; thẻ mã ghi rõ giá vốn gốc trước chia và lịch sử điều chỉnh. Vị thế nhập từ trước: khung \"Điều chỉnh theo quyền\" hỏi anh khối lượng đang ghi đã gồm cổ phiếu được chia chưa (cộng giúp / chỉ chỉnh giá vốn / tôi đã tự chỉnh). Cổ tức tiền: ghi nhận số tiền được nhận sau thuế 5%, không trừ vào giá vốn – hiện riêng ở dòng \"Cổ tức tiền đã nhận\" và lãi/lỗ gồm cổ tức; bấm để cộng vào tiền mặt khi tiền về. Có nút hoàn tác lần điều chỉnh gần nhất. Mức cắt lỗ / chốt lời và thông báo đều tính theo giá vốn đã quy đổi."],
   ["Định giá", "Bảng dự phóng 3 báo cáo (KQKD, lưu chuyển tiền tệ, cân đối kế toán) tính thế nào?", "Tab Dự phóng & định giá → Báo cáo tài chính dự phóng: 3 năm thực tế (A) đặt cạnh 5 năm dự phóng (F), chọn kịch bản Xấu / Cơ sở / Tốt. Ba bảng liên kết với nhau: lợi nhuận từ KQKD → lưu chuyển tiền (LNST + khấu hao − tăng vốn lưu động − đầu tư TSCĐ + vay ròng − cổ tức) → tiền cuối kỳ trên bảng cân đối; TSCĐ = đầu kỳ + đầu tư − khấu hao; vốn chủ = đầu kỳ + LNST − cổ tức; tổng tài sản luôn bằng tổng nguồn vốn. Sửa giả định (tăng trưởng, biên, lãi suất, nợ vay/vốn, đầu tư TSCĐ, vốn lưu động, kế hoạch đầu tư mới) thì cả 3 bảng tính lại ngay. Nếu dòng tiền không đủ chi, bảng cân đối hiện dòng \"Vốn cần huy động thêm\". Ngân hàng / CTCK / bảo hiểm: KQKD và cân đối theo cơ cấu năm gần nhất, không lập lưu chuyển tiền tệ."],
   ["Định giá", "Mã penny / ít giao dịch có được định giá không?", "Có. Mọi mã có BCTC đều có trang chi tiết và định giá (hệ thống tải dần BCTC cho mã ít giao dịch qua các lượt chạy, làm mới khoảng 3 tuần/lần). Mã có giá trị giao dịch TB 20 phiên dưới 1 tỷ/phiên được trừ chiết khấu thanh khoản vào giá trị hợp lý: dưới 0,1 tỷ −25%, dưới 0,5 tỷ −15%, dưới 1 tỷ −10%, và gắn nhãn \"Ít giao dịch\". Trung vị ngành để so sánh P/E, P/B chỉ tính trên mã có thanh khoản để mã penny không kéo lệch. Mã ít giao dịch không vào danh sách MUA của hệ thống."],
@@ -3254,10 +3283,12 @@ function valCtx(d, S, opts = {}) {
   const vh = (d.val_hist || []).filter((x) => isNum(x.pe));
   const hmed = (k) => { const a = (d.val_hist || []).map((x) => x[k]).filter(isNum).sort((x, y) => x - y); return a.length >= 6 ? a[Math.floor(a.length / 2)] : null; };
   const pe_h = hmed("pe"), pb_h = hmed("pb");
+  const pm = d.peers?.group && !d.peers.group.conglo ? d.peers.median : null;
   const rows = [
     ["<b>" + esc(d.symbol || r.symbol) + "</b>", pe, pb, roe, dy, g, "self"],
     pe_h ? [`Chính mã, TB ${vh.length} quý`, pe_h, pb_h, null, null, null, "hist"] : null,
-    ind ? [`Nhóm ngành<small>${esc(ind.name)}</small>`, ind.pe_med, ind.pb_med, ind.roe_med, ind.div_med, ind.ni_yoy_med, "ind"] : null,
+    pm && isNum(pm.pe) ? [`Mâm so sánh<small>${esc(d.peers.group.used_label || d.peers.group.label)}</small>`, pm.pe, pm.pb, pm.roe, pm.div_yield, pm.ni_yoy, "peer"] : null,
+    ind ? [`Nhóm ngành ICB<small>${esc(ind.name)}</small>`, ind.pe_med, ind.pb_med, ind.roe_med, ind.div_med, ind.ni_yoy_med, "ind"] : null,
     sec ? [`Ngành<small>${esc(sec.name)}</small>`, sec.pe_med, sec.pb_med, sec.roe_med, sec.div_med, sec.ni_yoy_med, "sec"] : null,
     [`Thị trường<small>trung vị</small>`, mkt.pe_med, mkt.pb_med, mkt.roe_med, mkt.div_med, mkt.ni_yoy_med, "mkt"],
     [`Thị trường<small>gia quyền</small>`, mkt.pe_w_pos ?? mkt.pe_w, mkt.pb_w, mkt.roe_w, null, null, "mktw"],
@@ -3265,9 +3296,9 @@ function valCtx(d, S, opts = {}) {
   const base = ind || sec;
   const say = [];
   if (isNum(pe) && pe > 0) {
-    const a = vsPct(pe, base?.pe_med), b = vsPct(pe, mkt.pe_med), c = vsPct(pe, pe_h);
+    const a = vsPct(pe, pm && isNum(pm.pe) ? pm.pe : base?.pe_med), b = vsPct(pe, mkt.pe_med), c = vsPct(pe, pe_h);
     const w = (v, n) => (isNum(v) ? `${v < 0 ? "thấp hơn" : "cao hơn"} ${n} <b class="${v < 0 ? "up" : "down"}">${nf(Math.abs(v), 0)}%</b>` : null);
-    say.push([w(a, ind ? "nhóm ngành" : "ngành"), w(b, "thị trường"), w(c, "trung bình lịch sử của chính mã")].filter(Boolean).join(", "));
+    say.push([w(a, pm && isNum(pm.pe) ? "mâm so sánh" : ind ? "nhóm ngành" : "ngành"), w(b, "thị trường"), w(c, "trung bình lịch sử của chính mã")].filter(Boolean).join(", "));
   } else say.push(`Mã đang lỗ hoặc chưa có EPS dương nên không có P/E – so sánh bằng P/B.`);
   return `<section class="panel ctxp ${opts.extra || ""}"><div class="ph"><h2>P/E so với ngành & thị trường</h2><span class="meta">trung vị = DN điển hình · gia quyền = như chỉ số</span></div>
     <table class="ctx"><colgroup><col><col style="width:30%"><col style="width:17%"><col style="width:17%"></colgroup><thead><tr><th class="l"></th><th class="hlc">P/E <small>mã so với</small></th><th>P/B</th><th>ROE</th></tr></thead><tbody>

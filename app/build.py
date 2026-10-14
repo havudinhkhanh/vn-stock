@@ -34,6 +34,7 @@ from .analysis import styles as sty
 from .analysis import technical as tech
 from .analysis import valuation as va
 from .analysis import events as evx
+from .analysis import peers as pr_
 from .analysis import stance as stn
 from .analysis import forecast as fc
 from . import swing_build as swb
@@ -44,7 +45,7 @@ from .analysis import corpact as ca_
 from . import users as users_
 import copy
 from .data import store
-from .portfolio_store import apply_profile, load_holdings, load_journal, load_overrides, load_profile, load_watchlist
+from .portfolio_store import apply_profile, load_holdings, load_journal, load_overrides, load_peermap, load_profile, load_watchlist
 
 log = logging.getLogger("build")
 INDEX_SYMS = {"VNINDEX", "HNXINDEX", "UPCOMINDEX", "VN30"}
@@ -419,10 +420,23 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     u = pd.DataFrame.from_dict(rows, orient="index")
     if u.empty:
         raise SystemExit("Không có mã nào để phân tích")
+    # mâm so sánh theo mô hình kinh doanh (analysis/peers.py) – thay ngành ICB cấp 3 khi so P/E, P/B, ROE, tăng trưởng
+    try:
+        peermap = ({str(k).upper(): str(v) for k, v in ((((owner or {}).get("data") or {}).get("peermap")) or {}).items()} if multi else load_peermap())
+    except Exception:  # noqa: BLE001
+        peermap = {}
+    u = pr_.assign_all(u, peermap)
     _u0 = u.reset_index(drop=True).assign(symbol=list(u.index))
-    u = fu.peer_stats(_u0, "industry", ref=_u0["avg_value_bn"].fillna(0) >= float(ucfg.get("fin_min_avg_value_bn", 0.3))).set_index("symbol", drop=False)
+    _ref = _u0["avg_value_bn"].fillna(0) >= float(ucfg.get("fin_min_avg_value_bn", 0.3))
+    u = fu.peer_stats(_u0, "peer", ref=_ref).set_index("symbol", drop=False)
+    _bm = pr_.benchmark(u, fu.PEER_METRICS, pd.Series(_ref.values, index=u.index) & u["has_fin"].fillna(False).astype(bool))
+    for c in _bm.columns:
+        u[c] = _bm[c]
+    u["peer_label"] = u["peer"].map(pr_.label)
+    log.info("Mâm so sánh: %d nhóm (%s)", u["peer"].nunique(), dict(u["peer_src"].value_counts()))
     for c in ("ni_yoy", "rev_yoy"):
         sector_growth[c] = u.groupby("industry")[c].median()
+        sector_growth[c + "_peer"] = u.groupby("peer_used")[c].median()
 
     # ------------------------------------------------------------ định giá (cần trung vị ngành)
     vcfg = cfg.get("valuation") or {}
@@ -438,7 +452,10 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         fa = d["fa"]
         qs = fq_by.get(s)
         ttm_row = fu.latest_row(qs) if qs is not None and not qs.empty else None
-        sg = sector_growth["rev_yoy" if fa["ctype"] == "CT" else "ni_yoy"].get(r["industry"])
+        _gk = "rev_yoy" if fa["ctype"] == "CT" else "ni_yoy"
+        sg = sector_growth[_gk + "_peer"].get(r.get("peer_used")) if isinstance(r.get("peer_used"), str) else None
+        if sg is None or (isinstance(sg, float) and np.isnan(sg)):
+            sg = sector_growth[_gk].get(r["industry"])
         fa["norm"] = va.norm_earnings(qs)
         model = fc.build_base(fa, fy_by.get(s), ttm_row, sg, vcfg)
         if model is not None and s in overrides:
@@ -447,7 +464,11 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             model["assumptions"].update(ov)
             model["overridden"] = sorted(ov)
         hist = va.hist_multiples(qs, d["df"]["close"], fa.get("shares_mn"))
-        peers = {"pe_ind_med": r.get("pe_ind_med"), "pb_ind_med": r.get("pb_ind_med"), "roe_ind_med": r.get("roe_ind_med")}
+        _nn = lambda x: None if x is None or (isinstance(x, float) and np.isnan(x)) else x  # noqa: E731
+        peers = {"pe_ind_med": _nn(r.get("pe_ind_med")), "pb_ind_med": _nn(r.get("pb_ind_med")), "roe_ind_med": _nn(r.get("roe_ind_med")),
+                 "label": r.get("peer_used_label"),
+                 "conglo": ("tập đoàn đa ngành, không có mâm tương đồng" if r.get("peer") == "conglomerate" else
+                            None)}
         ep = evx.episode(d["df"]["close"])
         val = va.value(fa, model, peers, hist, r["beta"], vcfg, mos, event=ep if ep and ep["phase"] == "active" else None,
                        liq_bn=float(r.get("avg_value_bn") or 0))
@@ -509,8 +530,8 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             u.at[s, f"in_{b}"] = True
     u = u.join(sc, how="left")
     # hạng trong ngành theo điểm tổng hợp
-    u["ind_rank"] = u.groupby("industry")["composite"].rank(ascending=False, method="min")
-    u["ind_n"] = u.groupby("industry")["composite"].transform("count")
+    u["ind_rank"] = u.groupby("peer")["composite"].rank(ascending=False, method="min")
+    u["ind_n"] = u.groupby("peer")["composite"].transform("count")
 
     # ------------------------------------------------------------ danh mục đang nắm
     closes = {s: g[s]["close"] for s in held if s in g}
@@ -563,7 +584,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             "piotroski", "magic_formula", "value", "quality", "growth", "dividend", "momentum", "canslim",
             "low_vol", "rs_rating", "canslim_flags", "liquid_ok",
             # bổ sung cho các chiều nhìn & phân tích ngành
-            "subindustry", "chg1w", "chg3m", "ret_6m", "ret_12_1", "vol_1y", "beta", "rsi", "from_hi52",
+            "subindustry", "peer", "peer_label", "peer_used_label", "peer_src", "chg1w", "chg3m", "ret_6m", "ret_12_1", "vol_1y", "beta", "rsi", "from_hi52",
             "roa", "roic", "gross_margin", "net_margin", "cfo_ni", "fcf_yield", "earnings_yield", "ps", "ev_ebitda",
             "rev_cagr3", "ni_cagr3", "ni_q_yoy", "rev_q_yoy", "ni_growth_streak", "roe_avg5", "payout", "eps", "bvps",
             "smc_bias", "smc_zone", "vsa_bias", "wy_phase", "of_bias", "of_delta5",
@@ -754,6 +775,8 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     except Exception as e:  # noqa: BLE001
         log.exception("Định giá toàn thị trường lỗi: %s", e)
         mkt_val = {}
+    dump(out_dir / "peer_groups.json", {"groups": pr_.GROUPS, "n": {k: int(v) for k, v in u["peer"].value_counts().items()},
+                                         "map": {k: v for k, v in peermap.items() if v in pr_.GROUPS}})
     dump(out_dir / "sectors.json", {"sector": sec_l2, "industry": sec_l3, "market": mkt_val, "outlook": outlook, "season": season,
                                     "backtest": (backtest or {}).get("sectors", {}),
                                     "backtest_range": [backtest.get("start"), backtest.get("end")] if backtest.get("ok") else None})
@@ -858,10 +881,13 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     except Exception:  # noqa: BLE001
         news_hist = {}
     mem_ind = {k: list(v) for k, v in u.groupby("industry").groups.items()}
+    mem_peer = {k: list(v) for k, v in u.groupby("peer").groups.items()}
     mem_sec = {k: list(v) for k, v in u.groupby("sector").groups.items()}
 
     def _sec_fn(s_, r_):
-        name, mem = r_.get("industry"), [m for m in mem_ind.get(r_.get("industry"), []) if m != s_ and m in wide.columns]
+        name, mem = r_.get("peer_label"), [m for m in mem_peer.get(r_.get("peer"), []) if m != s_ and m in wide.columns]
+        if len(mem) < 4:
+            name, mem = r_.get("industry"), [m for m in mem_ind.get(r_.get("industry"), []) if m != s_ and m in wide.columns]
         if len(mem) < 4:
             name, mem = r_.get("sector"), [m for m in mem_sec.get(r_.get("sector"), []) if m != s_ and m in wide.columns]
         def f(d0, d1):
@@ -898,7 +924,8 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
 
     for s, d in details.items():
         r = u.loc[s]
-        peers = u[(u["industry"] == r["industry"]) & u["has_fin"]].sort_values("mcap_bn", ascending=False)
+        peers = pr_.members(u, s)
+        peers = peers[peers["has_fin"]].sort_values("mcap_bn", ascending=False)
         peer_rows = peers[["symbol", "price", "mcap_bn", "pe", "pb", "roe", "ni_yoy", "rev_yoy", "de", "fscore",
                            "div_yield", "upside", "composite"]].head(12).replace({np.nan: None}).values.tolist()
         lv = st.trade_levels(r, cfg.get("risk") or {}) if pd.notna(r.get("price")) else None
@@ -933,6 +960,8 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
                                "fscore", "div_yield", "upside", "composite"], "rows": peer_rows,
                       "median": {k: r.get(f"{k}_ind_med") for k in fu.PEER_METRICS},
                       "pctl": {k: r.get(f"{k}_pctl") for k in fu.PEER_METRICS}, "n": r.get("peers_n"),
+                      "group": {"key": r.get("peer"), "label": r.get("peer_label"), "used": r.get("peer_used"), "used_label": r.get("peer_used_label"),
+                                "src": r.get("peer_src"), "conglo": r.get("peer") in pr_.NO_MEDIAN},
                       # so sánh kiểu báo cáo CTCK: P/E, P/B hiện tại + ROA/ROE dự phóng 2 năm (kịch bản cơ sở của từng mã)
                       "fwd": [{"s": x, "name": u.at[x, "name"], "mcap": _f(u.at[x, "mcap_bn"]), "pe": _f(u.at[x, "pe"]), "pb": _f(u.at[x, "pb"]),
                                "roa": _f(u.at[x, "roa"]), "roe": _f(u.at[x, "roe"]),

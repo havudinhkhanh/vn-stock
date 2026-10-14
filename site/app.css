@@ -1363,3 +1363,6 @@ main{padding:16px 22px 48px}
 .cab{padding:8px 0;border-top:1px solid var(--line)}.cab:first-of-type{border-top:0}
 .cab p{margin:0 0 6px;font-size:.84rem}.cab-b{display:flex;flex-wrap:wrap;gap:6px}
 .lc:has(> .cabox){align-self:start}
+/* mâm so sánh */
+.pgbox{display:flex;gap:10px;align-items:flex-start;justify-content:space-between;padding:8px 12px;font-size:.8rem;border-bottom:1px solid var(--line);color:var(--ink-2)}
+.pgpick{padding:8px 12px;border-bottom:1px solid var(--line)}.pgpick select{max-width:100%;margin:0 6px}

@@ -112,6 +112,15 @@ def apply_profile(cfg: dict, prof: dict) -> list[str]:
     return changed
 
 
+def load_peermap() -> dict:
+    """Mâm so sánh anh tự đổi trên web: {mã: khoá nhóm} (xem analysis/peers.py)."""
+    data = _from_kv("peermap")
+    if data is None:
+        p = ROOT / "peermap.json"
+        data = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+    return {str(k).upper(): str(v) for k, v in (data or {}).items() if isinstance(v, str)}
+
+
 def load_overrides() -> dict:
     """Giả định dự phóng anh đã sửa trên web: {mã: {g1: 0.12, gm: 0.3, ...}}."""
     data = _from_kv("assumptions")

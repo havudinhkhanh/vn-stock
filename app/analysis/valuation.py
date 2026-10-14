@@ -200,7 +200,9 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
     dfac = float(np.clip(det["r2"], 0.3, 1.0)) if det and det.get("r2") is not None else 1.0
     if pe_t and eps and eps > 0:
         e = eps * min(nfac, dfac)
-        src = f"ngành{f' ×{adj:.2f} theo ROE' if adj != 1 else ''}" if pe_ind else "lịch sử của mã (thiếu số liệu ngành)"
+        mam = f"mâm {peers['label']}" if peers.get("label") else "ngành"
+        src = (f"{mam}{f' ×{adj:.2f} theo ROE' if adj != 1 else ''}" if pe_ind else
+               f"lịch sử của mã – {peers['conglo']}" if peers.get("conglo") else "lịch sử của mã (thiếu số liệu ngành)")
         lo_m, hi_m = (pe_ind * adj * 0.85, pe_ind * adj * 1.15) if pe_ind else (hist.get("pe_lo") or pe_t * 0.85, hist.get("pe_hi") or pe_t * 1.15)
         ename = ("EPS 12 tháng" if nfac == 1 else f"EPS chuẩn hoá ({'đỉnh' if nfac < 1 else 'đáy'} chu kỳ: ½ mức 12 tháng + ½ mức bình thường 5 năm)")
         if dfac < 1 and dfac <= nfac:
@@ -217,7 +219,7 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
     adj_b = float(np.clip(roe_m / roe_i, 0.5, 2.5)) if roe_m and roe_i and roe_i > 0 and roe_m > 0 else 1.0
     pb_t = pb_ind * adj_b if pb_ind and 0.3 < pb_ind * adj_b < 8 else (hist.get("pb_med") if hist.get("pb_med") and 0.3 < hist["pb_med"] < 8 else None)
     if pb_t and bvps and bvps > 0:
-        methods.append({"key": "pb", "mult": pb_t, "name": f"P/B mục tiêu {pb_t:.2f}x ({'ngành' + (f' ×{adj_b:.2f} theo ROE' if adj_b != 1 else '') if pb_ind else 'lịch sử của mã'}) × BVPS",
+        methods.append({"key": "pb", "mult": pb_t, "name": f"P/B mục tiêu {pb_t:.2f}x ({(('mâm ' + peers['label']) if peers.get('label') else 'ngành') + (f' ×{adj_b:.2f} theo ROE' if adj_b != 1 else '') if pb_ind else 'lịch sử của mã'}) × BVPS",
                         "value": _r(pb_t * bvps / 1000), "w": 0.15 if ctype == "CT" else 0.25,
                         "range": [_r(pb_t * 0.85 * bvps / 1000), _r(pb_t * 1.15 * bvps / 1000)]})
     # 5) P/B hợp lý theo ROE (ngân hàng, CTCK, bảo hiểm)
