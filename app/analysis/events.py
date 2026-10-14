@@ -209,7 +209,8 @@ def describe(e: dict, close: pd.Series, vol: pd.Series | None, vni: pd.Series | 
         kind = "company"
     out["kind"] = kind
     out["label"] = {"market": "Thị trường chung sập", "sector": f"Cả ngành {sec_name or ''} cùng sập".replace("  ", " "),
-                    "mixed": "Thị trường yếu + chuyện riêng", "company": "Chuyện riêng của doanh nghiệp"}[kind]
+                    "mixed": ("Thị trường yếu + chuyện riêng" if mk is not None and mk <= -15 else "Ngành yếu + chuyện riêng"),
+                    "company": "Chuyện riêng của doanh nghiệp"}[kind]
     # phiên giảm sàn (≤ −6,5%) từ đỉnh tới đáy
     r = c.pct_change()
     w = r.loc[ph_d:low_d]
@@ -265,7 +266,8 @@ def describe(e: dict, close: pd.Series, vol: pd.Series | None, vni: pd.Series | 
     elif kind == "sector":
         T.append(f"→ <b>Cả ngành cùng sập</b> (tin chung của ngành / chính sách)" + (", mã giảm sâu hơn ngành." if sd < (sr or 0) - 20 else "."))
     elif kind == "mixed":
-        T.append("→ Thị trường / ngành đang giảm nhưng mã sập sâu hơn nhiều: <b>có thêm tin riêng của doanh nghiệp</b> hoặc bị bán giải chấp.")
+        T.append(("→ Thị trường đang giảm" if mk is not None and mk <= -15 else "→ Ngành đang giảm (thị trường thì không)")
+                 + " nhưng mã sập sâu hơn nhiều: <b>có thêm tin riêng của doanh nghiệp</b> hoặc bị bán giải chấp.")
     else:
         T.append("→ Thị trường và ngành không sập tương ứng: <b>nhiều khả năng là tin riêng của doanh nghiệp</b> "
                  "(lãnh đạo bị điều tra, BCTC xấu / kiểm toán ngoại trừ, cổ đông lớn bị giải chấp, mất thanh khoản…).")
