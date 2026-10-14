@@ -259,7 +259,7 @@ def plan(u: pd.DataFrame, sc: pd.DataFrame, members: dict[str, pd.Series], cfg: 
                 continue
             ok, why = timing_ok(row)
             lv = trade_levels(row, risk)
-            sec = row.get("sector") or "Khác"
+            sec = row.get("peer_parent") or row.get("sector") or "Khác"   # giới hạn tỷ trọng theo nhóm ngành lớn của mâm so sánh
             if not ok or lv["state"] == "wait":
                 watch.append({"symbol": sym, "basket": b, "score": round(float(score), 1),
                               "reason": why or f"Chờ giá về vùng {lv['zone'][0]}–{lv['zone'][1]}",

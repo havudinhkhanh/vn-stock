@@ -433,6 +433,11 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     for c in _bm.columns:
         u[c] = _bm[c]
     u["peer_label"] = u["peer"].map(pr_.label)
+    u["peer_parent"] = [pr_.PARENT_OF.get(k, "Khác") for k in u["peer"]]
+    try:   # hiệu suất theo mâm so sánh cho trang Thị trường
+        market["sectors_peer"] = mk.sector_map(wide, wide_val, pd.DataFrame({"symbol": list(u.index), "sector": list(u["peer_label"])}), liquid)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Hiệu suất theo mâm lỗi: %s", e)
     log.info("Mâm so sánh: %d nhóm (%s)", u["peer"].nunique(), dict(u["peer_src"].value_counts()))
     for c in ("ni_yoy", "rev_yoy"):
         sector_growth[c] = u.groupby("industry")[c].median()
@@ -476,10 +481,10 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             qual = bool((fa.get("ni_ttm") or 0) > 0 and (fa.get("de") if fa.get("de") is not None else 0) < 1.5)
             ep["plan"] = evx.entry_plan(ep, qual, val.get("fair") if val.get("reliable") else None)
             val["post_event"] = ep
-            post_events.append({"symbol": s, "sector": r.get("sector"), **{k: ep[k] for k in ("start", "since", "quiet", "pre_hi", "low", "price", "dd_now", "from_low")},
+            post_events.append({"symbol": s, "sector": r.get("peer_label") or r.get("sector"), **{k: ep[k] for k in ("start", "since", "quiet", "pre_hi", "low", "price", "dd_now", "from_low")},
                                 "quality": qual, **ep["plan"], "fair": val.get("fair"), "verdict": val.get("verdict")})
         elif ep:
-            ev_active.append({"symbol": s, "sector": r.get("sector"), **{k: ep[k] for k in ("start", "since", "quiet", "dd_now", "n_down", "wait_since", "wait_quiet", "price", "low")}})
+            ev_active.append({"symbol": s, "sector": r.get("peer_label") or r.get("sector"), **{k: ep[k] for k in ("start", "since", "quiet", "dd_now", "n_down", "wait_since", "wait_quiet", "price", "low")}})
         d["val"] = val
         try:
             br_ = ((val.get("scenarios") or {}).get("base") or {}).get("rows") or []
@@ -511,7 +516,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     weights = cfg.get("methods") or {}
     sc["composite"] = st.composite(sc, weights)
     xs, xy = set(cfg.get("exclude_sectors") or []), set(cfg.get("exclude_symbols") or [])
-    buyable = elig[~(elig["sector"].isin(xs) | elig["industry"].isin(xs) | elig.index.isin(xy))]
+    buyable = elig[~(elig["sector"].isin(xs) | elig["industry"].isin(xs) | elig["peer_label"].isin(xs) | elig["peer_parent"].isin(xs) | elig.index.isin(xy))]
     members = st.basket_members(buyable, sc.loc[buyable.index], regime["light"])
     plan = st.plan(buyable, sc.loc[buyable.index], members, cfg, regime)
     style_plans = {"position": plan}
@@ -584,7 +589,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             "piotroski", "magic_formula", "value", "quality", "growth", "dividend", "momentum", "canslim",
             "low_vol", "rs_rating", "canslim_flags", "liquid_ok",
             # bổ sung cho các chiều nhìn & phân tích ngành
-            "subindustry", "peer", "peer_label", "peer_used_label", "peer_src", "chg1w", "chg3m", "ret_6m", "ret_12_1", "vol_1y", "beta", "rsi", "from_hi52",
+            "subindustry", "peer", "peer_label", "peer_used_label", "peer_src", "peer_parent", "pe_ind_med", "pb_ind_med", "chg1w", "chg3m", "ret_6m", "ret_12_1", "vol_1y", "beta", "rsi", "from_hi52",
             "roa", "roic", "gross_margin", "net_margin", "cfo_ni", "fcf_yield", "earnings_yield", "ps", "ev_ebitda",
             "rev_cagr3", "ni_cagr3", "ni_q_yoy", "rev_q_yoy", "ni_growth_streak", "roe_avg5", "payout", "eps", "bvps",
             "smc_bias", "smc_zone", "vsa_bias", "wy_phase", "of_bias", "of_delta5",
@@ -778,7 +783,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             sg = {"W": 1 if (r_.get("tf_w") or 0) >= 0.35 else -1 if (r_.get("tf_w") or 0) <= -0.35 else 0,
                   "M": 1 if (r_.get("tf_m") or 0) >= 0.35 else -1 if (r_.get("tf_m") or 0) <= -0.35 else 0}
             sup = seas.support(None, {"summary": {"signs": sg}}, _sup_extra(r_))
-            season["stocks"].append({"symbol": s_, "sector": r_.get("sector"), "rel": _f(r_.get("ss1_rel")), "hit": _f(r_.get("ss1_hit")), "mean": _f(r_.get("ss1_mean")),
+            season["stocks"].append({"symbol": s_, "sector": r_.get("peer_label") or r_.get("sector"), "rel": _f(r_.get("ss1_rel")), "hit": _f(r_.get("ss1_hit")), "mean": _f(r_.get("ss1_mean")),
                                      "n": _f(r_.get("ss_n")), "support": sup, "composite": _f(r_.get("composite"))})
         season["stocks"] = season["stocks"][:30]
     except Exception as e:  # noqa: BLE001

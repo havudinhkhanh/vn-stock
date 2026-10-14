@@ -90,7 +90,7 @@ def run(prices: pd.DataFrame, listing: pd.DataFrame, u: pd.DataFrame, idx_close:
         if s not in u.index:
             continue
         r = u.loc[s]
-        rec = {"symbol": s, "sector": r.get("sector"), "price": r.get("price"), "chg1d": r.get("chg1d"), "avg_value_bn": r.get("avg_value_bn")}
+        rec = {"symbol": s, "sector": r.get("peer_label") or r.get("sector"), "price": r.get("price"), "chg1d": r.get("chg1d"), "avg_value_bn": r.get("avg_value_bn")}
         for c in TABLE_COLS:
             if c in rec:
                 continue
@@ -123,7 +123,7 @@ def run(prices: pd.DataFrame, listing: pd.DataFrame, u: pd.DataFrame, idx_close:
         flow_by = {x["s"]: x for x in cur}
         for x in cur:
             if x["s"] in u.index:
-                x["sector"] = u.at[x["s"], "sector"]
+                x["sector"] = u.at[x["s"], "peer_label"] if "peer_label" in u.columns else u.at[x["s"], "sector"]
                 x["chg1m"] = _r(u.at[x["s"], "chg1m"], 1)
                 x["val"] = _r(u.at[x["s"], "avg_value_bn"], 1)
                 x["price"] = _r(u.at[x["s"], "price"])

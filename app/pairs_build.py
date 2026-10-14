@@ -31,7 +31,7 @@ def _state(s: str, u: pd.DataFrame, cfg: dict, pick_syms: set, sw_per: dict) -> 
     es = pr.entry_state(lv, (ok_t, why_t), s in pick_syms)
     fl = ((sw_per.get(s) or {}).get("flow") or {}).get("st") or []
     g = lambda k: r.get(k) if k in r.index else None  # noqa: E731
-    return {"s": s, "name": g("name"), "industry": g("industry"), "price": _f(g("price")), "chg1m": _f(g("chg1m"), 1), "chg3m": _f(g("chg3m"), 1),
+    return {"s": s, "name": g("name"), "industry": g("peer_label") or g("industry"), "price": _f(g("price")), "chg1m": _f(g("chg1m"), 1), "chg3m": _f(g("chg3m"), 1),
             "rsi": _f(g("rsi"), 0), "trend": g("trend"), "ta_label": g("ta_label"), "verdict": g("verdict"), "fair": _f(g("fair")),
             "upside": _f(g("upside"), 0), "composite": _f(g("composite"), 0), "val": _f(g("avg_value_bn"), 1), "flow_st": list(fl),
             "es_k": es["k"], "es_t": es["t"], "es_c": es.get("c"),
@@ -45,7 +45,7 @@ def run(prices: pd.DataFrame, listing: pd.DataFrame, u: pd.DataFrame, idx_close:
     val = (C * V / 1e6).rolling(20, min_periods=10).mean().iloc[-60:].mean()
     liq = [s for s in C.columns if (val.get(s, 0) or 0) >= MIN_VAL or ((s in held or s in watch) and (val.get(s, 0) or 0) >= 1)]
     liq = [s for s in liq if C[s].iloc[-260:].notna().sum() >= 200]
-    ind = listing.set_index("symbol")["industry"]
+    ind = u["peer_label"] if "peer_label" in u else listing.set_index("symbol")["industry"]   # "cùng ngành" = cùng mâm so sánh
     log.info("Mã liên quan: %d mã đủ thanh khoản", len(liq))
     A = pr.analyze(C, idx_close, ind, liq)
     vp = store.path("pairs_tests.json")

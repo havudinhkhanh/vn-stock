@@ -351,7 +351,8 @@ async function screenerRows() {
   SCREENER = s.rows.map((r) => Object.fromEntries(s.cols.map((c, i) => [c, r[i]])));
   const S = await secsData(), M = S.market || {};
   const i3 = Object.fromEntries((S.industry || []).map((x) => [x.name, x])), s2 = Object.fromEntries((S.sector || []).map((x) => [x.name, x]));
-  SCREENER.forEach((r) => { const b = i3[r.industry] || s2[r.sector]; r.pe_ind = b?.pe_med ?? null; r.pb_ind = b?.pb_med ?? null;
+  SCREENER.forEach((r) => { const b = i3[r.industry] || s2[r.sector]; r.pe_ind = isNum(r.pe_ind_med) ? r.pe_ind_med : r.peer === "conglomerate" ? null : b?.pe_med ?? null; r.pb_ind = isNum(r.pb_ind_med) ? r.pb_ind_med : r.peer === "conglomerate" ? null : b?.pb_med ?? null;
+    r.grp = r.peer_parent || r.sector; r.mam = r.peer_label || r.industry;   // nhóm lớn / mâm so sánh
     r.pe_vs_ind = vsPct(r.pe, r.pe_ind); r.pe_vs_mkt = vsPct(r.pe, M.pe_med); r.pb_vs_ind = vsPct(r.pb, r.pb_ind); });
   SCREENER.forEach((r) => { if (isNum(r.ret_6m)) r.ret_6m_pct = r.ret_6m * 100; if (isNum(r.ret_12_1)) r.ret_12_1_pct = r.ret_12_1 * 100; if (isNum(r.vol_1y)) r.vol_1y_pct = r.vol_1y * 100; if (isNum(r.payout)) r.payout_pct = r.payout; });
   return SCREENER;
@@ -817,10 +818,11 @@ async function viewToday() {
   const liq = rows.filter((r) => r.liquid_ok);
   const topComp = liq.filter((r) => r.trend === "up" && isNum(r.composite)).sort((a, b) => b.composite - a.composite).slice(0, 8);
   const smartTop = liq.filter((r) => isNum(r.smc) && isNum(r.vsa)).map((r) => ({ ...r, _sm: (r.smc + r.vsa + (r.wyckoff_ev ?? 50)) / 3 })).sort((a, b) => b._sm - a._sm).slice(0, 6);
-  const lead = (secs?.sector || []).filter((s) => s.quadrant === "Dẫn dắt" || s.quadrant === "Cải thiện").sort((a, b) => (b.rs_ratio + b.rs_mom) - (a.rs_ratio + a.rs_mom)).slice(0, 6);
-  const outBuy = (secs?.sector || []).filter((s) => s.outlook?.m3?.verdict === "buy").sort((a, b) => b.outlook.m3.score - a.outlook.m3.score).slice(0, 6);
-  const outAvoid = (secs?.sector || []).filter((s) => s.outlook?.m3?.verdict === "avoid").sort((a, b) => a.outlook.m3.score - b.outlook.m3.score).slice(0, 4);
-  const weak = (secs?.sector || []).filter((s) => s.quadrant === "Tụt hậu").sort((a, b) => (a.rs_ratio + a.rs_mom) - (b.rs_ratio + b.rs_mom)).slice(0, 3);
+  const SL = secs?.peer?.length ? secs.peer.filter((x) => !x.conglo) : secs?.sector || [];
+  const lead = SL.filter((s) => s.quadrant === "Dẫn dắt" || s.quadrant === "Cải thiện").sort((a, b) => (b.rs_ratio + b.rs_mom) - (a.rs_ratio + a.rs_mom)).slice(0, 6);
+  const outBuy = SL.filter((s) => s.outlook?.m3?.verdict === "buy").sort((a, b) => b.outlook.m3.score - a.outlook.m3.score).slice(0, 6);
+  const outAvoid = SL.filter((s) => s.outlook?.m3?.verdict === "avoid").sort((a, b) => a.outlook.m3.score - b.outlook.m3.score).slice(0, 4);
+  const weak = SL.filter((s) => s.quadrant === "Tụt hậu").sort((a, b) => (a.rs_ratio + a.rs_mom) - (b.rs_ratio + b.rs_mom)).slice(0, 3);
   const adv = br.adv || 0, dec = br.dec || 0, tot = adv + dec || 1;
   const lightCol = { green: "var(--up)", yellow: "var(--ref)", red: "var(--down)" }[reg.light];
 
@@ -900,14 +902,14 @@ async function viewToday() {
 
     <div class="stack">
       ${outBuy.length ? `<section class="panel"><div class="ph"><h2>Ngành đáng đầu tư 3–6 tháng</h2><a class="meta" href="#/sector">triển vọng mọi ngành</a></div><div class="rows">
-        ${outBuy.map((s) => row(`#/sector/${enc(s.name)}`, esc(s.name), esc((s.outlook.pos || []).slice(0, 2).join(" · ")), `<div class="r-mid">${ring(s.outlook.m3.score, 28)}</div>`, `<b class="${s.outlook.m12?.verdict === "avoid" ? "ref" : "up"}">${s.outlook.m12 ? OUT_VI[s.outlook.m12.verdict] : ""}</b>`, "12 tháng")).join("")}
-        ${outAvoid.length ? `<p class="faint" style="font-size:.72rem;margin-top:6px">Nên tránh: ${outAvoid.map((s) => `<a href="#/sector/${enc(s.name)}">${esc(s.name)}</a>`).join(", ")}</p>` : ""}</div></section>` : ""}
+        ${outBuy.map((s) => row(`${secHref(s.name, s.level)}`, esc(s.name), esc((s.outlook.pos || []).slice(0, 2).join(" · ")), `<div class="r-mid">${ring(s.outlook.m3.score, 28)}</div>`, `<b class="${s.outlook.m12?.verdict === "avoid" ? "ref" : "up"}">${s.outlook.m12 ? OUT_VI[s.outlook.m12.verdict] : ""}</b>`, "12 tháng")).join("")}
+        ${outAvoid.length ? `<p class="faint" style="font-size:.72rem;margin-top:6px">Nên tránh: ${outAvoid.map((s) => `<a href="${secHref(s.name, s.level)}">${esc(s.name)}</a>`).join(", ")}</p>` : ""}</div></section>` : ""}
       ${!outBuy.length && lead.length ? `<section class="panel"><div class="ph"><h2>Ngành đang mạnh lên</h2><a class="meta" href="#/sector">mọi ngành</a></div><div class="rows">
-        ${lead.map((s) => row(`#/sector/${enc(s.name)}`, `<span class="quad" style="background:${qcol(s.quadrant)}"></span>${esc(s.name)}`, `${esc(s.quadrant)} · đầu ngành ${(s.leaders || []).slice(0, 3).map((x) => x.symbol).join(", ")}`,
+        ${lead.map((s) => row(`${secHref(s.name, s.level)}`, `<span class="quad" style="background:${qcol(s.quadrant)}"></span>${esc(s.name)}`, `${esc(s.quadrant)} · đầu ngành ${(s.leaders || []).slice(0, 3).map((x) => x.symbol).join(", ")}`,
           `<div class="r-mid"><span class="bar1"><i style="width:${Math.min(100, Math.max(4, 50 + (s.r1m || 0) * 2))}%;background:${(s.r1m || 0) >= 0 ? "var(--up)" : "var(--down)"}"></i></span></div>`, `<b class="${cls(s.r1m)}">${pct(s.r1m, 0)}</b>`, `P/E ${nf(s.pe_med, 1)}`)).join("")}
-        ${weak.length ? `<p class="faint" style="font-size:.72rem;margin-top:6px">Đang yếu đi: ${weak.map((s) => `<a href="#/sector/${enc(s.name)}">${esc(s.name)}</a>`).join(", ")}</p>` : ""}</div></section>` : ""}
+        ${weak.length ? `<p class="faint" style="font-size:.72rem;margin-top:6px">Đang yếu đi: ${weak.map((s) => `<a href="${secHref(s.name, s.level)}">${esc(s.name)}</a>`).join(", ")}</p>` : ""}</div></section>` : ""}
       <section class="panel"><div class="ph"><h2>Điểm cao nhất, xu hướng tăng</h2><a class="meta" href="#/screener">bộ lọc</a></div><div class="rows">
-        ${topComp.map((r) => row(`#/s/${r.symbol}`, r.symbol, `${esc(r.sector || "")} · P/E ${nf(r.pe, 1)} vs ngành ${nf(r.pe_ind, 1)}`, `<div class="r-mid">${mini(r.spk)}${ring(r.composite, 28)}</div>`,
+        ${topComp.map((r) => row(`#/s/${r.symbol}`, r.symbol, `${esc(r.mam || r.sector || "")} · P/E ${nf(r.pe, 1)} vs mâm ${nf(r.pe_ind, 1)}`, `<div class="r-mid">${mini(r.spk)}${ring(r.composite, 28)}</div>`,
           `<b>${nf(r.price)}</b>`, isNum(r.upside) ? `tiềm năng <b class="${cls(r.upside)}">${pct(r.upside, 0)}</b>` : `<span class="${cls(r.chg1m)}">${pct(r.chg1m, 0)} 1 tháng</span>`)).join("") || `<p class="muted">Không có.</p>`}</div></section>
       <section class="panel"><div class="ph"><h2>Dấu chân tổ chức mạnh</h2><span class="meta">SMC, VSA, Wyckoff – chỉ để tham khảo</span></div><div class="rows">
         ${smartTop.map((r) => row(`#/s/${r.symbol}`, r.symbol, esc(wyShort(r.wy_phase)), `<div class="r-mid">${mini(r.spk)}${ring(r._sm, 28)}</div>`, `<b>${nf(r.price)}</b>`, `SMC ${nf(r.smc, 0)} · VSA ${nf(r.vsa, 0)}`)).join("")}</div></section>
@@ -966,7 +968,7 @@ function rrgSvg(list, hl, opt = {}) {
   const q = [[0, 0, 1, 1, css("--floor"), "Cải thiện", "l", "t"], [1, 0, 0, 1, css("--up"), "Dẫn dắt", "r", "t"],
     [0, 1, 1, 0, css("--down"), "Tụt hậu", "l", "b"], [1, 1, 0, 0, css("--ref"), "Suy yếu", "r", "b"]];
   return scatterSvg(list.map((s) => ({ x: s.rs_ratio, y: s.rs_mom, r: Math.max(3.5, Math.min(11, Math.sqrt((s.mcap_bn || 1) / 3000))), label: opt.short ? s.name.split(" ")[0] : s.name,
-    color: qcol(s.quadrant), href: `#/sector/${enc(s.name)}`, tail: opt.labels === false ? null : s.rrg_tail, hl: s.name === hl, title: `${s.name}: RS-Ratio ${nf(s.rs_ratio, 1)}, RS-Momentum ${nf(s.rs_mom, 1)} (${s.quadrant})` })),
+    color: qcol(s.quadrant), href: secHref(s.name, s.level), tail: opt.labels === false ? null : s.rrg_tail, hl: s.name === hl, title: `${s.name}: RS-Ratio ${nf(s.rs_ratio, 1)}, RS-Momentum ${nf(s.rs_mom, 1)} (${s.quadrant})` })),
   { cx: 100, cy: 100, quads: q, clip: true, xl: opt.w ? "RS-Ratio" : "Sức mạnh tương đối (RS-Ratio)", yl: opt.w ? "RS-Mom" : "Động lượng RS", h: opt.h || 380, w: opt.w, labels: opt.labels !== false, label: "Biểu đồ xoay vòng ngành" });
 }
 function heatColor(v, scale = 6) { return !isNum(v) ? "var(--ink-3)" : `color-mix(in srgb, ${v >= 0 ? css("--up") : css("--down")} ${Math.min(100, 35 + Math.abs(v) * scale)}%, #2a2f36)`; }
@@ -974,8 +976,9 @@ function heatColor(v, scale = 6) { return !isNum(v) ? "var(--ink-3)" : `color-mi
 async function viewMarket() {
   const [m, secs] = await Promise.all([load("data/market.json"), tryLoad("data/sectors.json")]);
   const reg = m.regime, ix = reg.index || {}, br = reg.breadth_now || {};
-  const r1d = Object.fromEntries((m.sectors || []).map((s) => [s.sector, s.r1d]));
-  const S = (secs?.sector || []).map((s) => ({ ...s, r1d: r1d[s.name] }));
+  const usePeer = (secs?.peer || []).length > 0;     // gom theo mâm so sánh (mô hình kinh doanh)
+  const r1d = Object.fromEntries(((usePeer ? m.sectors_peer : m.sectors) || []).map((s) => [s.sector, s.r1d]));
+  const S = (usePeer ? secs.peer.filter((x) => !x.conglo) : secs?.sector || []).map((s) => ({ ...s, r1d: r1d[s.name] }));
   const st = { idx: "VNINDEX", per: lsGet("heatPer", "r1m"), sort: "mcap_bn", asc: false };
   const idxKpis = Object.entries(m.indices).map(([k, v]) => [esc(k), `${nf(v.close)}<br><small class="${cls(v.chg)}">${pct(v.chg, 2)}</small>`]);
   app().innerHTML = `
@@ -1002,7 +1005,7 @@ async function viewMarket() {
       <div class="sec">${wavesBlock(m.index_waves, true)}</div></section>
     <section class="panel"><div class="ph"><h2>Mô hình & mức giá VN-Index</h2></div>${patternsList(m.index_waves)}${levelsKv(m.index_waves)}</section>
   </div>
-  <section class="panel sec"><div class="ph"><h2>Bản đồ ngành</h2><span class="seg" id="perSel">${[["r1d", "1 ngày"], ["r1w", "1 tuần"], ["r1m", "1 tháng"], ["r3m", "3 tháng"], ["r6m", "6 tháng"], ["r1y", "1 năm"]].map(([k, n]) => `<button data-p="${k}" class="${k === st.per ? "on" : ""}">${n}</button>`).join("")}</span>
+  <section class="panel sec"><div class="ph"><h2>Bản đồ ngành <small class="faint" style="font-weight:400;font-size:.7rem">theo mâm so sánh</small></h2><span class="seg" id="perSel">${[["r1d", "1 ngày"], ["r1w", "1 tuần"], ["r1m", "1 tháng"], ["r3m", "3 tháng"], ["r6m", "6 tháng"], ["r1y", "1 năm"]].map(([k, n]) => `<button data-p="${k}" class="${k === st.per ? "on" : ""}">${n}</button>`).join("")}</span>
     <span class="meta">gia quyền theo thanh khoản · bấm để xem ngành</span></div><div class="heat" id="heat"></div></section>
   <section class="panel flush sec"><div class="ph"><h2>Bảng ngành</h2><span class="meta">trung vị các mã trong ngành</span></div><div class="tw"><table id="secTbl"></table></div></section>`;
 
@@ -1030,7 +1033,7 @@ async function viewMarket() {
   $$("#ixSel button").forEach((b) => (b.onclick = () => { st.idx = b.dataset.i; $$("#ixSel button").forEach((x) => x.classList.toggle("on", x === b)); drawIdx(); }));
   const src = S.length ? S : (m.sectors || []).map((s) => ({ ...s, name: s.sector }));
   const drawHeat = () => {
-    $("#heat").innerHTML = [...src].sort((a, b) => (b[st.per] ?? -999) - (a[st.per] ?? -999)).map((s) => `<a href="#/sector/${enc(s.name)}" style="background:${heatColor(s[st.per], st.per === "r1y" || st.per === "r6m" ? 2 : st.per === "r3m" ? 3 : 6)}">
+    $("#heat").innerHTML = [...src].sort((a, b) => (b[st.per] ?? -999) - (a[st.per] ?? -999)).map((s) => `<a href="${secHref(s.name, s.level)}" style="background:${heatColor(s[st.per], st.per === "r1y" || st.per === "r6m" ? 2 : st.per === "r3m" ? 3 : 6)}">
       <b>${pct(s[st.per])}</b>${esc(s.name)}<br><small style="color:#fff;opacity:.85">${s.n} mã · ${nf(s.above50, 0)}% trên MA50${s.quadrant ? " · " + esc(s.quadrant) : ""}</small></a>`).join("");
   };
   drawHeat();
@@ -1042,7 +1045,7 @@ async function viewMarket() {
     const rows = [...src].sort((a, b) => { const x = a[st.sort], y = b[st.sort]; if (x == null) return 1; if (y == null) return -1; return (x > y ? 1 : x < y ? -1 : 0) * (st.asc ? 1 : -1); });
     $("#secTbl").innerHTML = `<thead><tr>${C.map(([k, n, f]) => `<th data-k="${k}" class="${f === "l" || f === "q" ? "l" : ""} ${k === "name" ? "sym" : ""} ${st.sort === k ? "sorted" + (st.asc ? " asc" : "") : ""}">${n}</th>`).join("")}</tr></thead><tbody>
       ${rows.map((s) => `<tr>${C.map(([k, , f]) => { const v = s[k];
-        const t = k === "name" ? `<a href="#/sector/${enc(v)}">${esc(v)}</a>` : f === "q" ? `<span class="quad" style="background:${qcol(v)}"></span>${esc(v || "—")}` : f === "p" ? `<span class="${cls(v)}">${pct(v, 1)}</span>` : f === "p0" ? (isNum(v) ? nf(v, 0) + "%" : "—")
+        const t = k === "name" ? `<a href="${secHref(v, s.level)}">${esc(v)}</a>` : f === "q" ? `<span class="quad" style="background:${qcol(v)}"></span>${esc(v || "—")}` : f === "p" ? `<span class="${cls(v)}">${pct(v, 1)}</span>` : f === "p0" ? (isNum(v) ? nf(v, 0) + "%" : "—")
           : f === "bn" ? mcapFmt(v) : f === "i" ? nf(v, 0) : f === "x1" ? nf(v, 1) : f === "s" ? scoreCell(v) : nf(v, 2);
         return `<td class="${k === "name" ? "sym" : f === "q" ? "l" : ""}">${t}</td>`; }).join("")}</tr>`).join("")}</tbody>`;
     $$("#secTbl th").forEach((th) => (th.onclick = () => { if (st.sort === th.dataset.k) st.asc = !st.asc; else { st.sort = th.dataset.k; st.asc = th.dataset.k === "name"; } drawT(); }));
@@ -1090,7 +1093,8 @@ function levelsKv(w) {
 // ================================================================ NGÀNH
 function groupMembers(g, rows) {
   const S = new Set(g.sectors || []), I = new Set(g.industries || []), Y = new Set(g.symbols || []), X = new Set(g.exclude || []);
-  return rows.filter((r) => !X.has(r.symbol) && (S.has(r.sector) || I.has(r.industry) || Y.has(r.symbol)));
+  const G = new Set(g.grps || []), Mm = new Set(g.mams || []);      // nhóm lớn / mâm so sánh (nhóm cũ theo ICB vẫn giữ)
+  return rows.filter((r) => !X.has(r.symbol) && (S.has(r.sector) || I.has(r.industry) || G.has(r.grp) || Mm.has(r.mam) || Y.has(r.symbol)));
 }
 function aggRec(M) {
   const med = (k, pos) => { const a = M.map((r) => r[k]).filter((v) => isNum(v) && (!pos || v > 0)).map(Number).sort((x, y) => x - y); if (!a.length) return null; const h = a.length / 2; return a.length % 2 ? a[Math.floor(h)] : (a[h - 1] + a[h]) / 2; };
@@ -1125,24 +1129,26 @@ function secValStrip(rec, M, isGroup) {
 }
 function groupEditor(g, rows) {
   const tree = {};
-  rows.forEach((r) => { if (!r.sector) return; const t = (tree[r.sector] = tree[r.sector] || { n: 0, ind: {} }); t.n++; if (r.industry) t.ind[r.industry] = (t.ind[r.industry] || 0) + 1; });
-  const S = new Set(g.sectors), I = new Set(g.industries);
-  return `<section class="panel" id="gEdit" ${g.id === "new" ? "" : "hidden"}><div class="ph"><h2>${g.id === "new" ? "Tự nhóm ngành / mã" : "Sửa nhóm"}</h2><span class="meta">tick ngành cấp 2 (lấy cả ngành) hoặc từng nhóm ngành cấp 3, thêm mã lẻ nếu muốn</span></div>
+  rows.forEach((r) => { if (!r.grp) return; const t = (tree[r.grp] = tree[r.grp] || { n: 0, ind: {} }); t.n++; if (r.mam) t.ind[r.mam] = (t.ind[r.mam] || 0) + 1; });
+  const S = new Set(g.grps || []), I = new Set(g.mams || []);
+  const oldIcb = [...(g.sectors || []), ...(g.industries || [])];
+  return `<section class="panel" id="gEdit" ${g.id === "new" ? "" : "hidden"}><div class="ph"><h2>${g.id === "new" ? "Tự nhóm ngành / mã" : "Sửa nhóm"}</h2><span class="meta">tick nhóm lớn (lấy cả nhóm) hoặc từng mâm so sánh, thêm mã lẻ nếu muốn</span></div>
     <div class="filters"><div class="field w200"><label for="gName">Tên nhóm</label><input id="gName" value="${esc(g.name)}" placeholder="ví dụ: Hưởng lợi đầu tư công" style="width:240px"></div>
       <div class="field" style="flex:1;min-width:220px"><label for="gSyms">Thêm mã lẻ (cách nhau dấu phẩy/khoảng trắng)</label><input id="gSyms" value="${esc((g.symbols || []).join(", "))}" placeholder="HPG, VCG, PLC" autocapitalize="characters"></div>
       <div class="field" style="flex:1;min-width:180px"><label for="gEx">Loại trừ mã</label><input id="gEx" value="${esc((g.exclude || []).join(", "))}" placeholder="ví dụ ROS" autocapitalize="characters"></div></div>
+    ${oldIcb.length ? `<p class="faint" style="font-size:.74rem;margin:6px 0 0">Nhóm này còn chọn theo ngành ICB cũ: ${esc(oldIcb.join(", "))} – vẫn giữ. <label><input type="checkbox" id="gDropIcb"> bỏ các ngành ICB cũ khi lưu</label></p>` : ""}
     <div class="views" style="margin:8px 0 4px"><small class="muted" style="align-self:center">Mẫu nhanh:</small>${GROUP_TEMPLATES.map((x, i) => `<button data-tpl="${i}">${esc(x.name)}</button>`).join("")}</div>
     <div class="gtree">${Object.entries(tree).sort((a, b) => b[1].n - a[1].n).map(([sn, t]) => `<div class="gnode"><label class="gsec"><input type="checkbox" data-gs="${esc(sn)}" ${S.has(sn) ? "checked" : ""}> <b>${esc(sn)}</b> <small class="faint">${t.n}</small></label>
       ${Object.keys(t.ind).length > 1 || Object.keys(t.ind)[0] !== sn ? Object.entries(t.ind).sort((a, b) => b[1] - a[1]).map(([iname, n]) => `<label class="gind"><input type="checkbox" data-gi="${esc(iname)}" data-parent="${esc(sn)}" ${I.has(iname) || S.has(sn) ? "checked" : ""} ${S.has(sn) ? "disabled" : ""}> ${esc(iname)} <small class="faint">${n}</small></label>`).join("") : ""}</div>`).join("")}</div>
     <p style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"><button class="btn primary" id="gSave">Lưu nhóm & chạy phương án</button>${g.id !== "new" ? `<button class="btn" id="gDel">Xoá nhóm</button><button class="btn" id="gClose">Đóng</button>` : ""}<small class="muted" id="gCnt"></small></p></section>`;
 }
 const GROUP_TEMPLATES = [
-  { name: "Đầu tư công", sectors: ["Xây dựng và Vật liệu"], industries: ["Kim loại"], symbols: [] },
-  { name: "Tài chính (NH + CK + BH)", sectors: ["Ngân hàng", "Dịch vụ tài chính", "Bảo hiểm"], industries: [], symbols: [] },
-  { name: "Tiêu dùng", sectors: ["Thực phẩm và đồ uống", "Bán lẻ", "Hàng cá nhân & Gia dụng"], industries: [], symbols: [] },
-  { name: "Năng lượng & tiện ích", sectors: ["Dầu khí", "Điện, nước & xăng dầu khí đốt"], industries: [], symbols: [] },
-  { name: "Xuất khẩu & KCN", sectors: [], industries: ["Vận tải", "Hóa chất"], symbols: [] },
-  { name: "Phòng thủ", sectors: ["Y tế", "Điện, nước & xăng dầu khí đốt", "Viễn thông"], industries: [], symbols: [] },
+  { name: "Đầu tư công", grps: [], mams: ["Xây dựng hạ tầng, giao thông & BOT", "Xi măng", "Đá, khoáng & bê tông xây dựng", "Thép", "Xây lắp điện & cơ điện"], symbols: [] },
+  { name: "Tài chính (NH + CK + BH)", grps: ["Tài chính"], mams: [], symbols: [] },
+  { name: "Tiêu dùng", grps: ["Bán lẻ & tiêu dùng"], mams: ["Sữa & thực phẩm tiêu dùng có thương hiệu", "Bia & rượu", "Đồ uống & giải khát", "Mía đường"], symbols: [] },
+  { name: "Năng lượng & tiện ích", grps: ["Dầu khí", "Điện, nước & môi trường"], mams: [], symbols: [] },
+  { name: "Xuất khẩu & KCN", grps: [], mams: ["BĐS khu công nghiệp", "Cảng biển & ICD", "Logistics & giao nhận", "Dệt may & da giày", "Thủy sản", "Gỗ & lâm sản", "Cao su thiên nhiên"], symbols: [] },
+  { name: "Phòng thủ", grps: ["Y tế"], mams: ["Thủy điện", "Nước sạch", "Viễn thông & hạ tầng viễn thông", "Sữa & thực phẩm tiêu dùng có thương hiệu"], symbols: [] },
 ];
 function bindGroupEditor(g, GROUPS, rows) {
   const box = $("#gEdit"); if (!box) return;
@@ -1151,16 +1157,18 @@ function bindGroupEditor(g, GROUPS, rows) {
     const sectors = $$("[data-gs]", box).filter((x) => x.checked).map((x) => x.dataset.gs);
     const ss = new Set(sectors);
     const industries = $$("[data-gi]", box).filter((x) => x.checked && !ss.has(x.dataset.parent)).map((x) => x.dataset.gi);
-    return { name: $("#gName").value.trim(), sectors, industries, symbols: parseSyms($("#gSyms").value), exclude: parseSyms($("#gEx").value) };
+    const drop = $("#gDropIcb")?.checked;
+    return { name: $("#gName").value.trim(), grps: sectors, mams: industries, sectors: drop ? [] : g.sectors || [], industries: drop ? [] : g.industries || [],
+      symbols: parseSyms($("#gSyms").value), exclude: parseSyms($("#gEx").value) };
   };
   const upd = () => { const c = collect(); $("#gCnt").textContent = `→ ${groupMembers(c, rows).length} mã`; };
   $$("[data-gs]", box).forEach((cb) => (cb.onchange = () => { $$(`[data-gi][data-parent="${CSS.escape(cb.dataset.gs)}"]`, box).forEach((x) => { x.disabled = cb.checked; x.checked = cb.checked; }); upd(); }));
-  $$("[data-gi], #gSyms, #gEx", box).forEach((x) => (x.oninput = upd));
+  $$("[data-gi], #gSyms, #gEx, #gDropIcb", box).forEach((x) => (x.oninput = upd));
   $$("[data-tpl]", box).forEach((b) => (b.onclick = () => {
     const tp = GROUP_TEMPLATES[Number(b.dataset.tpl)];
     if (!$("#gName").value.trim()) $("#gName").value = tp.name;
-    $$("[data-gs]", box).forEach((cb) => { cb.checked = tp.sectors.includes(cb.dataset.gs); });
-    $$("[data-gi]", box).forEach((x) => { const ps = tp.sectors.includes(x.dataset.parent); x.disabled = ps; x.checked = ps || tp.industries.includes(x.dataset.gi); });
+    $$("[data-gs]", box).forEach((cb) => { cb.checked = tp.grps.includes(cb.dataset.gs); });
+    $$("[data-gi]", box).forEach((x) => { const ps = tp.grps.includes(x.dataset.parent); x.disabled = ps; x.checked = ps || tp.mams.includes(x.dataset.gi); });
     upd();
   }));
   upd();
@@ -1234,7 +1242,7 @@ async function viewSector(name, lvArg) {
       <div class="ph" style="margin:0"><h1>${esc(isGroup ? group.name || "Nhóm mới" : name)}</h1>
         ${outChip(rec?.outlook, "m3")}${outChip(rec?.outlook, "m12")}
         ${rec?.quadrant ? `<span class="pill" style="color:${qcol(rec.quadrant)}"><span class="quad" style="background:${qcol(rec.quadrant)}"></span>${esc(rec.quadrant)}</span>` : ""}
-        <span class="pill">${isGroup ? `Nhóm tự tạo · ${group.sectors.length} ngành, ${group.industries.length} nhóm ngành, ${group.symbols.length} mã lẻ` : LV_NAME[level]}${(level === "industry" || level === "peer") && parent ? " · thuộc " + esc(parent) : ""}</span>
+        <span class="pill">${isGroup ? `Nhóm tự tạo · ${(group.grps || []).length + (group.sectors || []).length} nhóm lớn, ${(group.mams || []).length + (group.industries || []).length} mâm, ${(group.symbols || []).length} mã lẻ` : LV_NAME[level]}${(level === "industry" || level === "peer") && parent ? " · thuộc " + esc(parent) : ""}</span>
         ${level === "peer" ? `<span class="faint" style="font-size:.74rem">nhóm theo mô hình kinh doanh – cùng mâm dùng để định giá từng mã${rec?.conglo ? "; tập đoàn đa ngành không dùng trung vị của mâm này để định giá" : ""}</span>` : ""}
         ${isGroup && group.id !== "new" ? `<button class="chip" id="gEditBtn">Sửa nhóm</button>` : ""}
         <span class="meta">${members.length} mã · ${members.filter((r) => r.liquid_ok).length} mã thanh khoản</span></div>
@@ -1328,10 +1336,10 @@ async function viewSector(name, lvArg) {
     const W = weights();
     // xếp hạng phần trăm trên toàn bộ mã đạt điều kiện thanh khoản (để so cùng mặt bằng), sau đó mới lọc xu hướng
     if (isGroup && st.relative !== false) {
-      // xếp hạng trong ngành gốc (nhóm ngành cấp 3 nếu đủ ≥ 4 mã, không thì ngành cấp 2, không thì cả nhóm) rồi gộp
+      // xếp hạng trong mâm so sánh gốc (nếu đủ ≥ 4 mã, không thì nhóm lớn, không thì cả nhóm) rồi gộp
       const cnt = (k, v) => base.filter((r) => r[k] === v).length;
       const buckets = {};
-      base.forEach((r) => { const key = r.industry && cnt("industry", r.industry) >= 4 ? "i:" + r.industry : r.sector && cnt("sector", r.sector) >= 4 ? "s:" + r.sector : "_all"; (buckets[key] = buckets[key] || []).push(r); });
+      base.forEach((r) => { const key = r.mam && cnt("mam", r.mam) >= 4 ? "i:" + r.mam : r.grp && cnt("grp", r.grp) >= 4 ? "s:" + r.grp : "_all"; (buckets[key] = buckets[key] || []).push(r); });
       const full = Object.fromEntries(rankGroup(base, W).map((x) => [x.r.symbol, x]));
       ranked = Object.entries(buckets).flatMap(([k, g]) => (k === "_all" ? g.map((r) => full[r.symbol]) : rankGroup(g, W))).sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
     } else ranked = rankGroup(base, W);
@@ -1376,11 +1384,11 @@ async function viewSector(name, lvArg) {
     drawScatter();
     if (isGroup && $("#gComp")) {
       const bySec = {};
-      members.forEach((r) => { (bySec[r.sector || "Khác"] = bySec[r.sector || "Khác"] || []).push(r); });
+      members.forEach((r) => { (bySec[r.mam || "Khác"] = bySec[r.mam || "Khác"] || []).push(r); });
       const totM = members.reduce((a, r) => a + (r.mcap_bn || 0), 0) || 1;
-      $("#gComp").innerHTML = `<thead><tr><th class="l">Ngành gốc</th><th>Số mã</th><th>Tỷ trọng vốn hoá</th><th>1 tháng (ngành)</th><th class="l">Vòng</th><th>Alpha chọn mã</th><th class="l">Mạnh nhất trong nhóm</th></tr></thead><tbody>
-        ${Object.entries(bySec).sort((a, b) => b[1].length - a[1].length).map(([sn, M]) => { const sr = byName2[sn], b = (secs.backtest || {})[sn]; const best = ranked.filter((x) => x.r.sector === sn).slice(0, 3);
-          return `<tr><td class="l"><a href="#/sector/${enc(sn)}">${esc(sn)}</a></td><td>${M.length}</td><td>${pct(M.reduce((a, r) => a + (r.mcap_bn || 0), 0) / totM * 100, 0, false)}</td>
+      $("#gComp").innerHTML = `<thead><tr><th class="l">Mâm so sánh</th><th>Số mã</th><th>Tỷ trọng vốn hoá</th><th>1 tháng (ngành)</th><th class="l">Vòng</th><th>Alpha chọn mã</th><th class="l">Mạnh nhất trong nhóm</th></tr></thead><tbody>
+        ${Object.entries(bySec).sort((a, b) => b[1].length - a[1].length).map(([sn, M]) => { const sr = byNameP[sn], b = (secs.backtest || {})[sn]; const best = ranked.filter((x) => x.r.mam === sn).slice(0, 3);
+          return `<tr><td class="l"><a href="${secHref(sn, "peer")}">${esc(sn)}</a></td><td>${M.length}</td><td>${pct(M.reduce((a, r) => a + (r.mcap_bn || 0), 0) / totM * 100, 0, false)}</td>
           <td class="${cls(sr?.r1m)}">${pct(sr?.r1m)}</td><td class="l">${sr ? `<span class="quad" style="background:${qcol(sr.quadrant)}"></span>${esc(sr.quadrant)}` : "—"}</td>
           <td class="${cls(b?.alpha)}">${b ? pct(b.alpha) : "—"}</td><td class="l">${best.map((x) => `<a href="#/s/${x.r.symbol}">${x.r.symbol}</a> <small class="faint">${nf(x.score, 0)}</small>`).join(" · ") || "—"}</td></tr>`; }).join("")}</tbody>`;
     }
@@ -1558,7 +1566,7 @@ function preTradeCheck(c) {
   const rk = t.risk || {}, reg = t.regime || {}, SP = (t.styles || {})[t.style || "position"] || {};
   const r = R[sym] || d?.row || {};
   const H = (pf.holdings || []).map((h) => ({ s: String(h.symbol).toUpperCase(), q: Number(h.qty) || 0, px: R[String(h.symbol).toUpperCase()]?.price ?? (Number(h.cost) || 0) }))
-    .map((h) => ({ ...h, mv: h.q * h.px * 1000, sec: R[h.s]?.sector || "" }));
+    .map((h) => ({ ...h, mv: h.q * h.px * 1000, sec: R[h.s]?.grp || R[h.s]?.sector || "" }));
   const mv = H.reduce((s, h) => s + h.mv, 0), cash = isNum(Number(pf.cash)) && pf.cash !== "" && pf.cash != null ? Number(pf.cash) : null;
   const total = capitalOf(pf) || (cash !== null ? cash + mv : null) || t.portfolio?.total_vnd || null;
   const val = qty * px * 1000 * (1 + FEE_BUY / 100);
@@ -1577,7 +1585,7 @@ function preTradeCheck(c) {
     caps.push([`tối đa ${nf(wMax, 0)}%/mã`, maxQ(Math.max(0, wMax / 100 * total - cur))]);
     add(w > wMax * 1.5 ? "bad" : w > wMax + 0.5 ? "warn" : "ok", "w", `Tỷ trọng ${sym} sau lệnh: ${nf(w, 1)}%`, `Giới hạn ${nf(wMax, 0)}%/mã theo khẩu vị${cur ? ` (đang có ${nf(cur / total * 100, 1)}%)` : ""}.`);
     // 3) tỷ trọng ngành
-    const sec = r.sector, sMax = Number(rk.max_weight_per_sector ?? 30);
+    const sec = r.grp || r.sector, sMax = Number(rk.max_weight_per_sector ?? 30);   // giới hạn theo nhóm ngành lớn của mâm so sánh
     if (sec) {
       const sc = H.filter((h) => h.sec === sec).reduce((s, h) => s + h.mv, 0), ws = (sc + val) / total * 100, mates = H.filter((h) => h.sec === sec && h.s !== sym).map((h) => h.s);
       caps.push([`tối đa ${nf(sMax, 0)}%/ngành`, maxQ(Math.max(0, sMax / 100 * total - sc))]);
@@ -1809,7 +1817,7 @@ async function viewPortfolio() {
     const expCap = t.regime.exposure;
     const plan = rebalance(P, cash, denom);
     const bySec = {};
-    P.forEach((x) => { const s = x.r.sector || "Khác"; bySec[s] = (bySec[s] || 0) + x.mv; });
+    P.forEach((x) => { const s = x.r.grp || x.r.sector || "Khác"; bySec[s] = (bySec[s] || 0) + x.mv; });
 
     const card = (x) => {
       const { h, r, a } = x, w = denom ? (x.mv / denom) * 100 : null;
@@ -1819,7 +1827,7 @@ async function viewPortfolio() {
       const canSell = !x.sellable || x.sellable <= today;
       return `<div class="pos ${sev >= 2 ? "sell" : sev === 1 ? "wait" : ""}">
         <div class="pk-head"><div><a class="sym" href="#/s/${h.symbol}">${h.symbol}</a> <span class="pill ${sev >= 2 ? "sell" : sev === 1 ? "wait" : "buy"}">${esc(x.act.action)}</span> <span class="pill">${esc(STYLE_SHORT[x.ep.style])}</span>${h.basket ? ` <span class="pill">${esc(BASKET_SHORT[h.basket] || h.basket)}</span>` : ""}
-          <small class="pk-name">${esc(r.name || "")} · ${esc(r.sector || "")}</small></div>
+          <small class="pk-name">${esc(r.name || "")} · ${esc(r.mam || r.sector || "")}</small></div>
           <div class="pk-px">${mini(r.spk, { w: 90, h: 30 })}<div><b>${nf(x.px)}</b><small class="${cls(r.chg1d)}">${pct(r.chg1d, 1)} hôm nay</small></div>
             <div><b class="${cls(x.pnl)}">${pct(x.pnlPct, 1)}</b><small class="${cls(x.pnl)}">${big(x.pnl)} đ</small></div></div></div>
         <div class="ladder sm" aria-hidden="true"><div class="lt"></div>
@@ -1957,7 +1965,7 @@ async function viewPortfolio() {
       else if (x.ep.style === "position" && x.act.action.startsWith("CÂN NHẮC")) { tgt[s] = (x.mv * 2) / 3; why[s] = `Giảm 1/3 – ${(x.a?.reasons || []).join("; ")}`; }
       if (tgt[s] > maxW) { tgt[s] = maxW; why[s] = (why[s] ? why[s] + "; " : "") + `vượt trần ${risk.max_weight_per_stock ?? 20}% vốn/mã`; }
     });
-    const secOf = (s) => R[s]?.sector || "Khác";
+    const secOf = (s) => R[s]?.grp || R[s]?.sector || "Khác";
     const secSum = {}; Object.entries(tgt).forEach(([s, v]) => (secSum[secOf(s)] = (secSum[secOf(s)] || 0) + v));
     Object.entries(secSum).forEach(([sec, v]) => { if (v <= maxS) return; let ex = v - maxS;
       P.filter((x) => secOf(x.h.symbol) === sec).sort((a, b) => (a.r.composite ?? 0) - (b.r.composite ?? 0)).forEach((x) => { if (ex <= 0) return; const s = x.h.symbol, cut = Math.min(ex, tgt[s]); tgt[s] -= cut; ex -= cut; why[s] = (why[s] ? why[s] + "; " : "") + `ngành ${sec} vượt trần ${risk.max_weight_per_sector ?? 30}%`; }); });
@@ -1988,11 +1996,11 @@ async function viewPortfolio() {
 
 // ================================================================ BỘ LỌC
 const COLDEF = {
-  symbol: ["Mã", "sym"], name: ["Tên", "name"], exchange: ["Sàn", "l"], sector: ["Ngành", "l"], industry: ["Nhóm ngành", "l"], subindustry: ["Ngành cấp 4", "l"],
+  symbol: ["Mã", "sym"], name: ["Tên", "name"], exchange: ["Sàn", "l"], sector: ["Ngành", "l"], mam: ["Mâm so sánh", "l"], grp: ["Nhóm ngành", "l"], industry: ["Nhóm ngành", "l"], subindustry: ["Ngành cấp 4", "l"],
   price: ["Giá", "x2"], spk: ["30 phiên", "spk"], chg1d: ["Hôm nay", "pct"], chg1w: ["1 tuần", "pct"], chg1m: ["1 tháng", "pct"], chg3m: ["3 tháng", "pct"], chg1y: ["1 năm", "pct"],
   ret_12_1_pct: ["12–1 tháng", "pct"], avg_value_bn: ["GTGD/ngày", "x1"], mcap_bn: ["Vốn hoá", "bn"],
   composite: ["Điểm", "score"], upside: ["Tiềm năng", "pct"], fair: ["Hợp lý", "x2"], buy_below: ["Mua dưới", "x2"], verdict: ["Định giá", "l"],
-  pe: ["P/E", "pe"], pe_ind: ["P/E ngành", "x1"], pe_vs_ind: ["P/E vs ngành", "vs"], pe_vs_mkt: ["P/E vs TT", "vs"], pb: ["P/B", "x2"], pb_ind: ["P/B ngành", "x2"], pb_vs_ind: ["P/B vs ngành", "vs"], ps: ["P/S", "x2"], ev_ebitda: ["EV/EBITDA", "x1"], earnings_yield: ["LS lợi nhuận", "p1"], fcf_yield: ["LS FCF", "p1"],
+  pe: ["P/E", "pe"], pe_ind: ["P/E mâm", "x1"], pe_vs_ind: ["P/E vs mâm", "vs"], pe_vs_mkt: ["P/E vs TT", "vs"], pb: ["P/B", "x2"], pb_ind: ["P/B mâm", "x2"], pb_vs_ind: ["P/B vs mâm", "vs"], ps: ["P/S", "x2"], ev_ebitda: ["EV/EBITDA", "x1"], earnings_yield: ["LS lợi nhuận", "p1"], fcf_yield: ["LS FCF", "p1"],
   roe: ["ROE", "p1"], roe_avg5: ["ROE TB5", "p1"], roa: ["ROA", "p1"], roic: ["ROIC", "p1"], gross_margin: ["Biên gộp", "p1"], net_margin: ["Biên ròng", "p1"], cfo_ni: ["CFO/LN", "x2"], de: ["Vay/Vốn", "x2"],
   fscore: ["F-Score", "i"], rev_yoy: ["DT 12T", "pct"], ni_yoy: ["LN 12T", "pct"], rev_q_yoy: ["DT quý", "pct"], ni_q_yoy: ["LN quý", "pct"], rev_cagr3: ["DT CAGR3", "pct"], ni_cagr3: ["LN CAGR3", "pct"],
   ni_growth_streak: ["Quý LN tăng", "i"], eps: ["EPS (đ)", "i"], bvps: ["BVPS (đ)", "i"], div_yield: ["Cổ tức", "p1"], payout_pct: ["Tỷ lệ chi trả", "p0"], cash_years: ["Năm trả TM", "i"],
@@ -2004,17 +2012,17 @@ const COLDEF = {
   momentum: ["Động lượng", "score"], canslim: ["CANSLIM", "score"], low_vol: ["Ít biến động", "score"],
 };
 const VIEWS = {
-  overview: ["Tổng quan", ["symbol", "exchange", "sector", "price", "spk", "chg1d", "chg1m", "composite", "upside", "verdict", "pe", "pe_ind", "pe_vs_ind", "pb", "roe", "ni_yoy", "fscore", "div_yield", "ta_label", "trend", "avg_value_bn", "ind_rank"]],
-  valuation: ["Định giá", ["symbol", "sector", "price", "pe", "pe_ind", "pe_vs_ind", "pe_vs_mkt", "pb", "pb_ind", "pb_vs_ind", "fair", "buy_below", "upside", "verdict", "ps", "ev_ebitda", "earnings_yield", "fcf_yield", "mcap_bn", "value", "magic_formula"]],
-  quality: ["Chất lượng", ["symbol", "sector", "roe", "roe_avg5", "roa", "roic", "gross_margin", "net_margin", "cfo_ni", "de", "fscore", "quality", "piotroski", "composite"]],
-  growth: ["Tăng trưởng", ["symbol", "sector", "rev_yoy", "ni_yoy", "rev_q_yoy", "ni_q_yoy", "rev_cagr3", "ni_cagr3", "ni_growth_streak", "eps", "pe", "growth", "canslim", "canslim_flags"]],
-  dividend: ["Cổ tức", ["symbol", "sector", "price", "div_yield", "payout_pct", "cash_years", "fcf_yield", "de", "fscore", "roe", "dividend", "upside"]],
+  overview: ["Tổng quan", ["symbol", "exchange", "mam", "price", "spk", "chg1d", "chg1m", "composite", "upside", "verdict", "pe", "pe_ind", "pe_vs_ind", "pb", "roe", "ni_yoy", "fscore", "div_yield", "ta_label", "trend", "avg_value_bn", "ind_rank"]],
+  valuation: ["Định giá", ["symbol", "mam", "price", "pe", "pe_ind", "pe_vs_ind", "pe_vs_mkt", "pb", "pb_ind", "pb_vs_ind", "fair", "buy_below", "upside", "verdict", "ps", "ev_ebitda", "earnings_yield", "fcf_yield", "mcap_bn", "value", "magic_formula"]],
+  quality: ["Chất lượng", ["symbol", "mam", "roe", "roe_avg5", "roa", "roic", "gross_margin", "net_margin", "cfo_ni", "de", "fscore", "quality", "piotroski", "composite"]],
+  growth: ["Tăng trưởng", ["symbol", "mam", "rev_yoy", "ni_yoy", "rev_q_yoy", "ni_q_yoy", "rev_cagr3", "ni_cagr3", "ni_growth_streak", "eps", "pe", "growth", "canslim", "canslim_flags"]],
+  dividend: ["Cổ tức", ["symbol", "mam", "price", "div_yield", "payout_pct", "cash_years", "fcf_yield", "de", "fscore", "roe", "dividend", "upside"]],
   tech: ["Kỹ thuật", ["symbol", "price", "spk", "chg1d", "chg1w", "chg1m", "chg3m", "chg1y", "ret_12_1_pct", "rsi", "from_hi52", "beta", "vol_1y_pct", "ta_score", "ta_label", "trend", "rs_rating", "momentum", "avg_value_bn"]],
-  smart: ["Tạo lập & dòng tiền", ["symbol", "sector", "price", "chg1m", "smc", "smc_bias", "smc_zone", "vsa", "vsa_bias", "wyckoff_ev", "wy_phase", "orderflow", "of_bias", "of_delta5", "ta_label", "trend"]],
-  season: ["Mùa vụ", ["symbol", "sector", "price", "spk", "chg1m", "ss1_mean", "ss1_rel", "ss1_hit", "ss_n", "tf_w", "tf_m", "composite", "ni_yoy", "trend"]],
-  fb: ["Tương lai / quá khứ", ["symbol", "sector", "price", "spk", "chg1m", "fb_total", "fb_fwd", "fb_back", "fb_w", "pe", "pe_ind", "roe", "ni_yoy", "composite", "trend"]],
-  mtf: ["Đa khung", ["symbol", "sector", "price", "spk", "chg1d", "chg1m", "chg1y", "tf_d", "tf_w", "tf_m", "tf_q", "mtf_align", "ta_label", "rsi", "from_hi52", "composite"]],
-  methods: ["Điểm phương pháp", ["symbol", "sector", "composite", "piotroski", "magic_formula", "value", "quality", "growth", "dividend", "momentum", "canslim", "low_vol", "smc", "vsa", "wyckoff_ev", "orderflow"]],
+  smart: ["Tạo lập & dòng tiền", ["symbol", "mam", "price", "chg1m", "smc", "smc_bias", "smc_zone", "vsa", "vsa_bias", "wyckoff_ev", "wy_phase", "orderflow", "of_bias", "of_delta5", "ta_label", "trend"]],
+  season: ["Mùa vụ", ["symbol", "mam", "price", "spk", "chg1m", "ss1_mean", "ss1_rel", "ss1_hit", "ss_n", "tf_w", "tf_m", "composite", "ni_yoy", "trend"]],
+  fb: ["Tương lai / quá khứ", ["symbol", "mam", "price", "spk", "chg1m", "fb_total", "fb_fwd", "fb_back", "fb_w", "pe", "pe_ind", "roe", "ni_yoy", "composite", "trend"]],
+  mtf: ["Đa khung", ["symbol", "mam", "price", "spk", "chg1d", "chg1m", "chg1y", "tf_d", "tf_w", "tf_m", "tf_q", "mtf_align", "ta_label", "rsi", "from_hi52", "composite"]],
+  methods: ["Điểm phương pháp", ["symbol", "mam", "composite", "piotroski", "magic_formula", "value", "quality", "growth", "dividend", "momentum", "canslim", "low_vol", "smc", "vsa", "wyckoff_ev", "orderflow"]],
 };
 const HLC = new Set(["pe", "pe_ind", "pe_vs_ind", "pe_vs_mkt"]);
 const METHOD_REL = { smc: "SMC – tổng hợp", vsa: "VSA – tổng hợp", wyckoff_ev: "Wyckoff – sự kiện (SC/Spring/SOS/UTAD…)" };
@@ -2047,7 +2055,7 @@ async function viewScreener(arg) {
   const [rows, meth, td, vr] = await Promise.all([screenerRows(), load("data/methods.json"), loadToday(), Store.get("views")]);
   await WL.load();
   const W = { ...meth.weights, ...lsGet("weights", {}) };
-  const sectors = [...new Set(rows.map((r) => r.sector).filter(Boolean))].sort();
+  const sectors = [...new Set(rows.map((r) => r.grp).filter(Boolean))].sort((x, y) => x.localeCompare(y, "vi"));
   const DEF = { exch: "", sec: "", ind: "", basket: "", minVal: 3, maxPE: "", minROE: "", minF: "", minDiv: "", minUp: "", minScore: "", trend: "", text: "", sort: "composite", asc: false, view: "overview", plan: "", maxHi: "", watch: false, minSS: "" };
   const st = { ...DEF, basket: arg || "", view: lsGet("scrView", "overview") };
   const planSet = (k) => new Set(k === "any" ? STYLE_ORDER.flatMap((x) => (td.styles?.[x]?.picks || []).map((p) => p.symbol)) : (td.styles?.[k]?.picks || td.plan?.picks || []).map((p) => p.symbol));
@@ -2066,8 +2074,8 @@ async function viewScreener(arg) {
     <div class="field w140"><label>Kế hoạch</label><select id="fPl"><option value="">Mọi mã</option><option value="any">Trong danh sách MUA</option>${STYLE_ORDER.map((k) => `<option value="${k}">MUA · ${STYLE_SHORT[k]}</option>`).join("")}</select></div>
     <div class="field w140"><label>Rổ</label><select id="fB"><option value="">Tất cả mã</option>${Object.entries(meth.baskets).map(([k, b]) => `<option value="${k}" ${st.basket === k ? "selected" : ""}>${esc(b.name)}</option>`).join("")}</select></div>
     <div class="field w90"><label>Sàn</label><select id="fE"><option value="">Cả 3 sàn</option><option>HOSE</option><option>HNX</option><option>UPCOM</option></select></div>
-    <div class="field w200"><label>Ngành</label><select id="fS"><option value="">Tất cả ngành</option>${sectors.map((s) => `<option>${esc(s)}</option>`).join("")}</select></div>
-    <div class="field w200"><label>Nhóm ngành</label><select id="fI"><option value="">Tất cả</option></select></div>
+    <div class="field w200"><label>Nhóm ngành</label><select id="fS"><option value="">Tất cả nhóm</option>${sectors.map((s) => `<option>${esc(s)}</option>`).join("")}</select></div>
+    <div class="field w200"><label>Mâm so sánh</label><select id="fI"><option value="">Tất cả</option></select></div>
     <div class="field w90"><label>Xu hướng</label><select id="fTr"><option value="">Mọi</option><option value="up">Tăng</option><option value="side">Đi ngang</option><option value="down">Giảm</option><option value="notdown">Không giảm</option><option value="mtfup">Tăng mọi khung (ngày/tuần/tháng)</option><option value="mtfdip">Tháng tăng, ngày điều chỉnh</option><option value="mtfconf">Các khung mâu thuẫn</option></select></div>
     <div class="field w140"><label>Tìm mã / tên</label><input id="fT" placeholder="ví dụ thép"></div>
     <div class="field w60"><label>GTGD ≥ tỷ</label><input id="fV" inputmode="decimal" value="3"></div>
@@ -2094,7 +2102,7 @@ async function viewScreener(arg) {
   </details>`;
 
   const fillInd = () => {
-    const inds = [...new Set(rows.filter((r) => !st.sec || r.sector === st.sec).map((r) => r.industry).filter(Boolean))].sort();
+    const inds = [...new Set(rows.filter((r) => !st.sec || r.grp === st.sec).map((r) => r.mam).filter(Boolean))].sort((x, y) => x.localeCompare(y, "vi"));
     $("#fI").innerHTML = `<option value="">Tất cả</option>` + inds.map((s) => `<option ${s === st.ind ? "selected" : ""}>${esc(s)}</option>`).join("");
   };
   fillInd();
@@ -2110,7 +2118,7 @@ async function viewScreener(arg) {
     const minVal = num(st.minVal), maxPE = num(st.maxPE), minR = num(st.minROE), minF = num(st.minF), minD = num(st.minDiv), minU = num(st.minUp), minS = num(st.minScore);
     const txt = st.text.toLowerCase();
     const PL = st.plan ? planSet(st.plan) : null, maxH = num(st.maxHi);
-    filtered = rows.filter((r) => (!st.exch || r.exchange === st.exch) && (!st.sec || r.sector === st.sec) && (!st.ind || r.industry === st.ind) && (!st.basket || r["in_" + st.basket] === true)
+    filtered = rows.filter((r) => (!st.exch || r.exchange === st.exch) && (!st.sec || r.grp === st.sec || r.sector === st.sec) && (!st.ind || r.mam === st.ind || r.industry === st.ind) && (!st.basket || r["in_" + st.basket] === true)
       && (!st.trend || (st.trend === "notdown" ? r.trend !== "down" : st.trend === "mtfup" ? r.tf_d >= 0.35 && r.tf_w >= 0.35 && r.tf_m >= 0.35
         : st.trend === "mtfdip" ? r.tf_m >= 0.35 && r.tf_d <= -0.2 : st.trend === "mtfconf" ? r.mtf_conflict === true : r.trend === st.trend))
       && (minVal == null || (r.avg_value_bn ?? 0) >= minVal) && (maxPE == null || (isNum(r.pe) && r.pe > 0 && r.pe <= maxPE))
@@ -2118,7 +2126,7 @@ async function viewScreener(arg) {
       && (minU == null || (r.upside ?? -1e9) >= minU) && (minS == null || (r._score ?? -1) >= minS)
       && (!num(st.minSS) || ((r.ss1_hit ?? 0) >= num(st.minSS) && (r.ss_n ?? 0) >= 8 && (r.ss1_rel ?? 0) >= 3))
       && (!PL || PL.has(r.symbol)) && (maxH == null || (isNum(r.from_hi52) && r.from_hi52 <= maxH)) && (!st.watch || WL.has(r.symbol))
-      && (!txt || r.symbol.toLowerCase().includes(txt) || String(r.name || "").toLowerCase().includes(txt) || String(r.industry || "").toLowerCase().includes(txt) || String(r.sector || "").toLowerCase().includes(txt)));
+      && (!txt || r.symbol.toLowerCase().includes(txt) || String(r.name || "").toLowerCase().includes(txt) || String(r.industry || "").toLowerCase().includes(txt) || String(r.sector || "").toLowerCase().includes(txt) || String(r.mam || "").toLowerCase().includes(txt)));
     const k = st.sort === "composite" ? "_score" : st.sort;
     filtered.sort((a, b) => { const x = a[k], y = b[k]; if (x == null && y == null) return 0; if (x == null) return 1; if (y == null) return -1; return (x > y ? 1 : x < y ? -1 : 0) * (st.asc ? 1 : -1); });
     const cols = VIEWS[st.view][1];
@@ -2127,7 +2135,7 @@ async function viewScreener(arg) {
       <tbody>${filtered.slice(0, 500).map((r) => `<tr class="${sel.has(r.symbol) ? "hl" : ""}"><td class="cb"><input type="checkbox" data-sel="${r.symbol}" ${sel.has(r.symbol) ? "checked" : ""} aria-label="Chọn ${r.symbol}"></td>${cols.map((c) => { const f = COLDEF[c][1]; return `<td class="${HLC.has(c) ? "hlc " : ""}${f === "sym" ? "sym" : ["l", "trend", "wy"].includes(f) ? "l" : ""}">${fmtCol(r, c)}</td>`; }).join("")}</tr>`).join("")}</tbody>`;
     $$("#scr th").forEach((th) => (th.onclick = () => { if (st.sort === th.dataset.k) st.asc = !st.asc; else { st.sort = th.dataset.k; st.asc = ["pe", "pb", "ps", "ev_ebitda", "de", "beta", "vol_1y_pct", "symbol", "ind_rank", "pe_vs_ind", "pe_vs_mkt", "pb_vs_ind", "pe_ind", "pb_ind"].includes(th.dataset.k); } draw(); }));
     const b = meth.baskets[st.basket];
-    $("#bRule").innerHTML = b ? `<b>Điều kiện rổ ${esc(b.name)}</b> (rủi ro ${esc(b.risk)}): ${esc(b.rule)}` : (st.sec ? `Muốn xếp hạng sâu trong ngành ${esc(st.sec)} theo từng phương án? <a href="#/sector/${enc(st.ind || st.sec)}${st.ind ? "/l3" : ""}">Mở trang Ngành</a>.` : "");
+    $("#bRule").innerHTML = b ? `<b>Điều kiện rổ ${esc(b.name)}</b> (rủi ro ${esc(b.risk)}): ${esc(b.rule)}` : (st.ind ? `Muốn xếp hạng sâu trong mâm ${esc(st.ind)} theo từng phương án? <a href="${secHref(st.ind, "peer")}">Mở trang Ngành</a>.` : st.sec ? `Chọn một mâm so sánh trong nhóm ${esc(st.sec)} để xếp hạng sâu ở trang Ngành.` : "");
   };
   const selUI = () => { $("#selbar").hidden = !sel.size; $("#selN").textContent = `Đã chọn ${sel.size} mã`; $("#selCmp").disabled = sel.size < 2 || sel.size > 4; $("#selCmp").textContent = sel.size > 4 ? "So sánh (tối đa 4)" : "So sánh"; };
   $("#scr").addEventListener("change", (e) => {
@@ -2279,7 +2287,7 @@ async function viewStock(sym, tabArg) {
   try { d = await load(`data/stocks/${sym}.json`); }
   catch (e) {
     const r = rows.find((x) => x.symbol === sym);
-    app().innerHTML = r ? `<div class="ph"><h1>${sym}</h1><span class="meta">${esc(r.exchange)} · ${esc(r.sector || "")}</span></div><div class="panel"><p>${esc(r.name)} – thanh khoản quá thấp (${nf(r.avg_value_bn, 2)} tỷ/ngày) nên hệ thống không phân tích sâu.</p>
+    app().innerHTML = r ? `<div class="ph"><h1>${sym}</h1><span class="meta">${esc(r.exchange)} · ${esc(r.mam || r.sector || "")}</span></div><div class="panel"><p>${esc(r.name)} – thanh khoản quá thấp (${nf(r.avg_value_bn, 2)} tỷ/ngày) nên hệ thống không phân tích sâu.</p>
       ${kpis([["Giá", nf(r.price)], ["P/E", nf(r.pe, 1)], ["P/B", nf(r.pb)], ["ROE", pct(r.roe, 1, false)], ["Cổ tức", pct(r.div_yield, 1, false)], ["Vốn hoá", mcapFmt(r.mcap_bn)]])}</div>`
       : `<div class="empty">Không tìm thấy mã ${esc(sym)}.</div>`;
     return;
@@ -2299,7 +2307,7 @@ async function viewStock(sym, tabArg) {
   const chg = (last / prev - 1) * 100;
   const lv = d.levels;
   const sm = w.smc || {}, vs = w.vsa || {}, wy2 = w.wyckoff2 || {}, of = w.orderflow || {};
-  const secRec = (secs?.sector || []).find((s) => s.name === d.sector);
+  const secRec = (secs?.peer || []).find((s) => s.name === d.row?.peer_label && !s.conglo) || (secs?.sector || []).find((s) => s.name === d.sector);
   const sc = d.scores || {};
   app().innerHTML = `
   <div class="stock-head">
@@ -2318,12 +2326,13 @@ async function viewStock(sym, tabArg) {
   </div>
   <div class="subtabs stick" role="tablist" id="stabs">${[["ov", "Tổng quan"], ["vl", "Dự phóng & định giá"], ["rp", "Báo cáo phân tích"], ["fa", "Cơ bản"], ["ta", "Kỹ thuật"], ["wv", "Sóng & mô hình"], ["sm", "Tạo lập & dòng tiền"], ["pe", "Cùng ngành"]]
     .map(([k, n]) => `<button role="tab" data-t="${k}">${n}</button>`).join("")}</div>
-  ${(() => { const C = ctxRecs(secs || {}, d.sector, d.industry), b = C.ind || C.sec || {}, M = C.mkt || {}, pe0 = fa.pe ?? r.pe, pb0 = fa.pb ?? r.pb;
+  ${(() => { const C = ctxRecs(secs || {}, d.sector, d.industry), pm = d.peers?.median, M = C.mkt || {}, pe0 = fa.pe ?? r.pe, pb0 = fa.pb ?? r.pb;
+    const b = pm && (isNum(pm.pe) || isNum(pm.pb)) ? { pe_med: pm.pe, pb_med: pm.pb } : C.ind || C.sec || {};
     const g = (t, meta, items) => `<section class="panel sg"><div class="ph"><h3>${t}</h3><span class="meta">${meta}</span></div>${kpis(items, false, "c3")}</section>`;
-    return `<div class="snap">${g("Định giá", "so với ngành · thị trường", [
-      ["P/E", `${nf(pe0, 1)} <small>ngành ${nf(b.pe_med, 1)} · TT ${nf(M.pe_med, 1)}</small>`, "", "So với P/E trung vị nhóm ngành và toàn thị trường", "hl"],
-      ["P/E vs ngành / TT", `${vsCell(vsPct(pe0, b.pe_med))} <small>${vsCell(vsPct(pe0, M.pe_med))} vs TT</small>`, "", "", "hl"],
-      ["P/B", `${nf(pb0)} <small>ngành ${nf(b.pb_med)} · TT ${nf(M.pb_med)}</small>`, "", "", "hl"],
+    return `<div class="snap">${g("Định giá", "so với mâm · thị trường", [
+      ["P/E", `${nf(pe0, 1)} <small>mâm ${nf(b.pe_med, 1)} · TT ${nf(M.pe_med, 1)}</small>`, "", "So với P/E trung vị mâm so sánh (cùng mô hình kinh doanh) và toàn thị trường", "hl"],
+      ["P/E vs mâm / TT", `${vsCell(vsPct(pe0, b.pe_med))} <small>${vsCell(vsPct(pe0, M.pe_med))} vs TT</small>`, "", "", "hl"],
+      ["P/B", `${nf(pb0)} <small>mâm ${nf(b.pb_med)} · TT ${nf(M.pb_med)}</small>`, "", "", "hl"],
       ["EPS (đ)", nf(fa.eps ?? r.eps, 0)], ["Cổ tức", pct(fa.dividend?.yield ?? r.div_yield, 1, false)],
       ["Tiềm năng", v.ok ? `${pct(v.upside)} <small>hợp lý ${nf(v.fair)}</small>` : "—", cls(v.upside)]])}
     ${g("Kinh doanh & sức khoẻ", "12 tháng gần nhất", [["ROE", pct(fa.roe ?? r.roe, 1, false)], ["LN 12T", pct(fa.ni_yoy ?? r.ni_yoy), cls(fa.ni_yoy ?? r.ni_yoy)],
@@ -2345,7 +2354,7 @@ async function viewStock(sym, tabArg) {
         ${v.warning ? `<p class="note" style="margin-top:6px">${esc(v.warning)}</p>` : ""}</section>
       ${valCtx(d, secs || {})}
     </div>
-    <div class="stack">${(() => { const C = ctxRecs(secs || {}, d.sector, d.industry), x = C.ind?.outlook ? C.ind : C.sec; return x ? outlookBox(x, `Triển vọng ngành ${esc(x.name)}`) : ""; })()}
+    <div class="stack">${(() => { const C = ctxRecs(secs || {}, d.sector, d.industry), P = (secs?.peer || []).find((s) => s.name === d.row?.peer_label && !s.conglo), x = P?.outlook ? P : C.ind?.outlook ? C.ind : C.sec; return x ? outlookBox(x, `Triển vọng ${P === x ? "mâm" : "ngành"} ${esc(x.name)}`) : ""; })()}
       ${seasonPanel(d.season, d.season_support, { oos: secs?.season?.oos?.stock })}</div>
   </div>
   <div class="g g-main sec">
@@ -3153,7 +3162,7 @@ const HELP_FAQ = [
   ["Danh mục", "Mức dừng lỗ, chốt lời được tính thế nào?", "Theo phong cách của từng mã: dừng lỗ theo ATR và đỉnh sau mua (dời lên theo giá, tối đa −20%), chốt một phần khi vượt giá trị hợp lý, bán khi luận điểm cơ bản gãy, xem lại sau 60 phiên nếu vốn đứng yên. Có thể đặt mức riêng cho từng mã."],
   ["Danh mục", "Tôi đã bán mà hệ thống vẫn báo mã đó?", "Ghi lệnh bán ở Danh mục → Nhật ký giao dịch (hoặc bấm “Bán” cạnh mức thoát) để danh mục cập nhật. Thông báo theo danh mục đã lưu ở lượt chạy gần nhất."],
   ["Thông báo", "Làm sao nhận thông báo trên điện thoại?", "Tài khoản → Nhận thông báo → “Bật trên thiết bị này” và cho phép thông báo. Android/máy tính: dùng Chrome, Edge hoặc Firefox. iPhone/iPad (iOS 16.4+): mở trang bằng Safari → nút Chia sẻ → Thêm vào Màn hình chính → mở trang từ biểu tượng mới → bật lại. Thông báo đẩy và email thuộc gói Pro."],
-  ["Định giá", "\"Mâm so sánh\" là gì, khác ngành ICB thế nào?", "P/E, P/B mục tiêu, ROE ngành, tăng trưởng ngành và xếp hạng đều so với một mâm các doanh nghiệp CÙNG MÔ HÌNH KINH DOANH (khoảng 70 nhóm: cảng biển, vận tải biển, hàng không, sân bay & dịch vụ hàng không, khí, nước sạch, cao su, phân bón, BĐS nhà ở, BĐS khu công nghiệp, BĐS cho thuê, xây dựng hạ tầng, xi măng, thép, bán lẻ, sữa & thực phẩm có thương hiệu, mía đường, thủy sản, chăn nuôi…) thay vì 36 ngành ICB (vd. ICB xếp ACV chung với cảng biển và chuyển phát, GAS chung với nước sạch, cao su chung với phân bón). Trung vị chỉ tính trên mã có thanh khoản, bỏ giá trị ngoại lai, co nhẹ về nhóm gần nhất khi mâm nhỏ; mâm quá ít mã thì nới sang nhóm gần nhất. Tập đoàn đa ngành (VIC, MSN, REE, GEX…) không có mâm tương đồng → P/E, P/B theo lịch sử của chính mã; hàng không so với mặt bằng toàn thị trường. Quản trị viên đổi mâm từng mã ở tab Cùng ngành → Đổi mâm."],
+  ["Định giá", "\"Mâm so sánh\" là gì, khác ngành ICB thế nào?", "P/E, P/B mục tiêu, ROE ngành, tăng trưởng ngành và xếp hạng đều so với một mâm các doanh nghiệp CÙNG MÔ HÌNH KINH DOANH (khoảng 70 nhóm: cảng biển, vận tải biển, hàng không, sân bay & dịch vụ hàng không, khí, nước sạch, cao su, phân bón, BĐS nhà ở, BĐS khu công nghiệp, BĐS cho thuê, xây dựng hạ tầng, xi măng, thép, bán lẻ, sữa & thực phẩm có thương hiệu, mía đường, thủy sản, chăn nuôi…) thay vì 36 ngành ICB (vd. ICB xếp ACV chung với cảng biển và chuyển phát, GAS chung với nước sạch, cao su chung với phân bón). Trung vị chỉ tính trên mã có thanh khoản, bỏ giá trị ngoại lai, co nhẹ về nhóm gần nhất khi mâm nhỏ; mâm quá ít mã thì nới sang nhóm gần nhất. Tập đoàn đa ngành (VIC, MSN, REE, GEX…) không có mâm tương đồng → P/E, P/B theo lịch sử của chính mã; hàng không so với mặt bằng toàn thị trường. Quản trị viên đổi mâm từng mã ở tab Cùng ngành → Đổi mâm. Toàn bộ web gom theo mâm: tab Ngành, Bộ lọc (Nhóm ngành → Mâm so sánh), bản đồ ngành ở Thị trường, bản tin, mã liên quan, nhóm tự tạo, ngành loại trừ trong Khẩu vị. Giới hạn tỷ trọng mỗi ngành trong danh mục và kế hoạch mua tính theo 13 nhóm lớn (vd. Bất động sản gồm nhà ở + KCN + cho thuê) để vẫn kiểm soát được rủi ro tập trung."],
   ["Danh mục", "Bị chia cổ tức bằng cổ phiếu / thưởng cổ phiếu thì giá vốn trong danh mục xử lý thế nào?", "Sau ngày GDKHQ chia cổ phiếu tỷ lệ r, giá giảm còn giá ÷ (1 + r) và 1 cp thành 1 + r cp – nếu giữ giá vốn cũ sẽ luôn thấy lỗ giả. Hệ thống tự quy đổi: giá vốn/cp = giá vốn ÷ (1 + r), khối lượng cộng thêm phần được chia (làm tròn xuống), TỔNG vốn gốc giữ nguyên; thẻ mã ghi rõ giá vốn gốc trước chia và lịch sử điều chỉnh. Vị thế nhập từ trước: khung \"Điều chỉnh theo quyền\" hỏi anh khối lượng đang ghi đã gồm cổ phiếu được chia chưa (cộng giúp / chỉ chỉnh giá vốn / tôi đã tự chỉnh). Cổ tức tiền: ghi nhận số tiền được nhận sau thuế 5%, không trừ vào giá vốn – hiện riêng ở dòng \"Cổ tức tiền đã nhận\" và lãi/lỗ gồm cổ tức; bấm để cộng vào tiền mặt khi tiền về. Có nút hoàn tác lần điều chỉnh gần nhất. Mức cắt lỗ / chốt lời và thông báo đều tính theo giá vốn đã quy đổi."],
   ["Định giá", "Bảng dự phóng 3 báo cáo (KQKD, lưu chuyển tiền tệ, cân đối kế toán) tính thế nào?", "Tab Dự phóng & định giá → Báo cáo tài chính dự phóng: 3 năm thực tế (A) đặt cạnh 5 năm dự phóng (F), chọn kịch bản Xấu / Cơ sở / Tốt. Ba bảng liên kết với nhau: lợi nhuận từ KQKD → lưu chuyển tiền (LNST + khấu hao − tăng vốn lưu động − đầu tư TSCĐ + vay ròng − cổ tức) → tiền cuối kỳ trên bảng cân đối; TSCĐ = đầu kỳ + đầu tư − khấu hao; vốn chủ = đầu kỳ + LNST − cổ tức; tổng tài sản luôn bằng tổng nguồn vốn. Sửa giả định (tăng trưởng, biên, lãi suất, nợ vay/vốn, đầu tư TSCĐ, vốn lưu động, kế hoạch đầu tư mới) thì cả 3 bảng tính lại ngay. Nếu dòng tiền không đủ chi, bảng cân đối hiện dòng \"Vốn cần huy động thêm\". Ngân hàng / CTCK / bảo hiểm: KQKD và cân đối theo cơ cấu năm gần nhất, không lập lưu chuyển tiền tệ."],
   ["Định giá", "Mã penny / ít giao dịch có được định giá không?", "Có. Mọi mã có BCTC đều có trang chi tiết và định giá (hệ thống tải dần BCTC cho mã ít giao dịch qua các lượt chạy, làm mới khoảng 3 tuần/lần). Mã có giá trị giao dịch TB 20 phiên dưới 1 tỷ/phiên được trừ chiết khấu thanh khoản vào giá trị hợp lý: dưới 0,1 tỷ −25%, dưới 0,5 tỷ −15%, dưới 1 tỷ −10%, và gắn nhãn \"Ít giao dịch\". Trung vị ngành để so sánh P/E, P/B chỉ tính trên mã có thanh khoản để mã penny không kéo lệch. Mã ít giao dịch không vào danh sách MUA của hệ thống."],
@@ -3897,7 +3906,7 @@ async function viewSwing(sub) {
       { k: "s_p_fade", t: "Sáng tăng→chiều xả", num: 1, g: "sw_fade" }, { k: "s_p_bounce", t: "Sáng giảm→chiều kéo", num: 1, g: "sw_bounce" }, { k: "s_atc_mean", t: "ATC TB", num: 1, g: "sw_atc" },
       { k: "s_atc_up", t: "Kéo ATC", num: 1, g: "sw_atc" }, { k: "s_hi_early", t: "Đỉnh đầu phiên", num: 1, g: "sw_hi_early" }, { k: "ac1", t: "Tự tương quan", num: 1, g: "sw_ac1" },
       { k: "today_m", t: "Hôm nay sáng", num: 1, g: "sw_fade" }, { k: "today_a", t: "chiều", num: 1, g: "sw_fade" }, { k: "today_atc", t: "ATC", num: 1, g: "sw_atc" }, { k: "avg_value_bn", t: "GTGD", num: 1, g: "gtgd" }];
-    const render = (r) => `<tr><td class="l"><a href="#/s/${r.symbol}"><b>${r.symbol}</b></a> <small class="faint">${esc((r.sector || "").slice(0, 18))}</small></td><td>${scoreCell(r.score)}</td>
+    const render = (r) => `<tr><td class="l"><a href="#/s/${r.symbol}"><b>${r.symbol}</b></a> <small class="faint">${esc((r.mam || r.sector || "").slice(0, 18))}</small></td><td>${scoreCell(r.score)}</td>
       <td class="l wrap">${(r.tags || []).map(tagPill).join(" ")}${(r.sig || []).map(sigPill).join(" ")}</td><td>${nf(r.rng_med, 1)}%</td><td class="${(r.rng_rel || 0) >= 1.5 ? "down" : ""}">${nf(r.rng_rel, 2)}×</td>
       <td>${nf(r.rev_rate, 1)}</td><td>${nf(r.pump_spike, 0)}</td><td>${nf(r.dump_spike, 0)}</td><td>${nf(r.leave_c, 0)}</td><td>${nf(r.rec_f, 0)}</td>
       <td class="${(r.s_p_fade || 0) >= 60 ? "down" : ""}">${isNum(r.s_p_fade) ? nf(r.s_p_fade, 0) + "%" : "—"}<small class="faint"> ${isNum(r.s_n_up) ? "/" + nf(r.s_n_up, 0) : ""}</small></td>
@@ -3957,7 +3966,7 @@ function relCard(x, c, R, H) {
   c = { ...c, held: H ? H.has(c.s) : !!c.held };
   return `<div class="relc ${c.held ? "mine" : ""}">
     <div class="relh"><a href="#/s/${c.s}"><b>${c.s}</b></a> <small class="muted">${esc((c.name || "").slice(0, 34))}</small>
-      <span class="tags">${c.same ? '<span class="pill">cùng ngành</span>' : `<span class="pill" title="${esc(c.industry || "")}">khác ngành</span>`}${c.held ? '<span class="pill brand">đang nắm</span>' : ""}<span class="pill ${c.es_c === "up" ? "buy" : ""}">${esc(c.es_t || "—")}</span></span></div>
+      <span class="tags">${c.same ? '<span class="pill">cùng mâm</span>' : `<span class="pill" title="${esc(c.industry || "")}">khác mâm</span>`}${c.held ? '<span class="pill brand">đang nắm</span>' : ""}<span class="pill ${c.es_c === "up" ? "buy" : ""}">${esc(c.es_t || "—")}</span></span></div>
     <div class="reln">
       <span data-g="rel_rc">Tương quan <b>${nf(c.rc, 2)}</b> <small>dài hạn ${nf(c.rc_l, 2)}</small></span>
       <span data-g="rel_beta">Beta <b>${nf(c.beta, 2)}</b></span>
@@ -4086,32 +4095,33 @@ function liveBanner(L, pf, wl) {
 
 function seasonBanner(SS) {
   if (!SS) return "";
-  const seen = new Set(), secs = (SS.sectors || []).filter((x) => !seen.has(x.name) && seen.add(x.name));
+  const allS = SS.sectors || [], hasP = allS.some((x) => x.level === "peer");
+  const seen = new Set(), secs = allS.filter((x) => (!hasP || x.level === "peer") && !seen.has(x.name) && seen.add(x.name));
   const yes = secs.filter((x) => x.support?.verdict === "yes"), other = secs.filter((x) => x.support?.verdict !== "yes");
   const st = (SS.stocks || []).filter((x) => x.support?.verdict === "yes").slice(0, 6);
   if (!secs.length && !st.length) return "";
   const why = (x) => { const parts = []; if (x.h1 && seasonStrong(x.h1)) parts.push(`từ hôm nay 1 tháng: ${nf(x.h1.relhit, 0)}% năm hơn VN-Index, TB ${pct(x.h1.rel, 1)}`);
     (x.months || []).forEach((m) => parts.push(`${MON_VI[m.m - 1]}: ${nf(m.relhit, 0)}% năm hơn, TB ${pct(m.rel, 1)}`)); return parts.join(" · "); };
-  const href = (x) => `#/sector/${enc(x.name)}${x.level === "industry" ? "/l3" : ""}`;
+  const href = (x) => secHref(x.name, x.level);
   return `<section class="season-banner"><div class="sb-h"><b>🗓 Mùa vụ đang tới</b><span>dựa trên cùng thời điểm các năm trước, chỉ khuyến nghị khi số liệu năm nay ủng hộ</span></div>
     <div class="sb-g">
       <div><h3>Mùa thuận + năm nay ủng hộ – nên để ý</h3>${yes.length ? yes.slice(0, 6).map((x) => `<a class="sb-i yes" href="${href(x)}"><b>${esc(x.name)}</b><small>${esc(why(x))}</small><small class="up">＋ ${esc((x.support.pros || []).slice(0, 3).join(" · "))}</small></a>`).join("") : '<p class="muted">Không ngành nào vừa vào mùa vừa được số liệu năm nay ủng hộ.</p>'}
         ${st.length ? `<p class="sb-st">Mã vào mùa + được ủng hộ: ${st.map((x) => `<a href="#/s/${x.symbol}"><b>${x.symbol}</b> <small>${nf(x.hit, 0)}% năm, ${pct(x.rel, 1)}</small></a>`).join(" ")}</p>` : ""}</div>
       <div><h3>Vào mùa nhưng năm nay chưa ủng hộ – chờ</h3>${other.length ? other.slice(0, 5).map((x) => `<a class="sb-i" href="${href(x)}"><b>${esc(x.name)}</b><small>${esc(why(x))}</small><small class="down">${esc((x.support?.cons || []).slice(0, 3).join(" · ") || "tín hiệu năm nay lẫn lộn")}</small></a>`).join("") : '<p class="muted">Không có.</p>'}</div>
-    </div><p class="faint" style="font-size:.72rem;margin-top:6px">${oosLine(SS.oos?.industry || SS.oos?.sector)}</p></section>`;
+    </div><p class="faint" style="font-size:.72rem;margin-top:6px">${oosLine(SS.oos?.peer || SS.oos?.industry || SS.oos?.sector)}</p></section>`;
 }
 function seasonMatrix(S) {
-  const L = (S.sector || []).filter((x) => x.season?.months?.length);
+  const L = ((S.peer || []).length ? S.peer.filter((x) => !x.conglo) : S.sector || []).filter((x) => x.season?.months?.length);
   if (!L.length) return "";
   const nowM = new Date().getMonth() + 1;
   const rows = L.map((x) => ({ x, h1: x.season.same?.h1 || {} })).sort((a, b) => (b.h1.rel ?? -99) - (a.h1.rel ?? -99));
   return `<section class="panel flush sec" id="seasonM"><div class="ph"><h2>Mùa vụ các ngành</h2><span class="meta">so với VN-Index · tháng · % năm hơn · viền vàng = mùa mạnh</span></div>
     <div class="tw"><table class="seas"><thead><tr><th class="l">Ngành</th><th>Từ hôm nay 1 tháng</th><th>2 tháng</th><th>Năm nay</th>${MON_VI.map((m, i) => `<th class="${i + 1 === nowM ? "now" : ""}">${m}</th>`).join("")}</tr></thead><tbody>
     ${rows.map(({ x, h1 }) => { const h2 = x.season.same?.h2 || {}, sup = x.season_support || {};
-      return `<tr><td class="l"><a href="#/sector/${enc(x.name)}">${esc(x.name)}</a></td><td class="${seasonStrong(h1) ? "strong" : ""}"><b class="${cls(h1.rel)}">${pct(h1.rel, 1)}</b> <small>${nf(h1.relhit, 0)}%</small></td>
+      return `<tr><td class="l"><a href="${secHref(x.name, x.level)}">${esc(x.name)}</a></td><td class="${seasonStrong(h1) ? "strong" : ""}"><b class="${cls(h1.rel)}">${pct(h1.rel, 1)}</b> <small>${nf(h1.relhit, 0)}%</small></td>
         <td><span class="${cls(h2.rel)}">${pct(h2.rel, 1)}</span> <small>${nf(h2.relhit, 0)}%</small></td><td><span class="${(SUP_VI[sup.verdict] || [])[1] || ""}">${(SUP_VI[sup.verdict] || ["—"])[0].replace("Năm nay ", "")}</span></td>
         ${x.season.months.map((mm) => `<td class="${mm.m === nowM ? "now" : ""}${seasonStrong(mm) ? " strong" : ""}" style="background:${isNum(mm.rel) ? heatColor(mm.rel, 4) : "transparent"};color:${isNum(mm.rel) ? "#fff" : "inherit"}" title="${esc(x.name)} ${MON_VI[mm.m - 1]}: so VN-Index ${pct(mm.rel, 1)}, ${nf(mm.relhit, 0)}% năm hơn (${mm.n} năm)">${isNum(mm.rel) ? nf(mm.rel, 1) : ""}</td>`).join("")}</tr>`; }).join("")}
-    </tbody></table></div><p class="faint" style="font-size:.72rem;padding:6px 12px 10px">${oosLine(S.season?.oos?.sector)}</p></section>`;
+    </tbody></table></div><p class="faint" style="font-size:.72rem;padding:6px 12px 10px">${oosLine(S.season?.oos?.peer || S.season?.oos?.sector)}</p></section>`;
 }
 
 // ================================================================ TRIỂN VỌNG NGÀNH (nhìn về phía trước)
@@ -4360,7 +4370,8 @@ async function viewProfile() {
   };
   if (G && G.ok && !G.stops.includes(P.stop)) P.stop = G.stops.reduce((a, b) => (Math.abs(b - P.stop) < Math.abs(a - P.stop) ? b : a), G.stops[0]);
   const rows = await screenerRows();
-  const sectors = [...new Set(rows.map((r) => r.sector).filter(Boolean))].sort();
+  const xtree = {};   // nhóm lớn → mâm so sánh
+  rows.forEach((r) => { if (!r.grp) return; (xtree[r.grp] = xtree[r.grp] || new Set()).add(r.mam); });
   const slider = (id, label, v, min, max, step, unit, hint) => `<div class="w-item"><header><b>${label}</b><output id="o_${id}">${v}${unit}</output></header>
     <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${v}">${hint ? `<p>${hint}</p>` : ""}</div>`;
   const num = (id, label, v, hint, w = "w90") => `<div class="field ${w}"><label for="${id}" title="${esc(hint || "")}">${label}</label><input id="${id}" inputmode="decimal" value="${v}"></div>`;
@@ -4394,7 +4405,9 @@ async function viewProfile() {
           ${num("min_mcap_bn", "Vốn hoá tối thiểu (tỷ)", P.min_mcap_bn, "", "w90")}
           <div class="field w200"><label>Điều kiện xu hướng</label><select id="trend_filter">${[["up", "Giá > MA50 > MA200 (đã kiểm chứng)"], ["above200", "Giá trên MA200"], ["not_down", "Chỉ tránh mã đang giảm"]].map(([k, n]) => `<option value="${k}" ${k === P.trend_filter ? "selected" : ""}>${n}</option>`).join("")}</select></div></div>
         <div class="filters sec"><div class="field" style="flex:1;min-width:240px"><label for="exSym">Không bao giờ mua các mã (cách nhau dấu phẩy)</label><input id="exSym" value="${esc(P.exclude_symbols.join(", "))}" placeholder="ví dụ: ROS, FLC"></div></div>
-        <details class="sec"><summary>Ngành không muốn đầu tư (${P.exclude_sectors.length})</summary><div class="gtree" style="margin-top:6px">${sectors.map((s) => `<label class="gnode" style="display:flex;gap:6px;align-items:center;font-size:.78rem"><input type="checkbox" data-xs="${esc(s)}" ${P.exclude_sectors.includes(s) ? "checked" : ""}>${esc(s)}</label>`).join("")}</div></details></section>
+        <details class="sec"><summary>Ngành không muốn đầu tư (${P.exclude_sectors.length})</summary><div class="gtree" style="margin-top:6px">${Object.entries(xtree).sort((a, b) => a[0].localeCompare(b[0], "vi")).map(([g, ms]) => `<div class="gnode"><label class="gsec" style="font-size:.78rem"><input type="checkbox" data-xs="${esc(g)}" ${P.exclude_sectors.includes(g) ? "checked" : ""}> <b>${esc(g)}</b></label>
+          ${[...ms].filter(Boolean).sort((a, b) => a.localeCompare(b, "vi")).map((m) => `<label class="gind" style="font-size:.74rem"><input type="checkbox" data-xs="${esc(m)}" ${P.exclude_sectors.includes(m) ? "checked" : ""}> ${esc(m)}</label>`).join("")}</div>`).join("")}</div>
+          ${(() => { const known = new Set([...Object.keys(xtree), ...Object.values(xtree).flatMap((x) => [...x])]), old = P.exclude_sectors.filter((x) => !known.has(x)); return old.length ? `<p class="faint" style="font-size:.72rem">Đang loại theo ngành ICB cũ: ${esc(old.join(", "))} (vẫn giữ).</p>` : ""; })()}</details></section>
       <section class="panel"><button class="btn primary" id="pSave">Lưu khẩu vị – áp dụng từ lượt chạy kế tiếp</button> <button class="btn" id="pRun">Lưu & chạy lại ngay</button> ${prof0 ? `<button class="btn" id="pReset">Bỏ, dùng lại config.yaml</button>` : ""}
         <p class="muted" id="pMsg" style="font-size:.76rem;margin-top:6px">Sau khi lưu, danh sách MUA, tỷ trọng, cắt lỗ và cảnh báo Telegram sẽ theo khẩu vị này.</p></section>
     </div>
@@ -4412,7 +4425,8 @@ async function viewProfile() {
     ["max_positions", "margin_of_safety", "risk_per_trade", "max_weight_per_stock", "max_weight_per_sector", "min_mcap_bn"].forEach((k) => { const v = Number(String($("#" + k).value).replace(",", ".")); if (!Number.isNaN(v)) P[k] = v; });
     P.trend_filter = $("#trend_filter").value;
     P.exclude_symbols = [...new Set(String($("#exSym").value).toUpperCase().split(/[^A-Z0-9]+/).filter((x) => /^[A-Z0-9]{3}$/.test(x)))];
-    P.exclude_sectors = $$("[data-xs]").filter((x) => x.checked).map((x) => x.dataset.xs);
+    { const known = new Set($$("[data-xs]").map((x) => x.dataset.xs)), keep = P.exclude_sectors.filter((x) => !known.has(x));   // tên ngành ICB cũ vẫn giữ
+      P.exclude_sectors = [...keep, ...$$("[data-xs]").filter((x) => x.checked).map((x) => x.dataset.xs)]; }
   };
   const setUI = (x) => {
     BK.forEach((b) => { $("#al_" + b).value = x.allocation[b] || 0; });
@@ -4912,11 +4926,11 @@ async function palette(q0 = "") {
         items.push({ t: `${WL.has(r.symbol) ? "Bỏ theo dõi" : "Theo dõi"} ${r.symbol}`, s: "", fn: async () => { WL.has(r.symbol) ? await WL.remove(r.symbol) : await WL.add(r.symbol); refreshStars(r.symbol); toast(WL.has(r.symbol) ? "Đã thêm vào theo dõi" : "Đã bỏ theo dõi"); }, ic: "★" });
         items.push({ t: `Ghi lệnh mua ${r.symbol}`, s: "", fn: () => quickTrade(r.symbol, "buy"), ic: "＋" });
         items.push({ t: `Đặt cảnh báo giá ${r.symbol}`, s: "", fn: () => alertBox(r.symbol), ic: "🔔" });
-        items.push({ t: `So sánh ${r.symbol} với…`, s: "cùng ngành", go: `#/compare/${[r.symbol, ...rows.filter((x) => x.industry === r.industry && x.symbol !== r.symbol).sort((a, b) => (b.mcap_bn || 0) - (a.mcap_bn || 0)).slice(0, 2).map((x) => x.symbol)].join(",")}`, ic: "⇄" });
+        items.push({ t: `So sánh ${r.symbol} với…`, s: "cùng mâm", go: `#/compare/${[r.symbol, ...rows.filter((x) => x.mam === r.mam && x.symbol !== r.symbol).sort((a, b) => (b.mcap_bn || 0) - (a.mcap_bn || 0)).slice(0, 2).map((x) => x.symbol)].join(",")}`, ic: "⇄" });
       }
     });
     if (qs) {
-      (S.sector || []).concat(S.industry || []).filter((x) => strip(x.name).includes(qs)).slice(0, 5).forEach((x) => items.push({ t: x.name, s: `ngành · ${x.n} mã · P/E ${nf(x.pe_med, 1)}`, go: `#/sector/${enc(x.name)}${(S.industry || []).includes(x) ? "/l3" : ""}`, ic: "▦" }));
+      (S.peer || []).concat(S.sector || [], S.industry || []).filter((x) => strip(x.name).includes(qs)).slice(0, 6).forEach((x) => items.push({ t: x.name, s: `${x.level === "peer" ? "mâm so sánh" : "ngành ICB"} · ${x.n} mã · P/E ${nf(x.pe_med, 1)}`, go: secHref(x.name, x.level), ic: "▦" }));
       PAGES.filter(([n]) => strip(n).includes(qs)).forEach(([n, h]) => items.push({ t: n, s: "trang", go: h, ic: "→" }));
       Object.entries(GLOSS).filter(([k, g]) => strip(g.t).includes(qs) || Object.entries(GLOSS_ALIAS).some(([al, v]) => v === k && strip(al) === qs)).slice(0, 4).forEach(([k, g]) => items.push({ t: g.t, s: "giải thích", fn: () => { location.hash = "#/guide"; setTimeout(() => { const el = document.getElementById("g-" + k); el?.scrollIntoView({ behavior: "smooth", block: "center" }); el?.classList.add("flash"); }, 600); }, ic: "?" }));
     } else PAGES.forEach(([n, h, k]) => items.push({ t: n, s: `g ${k}`, go: h, ic: "→" }));
@@ -5160,7 +5174,7 @@ async function viewWatch(sub) {
     }).join("");
     return `<div class="wl"><div class="pk-head"><div><input type="checkbox" class="wsel" data-ws="${s}" aria-label="Chọn ${s} để so sánh"> <a class="sym" href="#/s/${s}">${s}</a>
         ${st.map((k) => `<span class="pill buy">MUA · ${STYLE_SHORT[k]}</span>`).join(" ")}${ws.map((k) => `<span class="pill wait">chờ · ${STYLE_SHORT[k]}</span>`).join(" ")}
-        <small class="pk-name">${esc(r.name || "")} · ${esc(r.sector || "")} · theo dõi từ ${esc(it.added || "")}${isNum(it.price0) ? ` (giá ${nf(it.price0)})` : ""}</small></div>
+        <small class="pk-name">${esc(r.name || "")} · ${esc(r.mam || r.sector || "")} · theo dõi từ ${esc(it.added || "")}${isNum(it.price0) ? ` (giá ${nf(it.price0)})` : ""}</small></div>
         <div class="pk-px">${mini(r.spk, { w: 90, h: 30 })}<div><b>${nf(r.price)}</b><small class="${cls(r.chg1d)}">${pct(r.chg1d, 1)}</small></div>${ring(r.composite, 34)}</div></div>
       <div class="pk-facts"><div class="hlf"><small>P/E</small><b>${nf(r.pe, 1)}</b><small>ngành ${nf(r.pe_ind, 1)}</small></div><div><small>Định giá</small><b>${esc((r.verdict || "—").split(" – ")[0])}</b><small>hợp lý ${nf(r.fair)}</small></div>
         <div><small>Kỹ thuật</small><b>${esc(r.ta_label || "—")}</b><small>xu hướng ${TREND_VI[r.trend] || "—"}</small></div><div><small>1 tháng · 1 năm</small><b class="${cls(r.chg1m)}">${pct(r.chg1m, 0)}</b><small class="${cls(r.chg1y)}">${pct(r.chg1y, 0)}</small></div></div>
@@ -5201,7 +5215,7 @@ async function viewCompare(arg) {
   const t = await loadToday(), S = await secsData();
   const per = lsGet("cmpPer", 250);
   const first = syms[0] && R[syms[0]];
-  const sug = first ? rows.filter((x) => x.industry === first.industry && !syms.includes(x.symbol)).sort((a, b) => (b.mcap_bn || 0) - (a.mcap_bn || 0)).slice(0, 6) : [];
+  const sug = first ? rows.filter((x) => x.mam === first.mam && !syms.includes(x.symbol)).sort((a, b) => (b.mcap_bn || 0) - (a.mcap_bn || 0)).slice(0, 6) : [];
   const COL = ["--brand", "--up", "--ref", "--ceil"];
   // [nhãn, hàm lấy giá trị, định dạng, hướng tốt (1 cao tốt, -1 thấp tốt, 0 không so)]
   const M = [
@@ -5218,10 +5232,10 @@ async function viewCompare(arg) {
   app().innerHTML = `<div class="ph"><h1>So sánh mã</h1><span class="meta">tối đa 4 mã · ô xanh = tốt nhất trong nhóm</span></div>
     <section class="panel"><div class="filters">${syms.map((s) => `<span class="pill brand" style="font-size:.85rem">${s} <button class="chip" data-rm="${s}" aria-label="Bỏ ${s}">✕</button></span>`).join("")}
       ${syms.length < 4 ? `<div class="field w90"><label for="cA">Thêm mã</label><input id="cA" placeholder="HPG" autocapitalize="characters"></div><button class="btn primary" id="cAB">Thêm</button>` : ""}
-      ${sug.length && syms.length < 4 ? `<span class="faint" style="font-size:.76rem">Cùng ngành ${esc(first.industry || "")}: ${sug.map((x) => `<a href="#" data-ca="${x.symbol}">${x.symbol}</a>`).join(", ")}</span>` : ""}</div></section>
+      ${sug.length && syms.length < 4 ? `<span class="faint" style="font-size:.76rem">Cùng mâm ${esc(first.mam || "")}: ${sug.map((x) => `<a href="#" data-ca="${x.symbol}">${x.symbol}</a>`).join(", ")}</span>` : ""}</div></section>
     ${syms.length < 2 ? `<div class="empty sec">Chọn ít nhất 2 mã để so sánh. Gợi ý: mở bộ lọc, tick nhiều mã rồi bấm "So sánh", hoặc gõ <b>so sánh FPT CMG</b> ở ô tìm nhanh (phím /).</div>` : `
     <div class="cmp-heads sec" style="--n:${syms.length}">${syms.map((s, i) => { const r = R[s]; return `<section class="panel" style="border-top:3px solid var(${COL[i]})"><div class="pk-head"><div><a class="sym" href="#/s/${s}">${s}</a> ${starBtn(s)}<small class="pk-name">${esc(r.name || "")}</small></div><div class="pk-px"><div><b>${nf(r.price)}</b><small class="${cls(r.chg1d)}">${pct(r.chg1d, 1)}</small></div>${ring(r.composite, 34)}</div></div>
-      ${mini(r.spk, { w: 220, h: 34 }).replace('class="mini"', 'class="mini wide"')}<div class="tags" style="margin-top:4px">${planOf(s)}</div><small class="faint">${esc(r.sector || "")} · ${esc(r.verdict || "")}</small></section>`; }).join("")}</div>
+      ${mini(r.spk, { w: 220, h: 34 }).replace('class="mini"', 'class="mini wide"')}<div class="tags" style="margin-top:4px">${planOf(s)}</div><small class="faint">${esc(r.mam || r.sector || "")} · ${esc(r.verdict || "")}</small></section>`; }).join("")}</div>
     <section class="panel sec"><div class="ph"><h2>Diễn biến giá (cùng gốc 100)</h2><span class="seg" id="cPer">${[[63, "3 tháng"], [126, "6 tháng"], [250, "1 năm"], [500, "2 năm"]].map(([n, l]) => `<button data-n="${n}" class="${n === per ? "on" : ""}">${l}</button>`).join("")}</span></div>
       <div class="chart md" id="cChart"></div><div class="leg">${syms.map((s, i) => `<span><i style="background:var(${COL[i]})"></i>${s}</span>`).join("")}<span><i style="background:var(--ink-3)"></i>VN-Index</span></div></section>
     <section class="panel flush sec"><div class="tw"><table class="cmpt"><thead><tr><th class="l"></th>${syms.map((s, i) => `<th style="color:var(${COL[i]})">${s}</th>`).join("")}</tr></thead><tbody>

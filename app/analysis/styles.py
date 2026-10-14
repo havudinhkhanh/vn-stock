@@ -124,7 +124,7 @@ def plan_swing(u: pd.DataFrame, g: dict, regime: dict) -> dict:
     picks, watch = [], []
     slots = int(round(S["max_positions"] * ex / 100))
     for score, s, r, sig in cand:
-        item = {"symbol": s, "basket": "swing", "score": round(score, 1), "sector": r.get("sector") or "Khác", **sig}
+        item = {"symbol": s, "basket": "swing", "score": round(score, 1), "sector": r.get("peer_label") or r.get("sector") or "Khác", **sig}
         if len(picks) < slots:
             w = _size(S["risk_per_trade"], sig["stop_pct"], S["max_weight"])
             picks.append({**item, "weight": w})
@@ -154,7 +154,7 @@ def plan_long(u: pd.DataFrame, sc: pd.DataFrame, regime: dict, cfg: dict) -> dic
         price, fair = float(r["price"]), float(r["fair"])
         buy_hi = fair * (1 - mos)
         t1, t2 = fair, float(r["fair_hi"]) if _f(r.get("fair_hi")) else fair * 1.2
-        base = {"symbol": s, "basket": "long", "score": round(float(r["sc_long"]), 1), "sector": r.get("sector") or "Khác",
+        base = {"symbol": s, "basket": "long", "score": round(float(r["sc_long"]), 1), "sector": r.get("peer_label") or r.get("sector") or "Khác",
                 "zone": [round(buy_hi * 0.9, 2), round(buy_hi, 2)], "stop": round(min(price, buy_hi) * 0.75, 2), "stop_pct": -25.0,
                 "t1": round(t1, 2), "t2": round(t2, 2), "rr": None, "stop_label": "xem lại", "exit_note": "Không cắt lỗ theo giá – xem lại luận điểm nếu giảm 25%; bán một phần khi vượt giá trị hợp lý 20%"}
         if price <= buy_hi:
@@ -189,7 +189,7 @@ def plan_income(u: pd.DataFrame, regime: dict) -> dict:
         price, y = float(r["price"]), float(r["div_yield"])
         dps = price * y / 100
         p6, p35 = dps / 0.06, dps / 0.035
-        base = {"symbol": s, "basket": "income", "score": round(float(r["sc_inc"]), 1), "sector": r.get("sector") or "Khác",
+        base = {"symbol": s, "basket": "income", "score": round(float(r["sc_inc"]), 1), "sector": r.get("peer_label") or r.get("sector") or "Khác",
                 "zone": [round(p6 * 0.93, 2), round(p6, 2)], "stop": round(min(price, p6) * 0.8, 2), "stop_pct": -20.0,
                 "t1": round(p35, 2), "t2": round(p35 * 1.1, 2), "rr": None, "stop_label": "xem lại", "yield": round(y, 2), "dps": round(dps * 1000),
                 "exit_note": "Bán khi lợi suất xuống dưới 3,5% hoặc doanh nghiệp giảm cổ tức"}

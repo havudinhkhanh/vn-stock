@@ -116,7 +116,7 @@ def advise(holdings: list[dict], u: pd.DataFrame, closes: dict[str, pd.Series], 
             dd = round(100 * (v.iloc[-1] / v.max() - 1), 1)
     sectors = {}
     for o in out:
-        sec = u.loc[o["symbol"], "sector"] if o["symbol"] in u.index else "Khác"
+        sec = (u.loc[o["symbol"], "peer_parent"] if "peer_parent" in u.columns else u.loc[o["symbol"], "sector"]) if o["symbol"] in u.index else "Khác"
         sectors[sec or "Khác"] = sectors.get(sec or "Khác", 0) + (o["weight"] or 0)
     warn = []
     if dd is not None and dd < -float(risk.get("max_drawdown_target", 25)):

@@ -66,7 +66,7 @@ def build(out_dir, u: pd.DataFrame, today: dict, market: dict, idx: pd.DataFrame
     liq = U[U["avg_value_bn"].fillna(0) >= 5]
     # ngành: bình quân theo vốn hoá
     secs = []
-    for name, grp in liq.groupby("sector"):
+    for name, grp in liq.groupby("peer_label" if "peer_label" in liq.columns else "sector"):   # ngành = mâm so sánh
         w = grp["mcap_bn"].fillna(0)
         r = float(np.average(grp["chg1d"], weights=w)) if w.sum() > 0 else float(grp["chg1d"].mean())
         top = grp.sort_values("chg1d", ascending=False)
@@ -82,7 +82,7 @@ def build(out_dir, u: pd.DataFrame, today: dict, market: dict, idx: pd.DataFrame
     pull_dn = [[s, _r(pts[s], 2), _r(U.at[s, "chg1d"])] for s in pts.index[:6] if pts[s] < 0]
 
     def rows(df, k=8):
-        return [{"s": s, "chg": _r(df.at[s, "chg1d"]), "price": _r(df.at[s, "price"]), "sector": df.at[s, "sector"], "val": _r(df.at[s, "avg_value_bn"], 0),
+        return [{"s": s, "chg": _r(df.at[s, "chg1d"]), "price": _r(df.at[s, "price"]), "sector": df.at[s, "peer_label"] if "peer_label" in df.columns else df.at[s, "sector"], "val": _r(df.at[s, "avg_value_bn"], 0),
                  "vx": _r(vol_x.get(s), 1)} for s in df.index[:k]]
     gain = rows(liq.sort_values("chg1d", ascending=False))
     lose = rows(liq.sort_values("chg1d"))
