@@ -542,12 +542,6 @@ def run(force_fin: bool = False, only: list[str] | None = None) -> None:
     else:
         log.info("Chưa tới lịch tải BCTC (cập nhật gần nhất %.1f ngày trước)",
                  store.age_days("financials"))
-    liq_fin = set(liquid_symbols(prices, float(config.get("universe.fin_min_avg_value_bn", 0.3))))
-    if not only and config.get("data.fin_all_symbols", True):
-        try:
-            update_fin_backfill(listing, prices, syms, liq_fin)
-        except Exception as e:  # noqa: BLE001
-            log.warning("BCTC mã ít giao dịch lỗi: %s", e)
     div_syms = liquid_symbols(prices, float(config.get("universe.fin_min_avg_value_bn", 0.3)))
     # dòng lệnh phiên: chỉ khi chạy sau giờ đóng cửa của ngày có giao dịch
     now = datetime.now(tz=__import__("zoneinfo").ZoneInfo("Asia/Ho_Chi_Minh"))
@@ -593,3 +587,9 @@ def run(force_fin: bool = False, only: list[str] | None = None) -> None:
             update_dividends(thin, mark=False, per_run=n_)
         except Exception as e:  # noqa: BLE001
             log.warning("Số CP / cổ tức mã ít giao dịch lỗi: %s", e)
+    # BCTC mã ít giao dịch: chạy SAU cùng để không chen tải với số cổ phiếu / cổ tức của nhóm thanh khoản
+    if not only and config.get("data.fin_all_symbols", True):
+        try:
+            update_fin_backfill(listing, prices, syms, set(liquid_symbols(prices, float(config.get("universe.fin_min_avg_value_bn", 0.3)))))
+        except Exception as e:  # noqa: BLE001
+            log.warning("BCTC mã ít giao dịch lỗi: %s", e)
