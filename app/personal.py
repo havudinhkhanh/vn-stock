@@ -9,6 +9,8 @@ import os
 
 import pandas as pd
 
+from .analysis import corpact as ca_
+
 from . import config, notify, users
 from . import report as rp
 from .analysis import portfolio as pf
@@ -25,6 +27,7 @@ def _f2(x):
 def holdings_of(data: dict) -> tuple[list[dict], float, float | None]:
     p = (data or {}).get("portfolio") or {}
     h = [x for x in (p.get("holdings") or []) if isinstance(x, dict) and x.get("symbol")]
+    h = ca_.adjust_holdings(h)          # giá vốn / khối lượng sau chia cổ tức, thưởng cổ phiếu (xem analysis/corpact.py)
     return h, float(p.get("cash") or 0), (float(p["capital"]) if p.get("capital") else None)
 
 

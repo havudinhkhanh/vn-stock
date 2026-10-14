@@ -1357,3 +1357,9 @@ main{padding:16px 22px 48px}
 .fst tr.fi td{font-style:italic;color:var(--ink-3);font-size:.92em}
 .fst tr.fhl td{color:var(--brass,var(--brand))}
 .fst tr.fsec td{font-size:.7rem;letter-spacing:.08em;color:var(--ink-3);padding-top:10px;background:transparent}
+
+/* điều chỉnh theo quyền (danh mục) */
+.cabox{border-color:color-mix(in srgb,var(--brass,var(--brand)) 45%,transparent)}
+.cab{padding:8px 0;border-top:1px solid var(--line)}.cab:first-of-type{border-top:0}
+.cab p{margin:0 0 6px;font-size:.84rem}.cab-b{display:flex;flex-wrap:wrap;gap:6px}
+.lc:has(> .cabox){align-self:start}

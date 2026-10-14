@@ -10,6 +10,8 @@ import logging
 import numpy as np
 import pandas as pd
 
+from .analysis import corpact as ca_
+
 log = logging.getLogger("report")
 
 FEE_BUY, FEE_SELL = 0.15, 0.25
@@ -39,12 +41,21 @@ def trades_of(data: dict) -> list[dict]:
     """Lệnh trong nhật ký + lệnh mua "ẩn" cho phần danh mục đang nắm chưa có trong nhật ký (mua trước khi ghi)."""
     T = [x for x in (((data or {}).get("journal") or {}).get("trades") or []) if isinstance(x, dict) and x.get("symbol") and x.get("date")]
     T = [{**x, "symbol": str(x["symbol"]).upper(), "qty": _num(x.get("qty")), "price": _num(x.get("price"))} for x in T if _num(x.get("qty")) > 0 and _num(x.get("price")) > 0]
+    # quy lệnh cũ về gốc hiện tại (giá lịch sử đã điều chỉnh): sau mỗi lần chia cổ phiếu tỷ lệ r, 1 cp cũ = (1 + r) cp mới
+    for x in T:
+        f = 1.0
+        for ex, k, v in ca_.EV_CACHE["ev"].get(x["symbol"], []):
+            if k == "s" and ex > str(x["date"])[:10] and (ca_.EV_CACHE["asof"] is None or ex <= ca_.EV_CACHE["asof"]):
+                f *= 1 + v
+        if f != 1.0:
+            x["qty"], x["price"] = x["qty"] * f, x["price"] / f
     net = {}
     for x in T:
         net[x["symbol"]] = net.get(x["symbol"], 0) + (x["qty"] if x.get("side") == "buy" else -x["qty"])
     for h in (((data or {}).get("portfolio") or {}).get("holdings") or []):
         if not isinstance(h, dict) or not h.get("symbol"):
             continue
+        h = ca_.adjust_holding(h)
         s, q = str(h["symbol"]).upper(), _num(h.get("qty"))
         miss = q - max(0.0, net.get(s, 0))
         if miss >= 1 and _num(h.get("cost")) > 0:

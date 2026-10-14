@@ -155,6 +155,8 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         divs["ex_date"] = pd.to_datetime(divs["ex_date"])
         # cổ tức tiền quy về số cổ phiếu hiện tại (sau các lần chia cổ phiếu) – cùng gốc với giá đã điều chỉnh
         divs = ca_.cash_per_current_share(divs, prices["date"].max())
+    corp_ev = ca_.events_payload(divs, prices["date"].max())
+    ca_.set_events(corp_ev, prices["date"].max())      # danh mục: giá vốn / khối lượng sau chia cổ tức, thưởng cổ phiếu
     # số CP ghi lại trước ngày GDKHQ chia cổ phiếu (để biết nguồn đã cộng cổ phiếu mới chưa)
     pre_log = {}
     try:
@@ -201,6 +203,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         watch_all = {str(w["symbol"]).upper() for x in U for w in per_.watch_of(x["data"])}
     else:
         holdings, cash_vnd, capital = load_holdings()
+        holdings = ca_.adjust_holdings(holdings)
     held = {h["symbol"].upper() for h in holdings}
     if not multi:
         held_all, watch_all = held, {str(w.get("symbol", "")).upper() for w in load_watchlist()}
@@ -842,6 +845,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         except Exception as e:  # noqa: BLE001
             log.exception("Bảng so sánh / báo cáo tuần lỗi: %s", e)
         dump(out_dir / "today.json", today)
+    dump(out_dir / "corp_events.json", {"asof": str(last_date.date()), "ev": corp_ev})   # mọi chế độ: danh mục trên web quy đổi theo quyền
     # tin tức theo mã (để mô tả các đợt sự kiện) + nhóm ngành để so sánh mức sụt
     try:
         _nw = store.read("news")

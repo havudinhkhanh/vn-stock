@@ -1509,12 +1509,20 @@ function tradingDaysBetween(a, b) { if (!a || !b) return null; let x = new Date(
 // Ghi 1 lệnh: cập nhật danh mục (giá vốn bình quân như CTCK), tiền mặt, nhật ký; lệnh bán lưu luôn lãi/lỗ đã chốt
 async function applyTrade(tr, pf, J) {
   pf.holdings = pf.holdings || [];
+  if (!window.__caEV) { const ce = await tryLoad("data/corp_events.json"); window.__caEV = ce?.ev || {}; window.__caD = ce?.asof || null; }
   const i = pf.holdings.findIndex((h) => h.symbol === tr.symbol);
   const h = i >= 0 ? pf.holdings[i] : null;
+  if (h) {   // còn quyền chưa ghi nhận → quy về gốc hiện tại trước khi bình quân giá (mua) / tính lãi lỗ đã chốt (bán)
+    const Pn = CA.pending(h, window.__caEV || {}, window.__caD).filter(([ex]) => ex <= tr.date);
+    if (Pn.length) CA.apply(h, Pn, h.ca_auto ? "auto" : "cost");
+  }
   if (tr.side === "buy") {
     const unit = tr.price * (1 + tr.fee / 100);
-    if (h) { const nq = h.qty + tr.qty; h.cost = Math.round(((h.qty * h.cost + tr.qty * unit) / nq) * 1000) / 1000; h.qty = nq; h.last_buy = tr.date; }
-    else pf.holdings.push({ symbol: tr.symbol, qty: tr.qty, cost: Math.round(unit * 1000) / 1000, date: tr.date, last_buy: tr.date, basket: tr.basket || null, style: tr.style || STYLE_OF_BASKET[tr.basket] || null });
+    if (h) {
+      const nq = h.qty + tr.qty; h.cost = Math.round(((h.qty * h.cost + tr.qty * unit) / nq) * 1000) / 1000; h.qty = nq; h.last_buy = tr.date; h.ca_auto = true;
+      if (!h.ca_from || h.ca_from < tr.date) h.ca_from = tr.date;
+    }
+    else pf.holdings.push({ symbol: tr.symbol, qty: tr.qty, cost: Math.round(unit * 1000) / 1000, date: tr.date, last_buy: tr.date, basket: tr.basket || null, style: tr.style || STYLE_OF_BASKET[tr.basket] || null, ca_auto: true, ca_from: tr.date });
     if (isNum(pf.cash) && pf.cash > 0) pf.cash = Math.max(0, pf.cash - tr.qty * unit * 1000);
   } else {
     const avg = h ? h.cost : null, q = h ? Math.min(tr.qty, h.qty) : tr.qty;
@@ -1668,9 +1676,76 @@ function tradeBox(o, onDone) {
   if (o.ctx && !o.ctx.d) tryLoad(`data/stocks/${o.symbol}.json`).then((d) => { if (d && $("#tbox") === el) { o.ctx.d = d; prev(); } });
 }
 
+// ---- danh mục sau chia cổ tức / thưởng cổ phiếu (quy tắc giống app/analysis/corpact.py)
+const CA = {
+  PIT: 0.05,
+  pending(h, E, asof) {
+    const base = String(h.ca_from || h.date || ""), skip = new Set(h.ca_skip || []);
+    if (!base) return [];           // không rõ ngày mua → không đoán
+    return ((E && E[h.symbol]) || []).filter(([ex, k]) => ex > base && (!asof || ex <= asof) && !skip.has(`${ex}:${k}`));
+  },
+  // mode: "auto" = cộng cổ phiếu thưởng vào khối lượng + chỉnh giá vốn; "cost" = khối lượng đã gồm CP thưởng, chỉ chỉnh giá vốn; "none" = đã tự chỉnh cả hai
+  apply(h, P, mode) {
+    h.ca_log = h.ca_log || []; h.divs = h.divs || [];
+    for (const [ex, k, v] of P) {
+      const from0 = h.ca_from || h.date || null;      // mốc trước sự kiện này (hoàn tác chỉ lùi đúng 1 sự kiện)
+      if (k === "s") {
+        const q0 = h.qty, c0 = h.cost, add = mode === "auto" ? Math.floor(q0 * v) : 0;
+        if (mode !== "none") { h.qty = q0 + add; h.cost = Math.round((c0 / (1 + v)) * 10000) / 10000; }
+        h.ca_log.push({ ex, k, v, q0, c0, q1: h.qty, c1: h.cost, add, mode, from0 });
+      } else {
+        h.divs.push({ ex, dps: v, qty: h.qty, amt: Math.round(h.qty * v * (1 - CA.PIT)) });
+        h.ca_log.push({ ex, k, v, q0: h.qty, c0: h.cost, q1: h.qty, c1: h.cost, mode, from0 });
+      }
+      h.ca_from = ex;
+    }
+    h.ca_auto = true;
+    return h;
+  },
+  undo(h) {      // lùi lần điều chỉnh gần nhất; khung "Điều chỉnh theo quyền" hỏi lại để anh chọn cách khác
+    const L = h.ca_log || [], x = L.pop();
+    if (!x) return h;
+    h.qty = x.q0; h.cost = x.c0; h.ca_from = x.from0; h.ca_auto = false;
+    if (x.k === "c") { h.divs = (h.divs || []).filter((d) => d.ex !== x.ex); h.ca_skip = [...new Set([...(h.ca_skip || []), `${x.ex}:c`])]; }   // cổ tức tiền: không ghi nhận lại
+    return h;
+  },
+  view(h, E, asof) {        // bản sao để hiển thị khi vị thế cũ còn chờ xác nhận: chỉ chỉnh giá vốn/cp (đúng trong cả 2 trường hợp)
+    const P = CA.pending(h, E, asof);
+    if (!P.length) return h;
+    const x = { ...h, divs: [...(h.divs || [])] };
+    for (const [ex, k, v] of P) { if (k === "s") x.cost = x.cost / (1 + v); else x.divs.push({ ex, dps: v, qty: x.qty, amt: Math.round(x.qty * v * (1 - CA.PIT)), pend: true }); }
+    x.ca_wait = P;
+    return x;
+  },
+  orig(h) { const L = (h.ca_log || []).filter((x) => x.k === "s" && x.mode !== "none"); return L.length ? { cost: L[0].c0, qty: L[0].q0, ev: L } : null; },
+};
+function caBanner(P, pf) {
+  const W = P.filter((x) => (x.h.ca_wait || []).some(([, k]) => k === "s"));
+  const D = pf.holdings.flatMap((h) => (h.divs || []).filter((z) => !z.to_cash).map((z) => ({ s: h.symbol, ...z })));
+  if (!W.length && !D.length) return "";
+  const evTxt = (L) => L.map(([ex, k, v]) => (k === "s" ? `chia cổ phiếu ${nf(v * 100, 1)}%` : `cổ tức tiền ${nf(v, 0)}đ/cp`) + ` (GDKHQ ${fmtD(ex)})`).join(", ");
+  const w = W.map((x) => { let q = x.h0.qty; x.h.ca_wait.forEach(([, k, v]) => { if (k === "s") q += Math.floor(q * v); });
+    return `<div class="cab"><p><b>${x.h.symbol}</b>: ${evTxt(x.h.ca_wait)}. Anh đang ghi <b>${nf(x.h0.qty, 0)} cp</b>, giá vốn <b>${nf(x.h0.cost)}</b> – khối lượng này <b>đã gồm cổ phiếu được chia</b> chưa?</p>
+      <div class="cab-b"><button class="btn primary" data-ca="${x.h.symbol}|auto">Chưa – cộng giúp: ${nf(q, 0)} cp, giá vốn ${nf(x.h.cost)}</button>
+      <button class="btn" data-ca="${x.h.symbol}|cost">Đã gồm rồi – chỉ chỉnh giá vốn về ${nf(x.h.cost)}</button>
+      <button class="chip" data-ca="${x.h.symbol}|none">Tôi đã tự chỉnh cả giá vốn</button></div></div>`; }).join("");
+  const dT = D.reduce((s_, z) => s_ + (z.amt || 0), 0);
+  const d = D.length ? `<div class="cab"><p><b>Cổ tức tiền được nhận</b> (sau thuế TNCN 5%): ${D.map((z) => `${z.s} ${nf(z.qty, 0)} cp × ${nf(z.dps, 0)}đ (GDKHQ ${fmtD(z.ex)}) = <b>${big(z.amt)}</b>`).join(" · ")}. Tiền về tài khoản vào ngày thanh toán, thường 2–6 tuần sau ngày GDKHQ.</p>
+      <div class="cab-b"><button class="btn primary" id="caCash">Cộng ${big(dT)} đ vào tiền mặt</button><button class="chip" id="caCashNo">Không cộng – tôi tự nhập tiền mặt</button></div></div>` : "";
+  return `<section class="panel cabox"><div class="ph"><h2>Điều chỉnh theo quyền (chia cổ tức, thưởng cổ phiếu)</h2></div>
+    ${W.length ? `<p class="faint" style="font-size:.76rem;margin:0 0 6px">Sau ngày GDKHQ chia cổ phiếu tỷ lệ r, giá giảm còn giá ÷ (1 + r) và mỗi 1 cp thành 1 + r cp – giữ giá vốn cũ sẽ thấy lỗ giả. Tổng vốn gốc không đổi: giá vốn/cp = giá vốn ÷ (1 + r). Trong lúc chờ anh chọn, hệ thống đã tạm quy đổi giá vốn/cp (mức cắt lỗ, chốt lời tính theo giá đã quy đổi).</p>` : ""}
+    ${w}${d}</section>`;
+}
 async function viewPortfolio() {
-  const [pfr, jr, t, rows, m] = await Promise.all([Store.get("portfolio"), Store.get("journal"), loadToday(), screenerRows(), tryLoad("data/market.json")]);
+  const [pfr, jr, t, rows, m, CE] = await Promise.all([Store.get("portfolio"), Store.get("journal"), loadToday(), screenerRows(), tryLoad("data/market.json"), tryLoad("data/corp_events.json")]);
   const pf = pfr.data || { holdings: [], cash: 0, capital: null }; pf.holdings = pf.holdings || [];
+  const EV = CE?.ev || {}, EVD = CE?.asof || null;
+  window.__caEV = EV; window.__caD = EVD;
+  // vị thế tự động (nhập / ghi lệnh từ khi có tính năng này) hoặc chỉ có cổ tức tiền: ghi nhận ngay; vị thế cũ có chia cổ phiếu: hỏi anh
+  { const done_ = [];
+    pf.holdings.forEach((h) => { const P = CA.pending(h, EV, EVD); if (!P.length) return;
+      if (h.ca_auto || P.every(([, k]) => k === "c")) { CA.apply(h, P, "auto"); done_.push(`${h.symbol} ${P.map(([ex, k, v]) => (k === "s" ? `chia CP ${nf(v * 100, 0)}%` : `cổ tức ${nf(v, 0)}đ`) + " " + ex.slice(8, 10) + "/" + ex.slice(5, 7)).join(", ")}`); } });
+    if (done_.length) { pf.updated = new Date().toISOString(); await Store.put("portfolio", pf); toast(`Đã điều chỉnh danh mục theo quyền: ${done_.join(" · ")}`); } }
   const J = { trades: (jr.data && jr.data.trades) || [] };
   const R = Object.fromEntries(rows.map((r) => [r.symbol, r]));
   const adv = Object.fromEntries(((t.portfolio && t.portfolio.positions) || []).map((p) => [p.symbol, p]));
@@ -1688,7 +1763,8 @@ async function viewPortfolio() {
   };
 
   const render = () => {
-    const P = pf.holdings.map((h) => {
+    const P = pf.holdings.map((h0) => {
+      const h = CA.view(h0, EV, EVD);
       const r = R[h.symbol] || {}, a = adv[h.symbol], d = det[h.symbol];
       const px = r.price ?? h.cost, mv = h.qty * px * 1000, cost = h.qty * h.cost * 1000;
       let peak = px;
@@ -1704,10 +1780,12 @@ async function viewPortfolio() {
       const be = ep.breakeven;
       const lastBuy = h.last_buy || h.date;
       const sellable = lastBuy ? addTradingDays(lastBuy, 2) : null;
-      return { h, r, a, px, mv, cost, pnl: mv * (1 - FEE_SELL / 100) - cost, pnlPct: h.cost ? (px * (1 - FEE_SELL / 100) / h.cost - 1) * 100 : null, peak, fromPeak: peak ? (px / peak - 1) * 100 : null,
+      const divRecv = (h.divs || []).reduce((s_, z) => s_ + (z.amt || 0), 0), og = CA.orig(h);
+      const pendSh = (h.ca_log || []).filter((z) => z.k === "s" && z.add > 0 && tradingDaysBetween(z.ex, today) <= 30).reduce((s_, z) => s_ + z.add, 0);
+      return { h, h0, r, a, px, mv, cost, divRecv, og, pendSh, pnl: mv * (1 - FEE_SELL / 100) - cost, pnlPct: h.cost ? (px * (1 - FEE_SELL / 100) / h.cost - 1) * 100 : null, peak, fromPeak: peak ? (px / peak - 1) * 100 : null,
         stop, be, sellable, held, ep, act, lvl: { stop, cost: h.cost, px, fair: a?.fair ?? r.fair, tps: ep.levels.filter((l) => l.kind === "tp" && l.price && l.status !== "done").map((l) => l.price).sort((p, q) => p - q) } };
     });
-    const mv = P.reduce((s, x) => s + x.mv, 0), costT = P.reduce((s, x) => s + x.cost, 0), cash = Number(pf.cash || 0);
+    const mv = P.reduce((s, x) => s + x.mv, 0), costT = P.reduce((s, x) => s + x.cost, 0), cash = Number(pf.cash || 0), divT = P.reduce((s, x) => s + x.divRecv, 0);
     const total = mv + cash, denom = capitalOf(pf) || total;
     const day = P.reduce((s, x) => s + (isNum(x.r.chg1d) ? x.mv - x.mv / (1 + x.r.chg1d / 100) : 0), 0);
     const sells = J.trades.filter((x) => x.side === "sell" && isNum(x.realized)).sort((a, b) => (a.date < b.date ? -1 : 1));
@@ -1737,14 +1815,17 @@ async function viewPortfolio() {
           ${tps.length && tps[0] > h.cost ? `<i class="lz gain" style="left:${X(h.cost)}%;width:${X(Math.max(...tps)) - X(h.cost)}%"></i>` : ""}
           <i class="lk stop" style="left:${X(x.stop)}%"></i><i class="lk cost" style="left:${X(h.cost)}%"></i>${tps.map((v) => `<i class="lk" style="left:${X(v)}%"></i>`).join("")}
           <i class="lp" style="left:${X(x.px)}%"><em>${nf(x.px)}</em></i></div>
-        <div class="lleg" style="display:block"><span class="down">${x.ep.style === "long" || x.ep.style === "income" ? (h.exit_custom?.stop ? "dừng" : "xem lại") : "dừng"} ${nf(x.stop)}</span><span>giá vốn ${nf(h.cost)}</span>${tps.map((v, i) => `<span class="up">chốt ${i + 1}: ${nf(v)}</span>`).join("")}</div>
+        <div class="lleg" style="display:block"><span class="down">${x.ep.style === "long" || x.ep.style === "income" ? (h.exit_custom?.stop ? "dừng" : "xem lại") : "dừng"} ${nf(x.stop)}</span><span>giá vốn ${nf(h.cost)}${x.og ? ` <small class="faint">(gốc ${nf(x.og.cost)} trước chia CP)</small>` : h.ca_wait ? ' <small class="ref">(đã quy đổi sau chia CP – chờ anh xác nhận)</small>' : ""}</span>${tps.map((v, i) => `<span class="up">chốt ${i + 1}: ${nf(v)}</span>`).join("")}</div>
         <div class="pk-facts f6">
-          <div><small>Khối lượng</small><b>${nf(h.qty, 0)}</b><small>${big(x.mv)} đ</small></div>
+          <div><small>Khối lượng</small><b>${nf(h.qty, 0)}</b><small>${x.pendSh ? `gồm ${nf(x.pendSh, 0)} CP thưởng chờ về · ` : ""}${big(x.mv)} đ</small></div>
           <div><small>Tỷ trọng</small><b class="${w > (risk.max_weight_per_stock ?? 20) ? "down" : ""}">${pct(w, 1, false)}</b><small>tối đa ${risk.max_weight_per_stock ?? 20}%</small></div>
           <div><small>Sụt từ đỉnh sau mua</small><b class="${x.fromPeak <= -10 ? "down" : ""}">${pct(x.fromPeak, 1)}</b><small>đỉnh ${nf(x.peak)}</small></div>
           <div><small>Đã nắm</small><b>${x.held ?? "—"} phiên</b><small>mua ${esc(h.date || "—")}</small></div>
           <div><small>Được bán từ</small><b class="${canSell ? "up" : "ref"}">${canSell ? "đã bán được" : esc(x.sellable)}</b><small>hàng về T+2</small></div>
-          <div class="hlf"><small>P/E</small><b>${nf(r.pe, 1)}</b><small>ngành ${nf(r.pe_ind, 1)}</small></div></div>
+          <div class="hlf"><small>P/E</small><b>${nf(r.pe, 1)}</b><small>ngành ${nf(r.pe_ind, 1)}</small></div>
+          <div><small>Vốn gốc</small><b>${big(x.cost)}</b><small>${x.og ? `${nf(x.og.qty, 0)} cp × ${nf(x.og.cost)} trước chia` : "khối lượng × giá vốn"}</small></div>
+          ${x.divRecv ? `<div><small>Cổ tức tiền đã nhận</small><b class="up">+${big(x.divRecv)}</b><small>gồm cổ tức: <b class="${cls(x.pnl + x.divRecv)}">${pct(x.cost ? (x.pnl + x.divRecv) / x.cost * 100 : null, 1)}</b></small></div>` : ""}</div>
+        ${(x.h0.ca_log || []).length ? `<p class="faint" style="font-size:.72rem;margin:4px 0 0">Điều chỉnh theo quyền: ${x.h0.ca_log.map((z) => z.k === "s" ? `${esc(fmtD(z.ex))} chia CP ${nf(z.v * 100, 1)}% (${z.mode === "none" ? "anh tự chỉnh" : `${nf(z.q0, 0)}→${nf(z.q1, 0)} cp, giá vốn ${nf(z.c0)}→${nf(z.c1)}`})` : `${esc(fmtD(z.ex))} cổ tức tiền ${nf(z.v, 0)}đ/cp`).join(" · ")} <a href="#" data-caundo="${h.symbol}">↺ hoàn tác lần gần nhất</a></p>` : ""}
         ${exitBox(x, today)}
         <p class="why">${hitL.length ? `<b class="${hitL.some((l) => l.kind !== "tp") ? "down" : "up"}">Đã chạm: ${hitL.map((l) => esc(l.label) + (l.sell > 0 ? " → " + fracVi(l.sell).toLowerCase() + (l.qty ? " " + nf(l.qty, 0) + " cp" : "") : " → xem lại")).join("; ")}.</b> ` : nearL.length ? `<b class="ref">Sắp chạm: ${nearL.map((l) => `${esc(l.label)} ${nf(l.price)}`).join("; ")}.</b> ` : ""}${esc(x.act.notes.join("; ") || (hitL.length || nearL.length ? "" : "Chưa chạm mức thoát nào – cứ giữ, hệ thống nhắn Telegram khi giá cách một mức ≤ 3% và khi chạm."))}${x.fromPeak <= -15 && x.peak > h.cost * 1.1 ? ` · Đã trả lại ${nf(-x.fromPeak, 0)}% từ đỉnh – cân nhắc khoá lãi.` : ""}</p>
         <div class="pos-act"><button class="btn" data-act="buy" data-s="${h.symbol}">Mua thêm</button><button class="btn" data-act="part" data-s="${h.symbol}">Bán một phần</button><button class="btn" data-act="all" data-s="${h.symbol}">Bán hết</button>
@@ -1755,13 +1836,14 @@ async function viewPortfolio() {
     <div class="ph"><h1>Danh mục của tôi</h1><span class="meta">${pfr.remote ? "đã đồng bộ mọi thiết bị" : "đang lưu trong trình duyệt này"}</span></div>
     <section class="panel hero"><div class="bigs">
       <div class="big hlb"><small>Tổng tài sản</small><b>${big(total)}</b><span>cổ phiếu ${big(mv)} · tiền ${big(cash)}</span></div>
-      <div class="big"><small>Lãi/lỗ chưa chốt</small><b class="${cls(mv * (1 - FEE_SELL / 100) - costT)}">${big(mv * (1 - FEE_SELL / 100) - costT)}</b><span>${pct(costT ? ((mv * (1 - FEE_SELL / 100)) / costT - 1) * 100 : null, 1)} · đã trừ phí bán</span></div>
+      <div class="big"><small>Lãi/lỗ chưa chốt</small><b class="${cls(mv * (1 - FEE_SELL / 100) - costT)}">${big(mv * (1 - FEE_SELL / 100) - costT)}</b><span>${pct(costT ? ((mv * (1 - FEE_SELL / 100)) / costT - 1) * 100 : null, 1)} · đã trừ phí bán${divT ? ` · cổ tức tiền đã nhận <b class="up">+${big(divT)}</b> → tổng <b class="${cls(mv * (1 - FEE_SELL / 100) - costT + divT)}">${big(mv * (1 - FEE_SELL / 100) - costT + divT)}</b>` : ""}</span></div>
       <div class="big"><small>Lãi/lỗ đã chốt</small><b class="${cls(realized)}">${big(realized)}</b><span>tháng này <b class="${cls(rMonth)}">${big(rMonth)}</b> · năm nay <b class="${cls(rYear)}">${big(rYear)}</b></span></div>
       <div class="big"><small>Hôm nay</small><b class="${cls(day)}">${big(day)}</b><span>${P.length} mã đang nắm</span></div>
       <div class="big ${denom && (mv / denom) * 100 > expCap + 5 ? "warnb" : ""}"><small>Tỷ trọng cổ phiếu</small><b>${pct(denom ? (mv / denom) * 100 : null, 0, false)}</b><span>đèn ${LIGHT_VI[t.regime.light]} cho phép tối đa ${expCap}%</span></div>
     </div>${(t.portfolio?.warnings || []).map((w) => `<p class="note" style="margin-top:6px">${esc(w)}</p>`).join("")}</section>
     <div class="g g-main sec">
       <div class="stack">
+        ${caBanner(P, pf)}
         <section class="panel"><div class="ph"><h2>Mã đang nắm</h2><span class="meta">bấm "Bán một phần" để chốt từng phần – lãi/lỗ được ghi lại</span></div>
           ${P.length ? `<div class="picks">${P.sort((a, b) => b.act.sev - a.act.sev || b.mv - a.mv).map(card).join("")}</div>` : `<div class="empty">Chưa có mã nào. Ghi lệnh mua ở khung "Mua mã mới" hoặc thêm mã đang nắm.</div>`}</section>
         <section class="panel hero" id="rebal"><div class="ph"><h2>Kế hoạch cơ cấu danh mục</h2>
@@ -1803,6 +1885,12 @@ async function viewPortfolio() {
     </div>`;
     // ---- sự kiện
     const posOf = (s) => P.find((x) => x.h.symbol === s);
+    $$("[data-ca]").forEach((b) => (b.onclick = async () => { const [s_, mode] = b.dataset.ca.split("|"), h = pf.holdings.find((y) => y.symbol === s_); if (!h) return;
+      CA.apply(h, CA.pending(h, EV, EVD), mode); await save(); }));
+    $$("[data-caundo]").forEach((a) => (a.onclick = async (e) => { e.preventDefault(); const h = pf.holdings.find((y) => y.symbol === a.dataset.caundo); if (!h) return; CA.undo(h); await save(); }));
+    $("#caCash")?.addEventListener("click", async () => { let add = 0; pf.holdings.forEach((h) => (h.divs || []).forEach((z) => { if (!z.to_cash) { z.to_cash = true; add += z.amt || 0; } }));
+      pf.cash = (Number(pf.cash) || 0) + add; await save(); toast(`Đã cộng ${big(add)} đ cổ tức vào tiền mặt`); });
+    $("#caCashNo")?.addEventListener("click", async () => { pf.holdings.forEach((h) => (h.divs || []).forEach((z) => (z.to_cash = z.to_cash || "skip"))); await save(); });
     $$("[data-act]").forEach((b) => (b.onclick = () => {
       const x = posOf(b.dataset.s), act = b.dataset.act;
       const sev = x.act.sev;
@@ -1835,12 +1923,14 @@ async function viewPortfolio() {
       const s = $("#hs").value.trim().toUpperCase(), q = Number(String($("#hq").value).replace(/\D/g, "")), c = Number(String($("#hc").value).replace(",", "."));
       if (!/^[A-Z0-9]{3}$/.test(s) || !q || !c) { toast("Nhập đủ mã, khối lượng và giá vốn"); return; }
       const h = { symbol: s, qty: q, cost: c, date: $("#hd").value || today, basket: $("#hb").value || null, style: $("#hst").value || null };
+      // ngày mua trước một lần chia cổ phiếu: chưa biết số anh nhập là trước hay sau chia → khung "Điều chỉnh theo quyền" sẽ hỏi; không có thì coi là số hiện tại
+      if (CA.pending(h, EV, EVD).some(([, k]) => k === "s")) { h.ca_auto = false; delete h.ca_from; } else { h.ca_auto = true; h.ca_from = today; }
       const i = pf.holdings.findIndex((x) => x.symbol === s);
-      if (i >= 0) pf.holdings[i] = { ...pf.holdings[i], ...h }; else pf.holdings.push(h);
+      if (i >= 0) { const keep = { ...pf.holdings[i] }; ["ca_from", "ca_log", "ca_skip", "ca_auto"].forEach((k) => delete keep[k]); pf.holdings[i] = { ...keep, ...h }; } else pf.holdings.push(h);
       await save();
     };
     $("#del").onclick = async () => { const s = $("#hs").value.trim().toUpperCase(); const i = pf.holdings.findIndex((x) => x.symbol === s); if (i < 0) { toast("Không có mã này trong danh mục"); return; } pf.holdings.splice(i, 1); await save(); };
-    LAY.apply("portfolio", app(), { keys: [[/^Kế hoạch cơ cấu/, "rebal"]] });
+    LAY.apply("portfolio", app(), { keys: [[/^Kế hoạch cơ cấu/, "rebal"], [/^Điều chỉnh theo quyền/, "ca"]], order: ["ca"], span: { ca: 3 } });
   };
   function rebalance(P, cash, denom) {
     const lines = [], cap = (t.regime.exposure / 100) * denom, maxW = ((risk.max_weight_per_stock ?? 20) / 100) * denom, maxS = ((risk.max_weight_per_sector ?? 30) / 100) * denom;
@@ -3023,6 +3113,7 @@ const HELP_FAQ = [
   ["Danh mục", "Mức dừng lỗ, chốt lời được tính thế nào?", "Theo phong cách của từng mã: dừng lỗ theo ATR và đỉnh sau mua (dời lên theo giá, tối đa −20%), chốt một phần khi vượt giá trị hợp lý, bán khi luận điểm cơ bản gãy, xem lại sau 60 phiên nếu vốn đứng yên. Có thể đặt mức riêng cho từng mã."],
   ["Danh mục", "Tôi đã bán mà hệ thống vẫn báo mã đó?", "Ghi lệnh bán ở Danh mục → Nhật ký giao dịch (hoặc bấm “Bán” cạnh mức thoát) để danh mục cập nhật. Thông báo theo danh mục đã lưu ở lượt chạy gần nhất."],
   ["Thông báo", "Làm sao nhận thông báo trên điện thoại?", "Tài khoản → Nhận thông báo → “Bật trên thiết bị này” và cho phép thông báo. Android/máy tính: dùng Chrome, Edge hoặc Firefox. iPhone/iPad (iOS 16.4+): mở trang bằng Safari → nút Chia sẻ → Thêm vào Màn hình chính → mở trang từ biểu tượng mới → bật lại. Thông báo đẩy và email thuộc gói Pro."],
+  ["Danh mục", "Bị chia cổ tức bằng cổ phiếu / thưởng cổ phiếu thì giá vốn trong danh mục xử lý thế nào?", "Sau ngày GDKHQ chia cổ phiếu tỷ lệ r, giá giảm còn giá ÷ (1 + r) và 1 cp thành 1 + r cp – nếu giữ giá vốn cũ sẽ luôn thấy lỗ giả. Hệ thống tự quy đổi: giá vốn/cp = giá vốn ÷ (1 + r), khối lượng cộng thêm phần được chia (làm tròn xuống), TỔNG vốn gốc giữ nguyên; thẻ mã ghi rõ giá vốn gốc trước chia và lịch sử điều chỉnh. Vị thế nhập từ trước: khung \"Điều chỉnh theo quyền\" hỏi anh khối lượng đang ghi đã gồm cổ phiếu được chia chưa (cộng giúp / chỉ chỉnh giá vốn / tôi đã tự chỉnh). Cổ tức tiền: ghi nhận số tiền được nhận sau thuế 5%, không trừ vào giá vốn – hiện riêng ở dòng \"Cổ tức tiền đã nhận\" và lãi/lỗ gồm cổ tức; bấm để cộng vào tiền mặt khi tiền về. Có nút hoàn tác lần điều chỉnh gần nhất. Mức cắt lỗ / chốt lời và thông báo đều tính theo giá vốn đã quy đổi."],
   ["Định giá", "Bảng dự phóng 3 báo cáo (KQKD, lưu chuyển tiền tệ, cân đối kế toán) tính thế nào?", "Tab Dự phóng & định giá → Báo cáo tài chính dự phóng: 3 năm thực tế (A) đặt cạnh 5 năm dự phóng (F), chọn kịch bản Xấu / Cơ sở / Tốt. Ba bảng liên kết với nhau: lợi nhuận từ KQKD → lưu chuyển tiền (LNST + khấu hao − tăng vốn lưu động − đầu tư TSCĐ + vay ròng − cổ tức) → tiền cuối kỳ trên bảng cân đối; TSCĐ = đầu kỳ + đầu tư − khấu hao; vốn chủ = đầu kỳ + LNST − cổ tức; tổng tài sản luôn bằng tổng nguồn vốn. Sửa giả định (tăng trưởng, biên, lãi suất, nợ vay/vốn, đầu tư TSCĐ, vốn lưu động, kế hoạch đầu tư mới) thì cả 3 bảng tính lại ngay. Nếu dòng tiền không đủ chi, bảng cân đối hiện dòng \"Vốn cần huy động thêm\". Ngân hàng / CTCK / bảo hiểm: KQKD và cân đối theo cơ cấu năm gần nhất, không lập lưu chuyển tiền tệ."],
   ["Định giá", "Mã penny / ít giao dịch có được định giá không?", "Có. Mọi mã có BCTC đều có trang chi tiết và định giá (hệ thống tải dần BCTC cho mã ít giao dịch qua các lượt chạy, làm mới khoảng 3 tuần/lần). Mã có giá trị giao dịch TB 20 phiên dưới 1 tỷ/phiên được trừ chiết khấu thanh khoản vào giá trị hợp lý: dưới 0,1 tỷ −25%, dưới 0,5 tỷ −15%, dưới 1 tỷ −10%, và gắn nhãn \"Ít giao dịch\". Trung vị ngành để so sánh P/E, P/B chỉ tính trên mã có thanh khoản để mã penny không kéo lệch. Mã ít giao dịch không vào danh sách MUA của hệ thống."],
   ["Biểu đồ", "Các dấu ⚡ Sự kiện / Đáy / 🎯 Vào trên biểu đồ giá là gì?", "Mỗi lần hệ thống gắn cờ \"có sự kiện\" (giá sụt ≥ 45% so với đỉnh 120 phiên kèm chuỗi phiên giảm sàn) được đánh dấu ⚡ đúng ngày có cờ, chấm Đáy là giá thấp nhất của đợt, mũi tên 🎯 Vào là ngày sự kiện đã nguội (≥ 120 phiên và ≥ 60 phiên liền không giảm sàn) kèm % giá 120 phiên sau đó. Bảng dưới biểu đồ liệt kê mọi đợt của mã với kết quả 60/120/250 phiên và so với VN-Index; bấm Xem để phóng biểu đồ tới đợt đó (đợt cũ hơn 3 năm tự chuyển sang nến tuần). Đợt đang đủ điều kiện vào có thêm đường Vùng vào SK, Cắt lỗ SK, Mục tiêu SK. Bấm vào thông báo sự kiện cũng mở thẳng biểu đồ đúng đợt. Tắt/bật bằng nút Sự kiện trên thanh công cụ. Mỗi đợt có mục “Sự kiện này là gì?”: hệ thống so mức sụt với VN-Index và ngành cùng kỳ để xếp loại (thị trường chung sập / cả ngành sập / thị trường yếu + chuyện riêng / chuyện riêng của doanh nghiệp), đếm chuỗi phiên giảm sàn, xem khối lượng lúc sàn (trắng bên mua hay bán tháo ồ ạt), lợi nhuận các quý quanh đó, và liệt kê tin công bố thông tin của doanh nghiệp / Sở GDCK trong giai đoạn đó (từ 2018) – tin in đậm là loại hay gắn với giá sập: điều tra, giải chấp, giải trình giảm sàn, kiểm toán ngoại trừ, cổ đông lớn bán."],

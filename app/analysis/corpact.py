@@ -100,3 +100,76 @@ def cash_since(dv: pd.DataFrame | None, since, last_date) -> float:
     ex = pd.to_datetime(dv["ex_date"])
     c = dv[dv["method"].astype(str).str.contains("cash|tiền", na=False) & (ex > pd.Timestamp(since)) & (ex <= pd.Timestamp(last_date))]
     return float(c["cash_pct"].sum() * 10000)
+
+
+# ------------------------------------------------------------------ danh mục: giá vốn & khối lượng sau chia cổ tức / thưởng cổ phiếu
+# Quy tắc (giống hệt hàm CA.* trong site/app.js – sửa một bên phải sửa bên kia):
+#   - sự kiện tính cho một vị thế khi ngày GDKHQ > mốc của vị thế (h["ca_from"], nếu chưa có thì ngày mua h["date"]) và ≤ phiên gần nhất,
+#     trừ các sự kiện anh đã bấm "hoàn tác" (h["ca_skip"]);
+#   - cổ phiếu thưởng / cổ tức cổ phiếu tỷ lệ r: giá vốn / cp = giá vốn ÷ (1 + r) (TỔNG vốn gốc không đổi);
+#     khối lượng + phần lẻ làm tròn xuống chỉ cộng khi vị thế ở chế độ tự động (h["ca_auto"]: nhập/ghi lệnh từ khi có tính năng này);
+#     vị thế cũ (nhập trước đây) chờ anh xác nhận đã cộng cổ phiếu thưởng vào khối lượng hay chưa – trong lúc chờ chỉ chỉnh giá vốn/cp
+#     (đúng trong cả hai trường hợp, nên mức cắt lỗ / chốt lời không bị lệch);
+#   - cổ tức tiền: ghi nhận khối lượng lúc GDKHQ × cổ tức/cp × (1 − 5% thuế TNCN), không đổi giá vốn.
+EV_CACHE: dict = {"ev": {}, "asof": None}
+PIT = 0.05
+
+
+def events_payload(divs: pd.DataFrame | None, asof, back_days: int = 3 * 365, fwd_days: int = 75) -> dict:
+    """{mã: [[ngày GDKHQ, 's' | 'c', tỷ lệ cổ phiếu | cổ tức đồng/cp (số công bố)]]} – dùng cho danh mục (web + máy chủ)."""
+    out: dict = {}
+    if divs is None or divs.empty:
+        return out
+    a = pd.Timestamp(asof)
+    d = divs.copy()
+    d["ex_date"] = pd.to_datetime(d["ex_date"])
+    d = d[(d["ex_date"] >= a - pd.Timedelta(days=back_days)) & (d["ex_date"] <= a + pd.Timedelta(days=fwd_days))]
+    for r in d.sort_values("ex_date").itertuples():
+        cash = "cash" in str(r.method) or "tiền" in str(r.method)
+        raw = float(getattr(r, "cash_raw", r.cash_pct))
+        if not raw or raw <= 0 or (not cash and raw >= 5):
+            continue
+        out.setdefault(r.symbol, []).append([str(r.ex_date.date()), "c" if cash else "s", round(raw * 10000) if cash else round(raw, 6)])
+    return out
+
+
+def set_events(ev: dict, asof) -> None:
+    EV_CACHE["ev"], EV_CACHE["asof"] = ev or {}, str(pd.Timestamp(asof).date()) if asof is not None else None
+
+
+def pending(h: dict, ev: dict | None = None, asof: str | None = None) -> list:
+    ev = EV_CACHE["ev"] if ev is None else ev
+    asof = asof or EV_CACHE["asof"]
+    s = str(h.get("symbol", "")).upper()
+    base = str(h.get("ca_from") or h.get("date") or "")
+    skip = set(h.get("ca_skip") or [])
+    if not base:
+        return []                     # không rõ ngày mua → không đoán
+    return [e for e in ev.get(s, []) if e[0] > base and (asof is None or e[0] <= asof) and f"{e[0]}:{e[1]}" not in skip]
+
+
+def adjust_holding(h: dict, ev: dict | None = None, asof: str | None = None) -> dict:
+    """Bản sao vị thế đã quy về sau các sự kiện chưa ghi nhận (không ghi đè dữ liệu của anh – web tự lưu khi mở Danh mục)."""
+    P = pending(h, ev, asof)
+    if not P:
+        return h
+    x = dict(h)
+    q, c = float(x.get("qty") or 0), float(x.get("cost") or 0)
+    auto = bool(x.get("ca_auto"))
+    div_new = 0.0
+    for ex, k, v in P:
+        if k == "s":
+            add = float(np.floor(q * v)) if auto else 0.0
+            c = c / (1 + v)
+            q += add
+        else:
+            div_new += q * v * (1 - PIT)
+    x["qty"], x["cost"] = q, round(c, 4)
+    x["ca_from"] = P[-1][0]                      # bản sao đã quy đổi → không tính lại lần nữa
+    x["ca_pending"] = [{"ex": ex, "k": k, "v": v} for ex, k, v in P]
+    x["div_pending_vnd"] = round(div_new)
+    return x
+
+
+def adjust_holdings(holdings: list[dict]) -> list[dict]:
+    return [adjust_holding(h) for h in holdings]
