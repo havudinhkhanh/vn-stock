@@ -1,0 +1,78 @@
+05:28:57 INFO update: Giá: 20/140 lô
+05:29:02 INFO update: Giá: 40/140 lô
+05:29:08 INFO update: Giá: 60/140 lô
+05:29:13 INFO update: Giá: 80/140 lô
+05:29:19 INFO update: Giá: 100/140 lô
+05:29:24 INFO update: Giá: 120/140 lô
+05:29:29 INFO update: Giá: 140/140 lô
+05:29:31 INFO update: Thống kê request: {'VCI': {'ok': 140, 'fail': 0, 'tripped': 0}, 'KBS': {'ok': 1, 'fail': 0, 'tripped': 0}}
+05:29:31 INFO update: Giá: nguồn {'VCI': 1524, 'FAIL': 1}, tổng 3732546 dòng
+05:29:31 INFO update: Tải BCTC cho 425 mã
+05:31:24 INFO update: BCTC: 100/425 mã ({'VCI': 100})
+05:33:15 INFO update: BCTC: 200/425 mã ({'VCI': 199, 'KBS': 1})
+05:35:06 INFO update: BCTC: 300/425 mã ({'VCI': 299, 'KBS': 1})
+05:36:56 INFO update: BCTC: 400/425 mã ({'VCI': 399, 'KBS': 1})
+05:37:22 INFO update: BCTC xong: {'VCI': 424, 'KBS': 1} · request: {'VCI': {'ok': 1846, 'fail': 0, 'tripped': 0}, 'KBS': {'ok': 7, 'fail': 0, 'tripped': 0}}
+05:37:22 INFO update: Bỏ qua dòng lệnh: chưa hết phiên hoặc hôm nay không giao dịch
+05:38:34 INFO update: Dữ liệu trong phiên: {'m_ok': 219, 'h_backfill': 7, 'sec': 71}
+05:38:41 INFO update: Tin tức: 28 tin gắn mã (lưu 347)
+05:39:25 WARNING urllib3.connectionpool: Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=ASM&fromDate=20190924&toDate=20200421&page=2&size=100
+05:39:25 WARNING urllib3.connectionpool: Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=IDI&fromDate=20190924&toDate=20200420&page=1&size=100
+05:39:25 WARNING urllib3.connectionpool: Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=CTR&fromDate=20190920&toDate=20200419&page=0&size=100
+05:39:25 WARNING urllib3.connectionpool: Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=AAV&fromDate=20190924&toDate=20200818&page=3&size=100
+05:39:57 WARNING urllib3.connectionpool: Retrying (Retry(total=1, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=ASM&fromDate=20190924&toDate=20200421&page=2&size=100
+05:39:57 WARNING urllib3.connectionpool: Retrying (Retry(total=1, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=IDI&fromDate=20190924&toDate=20200420&page=1&size=100
+05:39:58 WARNING urllib3.connectionpool: Retrying (Retry(total=1, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=CTR&fromDate=20190920&toDate=20200419&page=0&size=100
+05:39:58 WARNING urllib3.connectionpool: Retrying (Retry(total=1, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=AAV&fromDate=20190924&toDate=20200818&page=3&size=100
+05:40:33 WARNING urllib3.connectionpool: Retrying (Retry(total=0, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=ASM&fromDate=20190924&toDate=20200421&page=2&size=100
+05:40:33 WARNING urllib3.connectionpool: Retrying (Retry(total=0, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=IDI&fromDate=20190924&toDate=20200420&page=1&size=100
+05:40:33 WARNING urllib3.connectionpool: Retrying (Retry(total=0, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=CTR&fromDate=20190920&toDate=20200419&page=0&size=100
+05:40:39 WARNING urllib3.connectionpool: Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=VHC&fromDate=20190911&toDate=20200420&page=0&size=100
+05:41:12 WARNING urllib3.connectionpool: Retrying (Retry(total=1, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=VHC&fromDate=20190911&toDate=20200420&page=0&size=100
+05:41:34 WARNING urllib3.connectionpool: Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=DXG&fromDate=20190910&toDate=20200420&page=0&size=100
+05:41:34 WARNING urllib3.connectionpool: Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=FCN&fromDate=20190910&toDate=20200419&page=0&size=100
+05:41:35 WARNING urllib3.connectionpool: Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=HBC&fromDate=20190910&toDate=20200420&page=0&size=100
+05:41:47 WARNING urllib3.connectionpool: Retrying (Retry(total=0, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=VHC&fromDate=20190911&toDate=20200420&page=0&size=100
+05:42:07 WARNING urllib3.connectionpool: Retrying (Retry(total=1, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=DXG&fromDate=20190910&toDate=20200420&page=0&size=100
+05:42:07 WARNING urllib3.connectionpool: Retrying (Retry(total=1, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=FCN&fromDate=20190910&toDate=20200419&page=0&size=100
+05:42:07 WARNING urllib3.connectionpool: Retrying (Retry(total=1, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=HBC&fromDate=20190910&toDate=20200420&page=0&size=100
+05:42:42 WARNING urllib3.connectionpool: Retrying (Retry(total=0, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=FCN&fromDate=20190910&toDate=20200419&page=0&size=100
+05:42:42 WARNING urllib3.connectionpool: Retrying (Retry(total=0, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=DXG&fromDate=20190910&toDate=20200420&page=0&size=100
+05:42:42 WARNING urllib3.connectionpool: Retrying (Retry(total=0, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=HBC&fromDate=20190910&toDate=20200420&page=0&size=100
+05:42:48 WARNING urllib3.connectionpool: Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=PVX&fromDate=20190910&toDate=20200413&page=0&size=100
+05:43:20 WARNING urllib3.connectionpool: Retrying (Retry(total=1, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=PVX&fromDate=20190910&toDate=20200413&page=0&size=100
+05:43:43 WARNING urllib3.connectionpool: Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=BCM&fromDate=20190907&toDate=20200413&page=0&size=100
+05:43:55 WARNING urllib3.connectionpool: Retrying (Retry(total=0, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=PVX&fromDate=20190910&toDate=20200413&page=0&size=100
+05:44:16 WARNING urllib3.connectionpool: Retrying (Retry(total=1, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=BCM&fromDate=20190907&toDate=20200413&page=0&size=100
+05:44:51 WARNING urllib3.connectionpool: Retrying (Retry(total=0, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read timeout=30)")': /api/iq-insight-service/v1/news?ticker=BCM&fromDate=20190907&toDate=20200413&page=0&size=100
+05:45:22 INFO news_hist: Tin lịch sử quanh sự kiện: 25/180 đợt, 4386 tin mới (396s)
+05:46:10 WARNING http: VCI_EVENTS lỗi 6 lần liên tiếp – tạm ngắt 240s
+05:46:26 INFO update: Số cổ phiếu hiện tại: {'fail': 120}
+05:46:26 INFO update: Cổ tức: {'FAIL': 1, 'SKIP': 119} · còn 367 mã chưa có lịch sử (sẽ tải dần ở các lần sau) · request: {'VCI': {'ok': 2133, 'fail': 9, 'tripped': 0, 'last_error': "VCI https://iq.vietcap.com.vn/api/iq-insight-service/v1/news: HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Max retries exceeded with url: /api/iq-in"}, 'KBS': {'ok': 7, 'fail': 0, 'tripped': 0}, 'VCI_EVENTS': {'ok': 0, 'fail': 7, 'tripped': 1, 'last_error': "VCI_EVENTS https://iq.vietcap.com.vn/api/iq-insight-service/v1/company/details: HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read t"}}
+05:46:26 INFO update: Số cổ phiếu hiện tại: {'fail': 40}
+05:46:26 INFO update: Cổ tức: {'FAIL': 1, 'SKIP': 39} · còn 978 mã chưa có lịch sử (sẽ tải dần ở các lần sau) · request: {'VCI': {'ok': 2133, 'fail': 9, 'tripped': 0, 'last_error': "VCI https://iq.vietcap.com.vn/api/iq-insight-service/v1/news: HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Max retries exceeded with url: /api/iq-in"}, 'KBS': {'ok': 7, 'fail': 0, 'tripped': 0}, 'VCI_EVENTS': {'ok': 0, 'fail': 7, 'tripped': 1, 'last_error': "VCI_EVENTS https://iq.vietcap.com.vn/api/iq-insight-service/v1/company/details: HTTPSConnectionPool(host='iq.vietcap.com.vn', port=443): Read timed out. (read t"}}
+05:46:26 INFO update: BCTC mã ít giao dịch: đã đủ (981 mã)
+05:46:27 INFO build: Nhiều người dùng: 3 tài khoản đang hoạt động (quản trị: havudinhkhanh@gmail.com)
+05:46:48 INFO build: Phân tích 1520 mã (350 mã phân tích sâu)
+05:47:31 INFO build:   200/1520 mã
+05:48:15 INFO build:   400/1520 mã
+05:49:00 INFO build:   600/1520 mã
+05:49:44 INFO build:   800/1520 mã
+05:50:28 INFO build:   1000/1520 mã
+05:51:11 INFO build:   1200/1520 mã
+05:51:55 INFO build:   1400/1520 mã
+05:52:23 INFO build: Mâm so sánh: 71 nhóm ({'sub': np.int64(878), 'manual': np.int64(480), 'rule': np.int64(158)})
+05:53:02 INFO build: Điểm tương lai / quá khứ + kiểm định trọng số…
+05:54:05 INFO build: Hành vi giá: biên độ, đảo chiều, kiểu tay chơi…
+05:54:06 INFO swing: Hành vi giá: 272 mã, nến ngày 2014-01-02 → 2026-10-16
+05:54:12 INFO swing: Dòng tiền lớn: {'acc': 8, 'dist': 8, 'brk': 7, 'n': 218} · tâm lý 28.0 (Thận trọng)
+05:54:13 INFO swing: Hành vi giá: 267 mã trong bảng, 53 tín hiệu hôm nay, kiểm chứng {'ic_vol': 0.375, 't_vol': 36.5, 'ic_ret': -0.022, 't_ret': -1.5}
+05:54:13 INFO build: Mã liên quan: đồng pha, dẫn dắt, chiến thuật…
+05:54:15 INFO pairs: Mã liên quan: 195 mã đủ thanh khoản
+05:54:15 INFO pairs: Mã liên quan: 182 mã có danh sách đồng pha, 2 cặp dẫn dắt qua kiểm chứng (kỳ vọng sai 0.6)
+05:54:16 INFO digest: Bản tin thị trường 2026-10-16: VN-Index tăng 0,45% về 1.705,91 điểm, thanh khoản 10,8 nghìn tỷ (thấp hơn TB 20 phiên -21%).
+05:54:17 INFO blog: Bản tin công khai: 6 bài, 1 trang mục lục
+05:54:17 INFO build: Báo cáo tuần 2026-10-12 → 2026-10-16
+05:54:19 INFO personal: Người dùng: {'users': 3, 'new': 0, 'push': 0, 'email': 0}
+05:56:10 INFO build: Xuất xong 1516 mã, 1398 trang chi tiết trong 583s
+05:56:10 INFO notify: Telegram: không có việc cần làm, không gửi.
