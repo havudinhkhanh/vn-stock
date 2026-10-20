@@ -895,6 +895,18 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         rel_by = pab.run(prices[~prices["symbol"].isin(INDEX_SYMS)], listing, u, idx["close"], out_dir, held_all, wl_syms, pick_syms, cfg, sw_per)
     except Exception as e:  # noqa: BLE001
         log.exception("Mã liên quan lỗi: %s", e)
+    # ------------------------------------------------------------ tin có tác động (pháp lý, nợ, niêm yết, điều tra…) 3 ngày gần nhất
+    try:
+        _nw0 = store.read("news")
+        if not _nw0.empty and "sev" in _nw0:
+            _nw0["time"] = pd.to_datetime(_nw0["time"])
+            _m = _nw0[(pd.to_numeric(_nw0["sev"], errors="coerce").fillna(0) >= 2) & (_nw0["time"] >= pd.Timestamp.now() - pd.Timedelta(days=3))]
+            _m = _m.sort_values("time", ascending=False)
+            today["news_alerts"] = [{"symbol": x.symbol, "t": pd.Timestamp(x.time).strftime("%Y-%m-%d %H:%M"), "title": x.title, "link": x.link, "src": x.src,
+                                     "tag": x.tag, "sign": int(x.sign or 0)} for x in _m.head(80).itertuples()]
+            log.info("Tin có tác động 3 ngày: %d tin (%s)", len(today["news_alerts"]), ", ".join(sorted({x["symbol"] for x in today["news_alerts"]}))[:300])
+    except Exception as e:  # noqa: BLE001
+        log.warning("Tin có tác động lỗi: %s", e)
     # ------------------------------------------------------------ bản tin thị trường (chung)
     try:
         from . import digest as dg_
@@ -1001,6 +1013,19 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             return float(x.median() * 100) if len(x) >= 3 else None
         return f, name
 
+    def _news_of(s_):
+        """Tin 45 ngày gần nhất của mã (nhiều nguồn) – tin 'có tác động' đánh dấu lên biểu đồ như một sự kiện."""
+        src = news_all.get(s_)
+        if src is None or src.empty:
+            return []
+        m = src[src["time"] >= pd.Timestamp(last_date) - pd.Timedelta(days=45)].sort_values("time", ascending=False)
+        out = []
+        for x in m.head(40).itertuples():
+            out.append({"t": pd.Timestamp(x.time).strftime("%Y-%m-%d %H:%M"), "title": x.title, "link": getattr(x, "link", None), "src": getattr(x, "src", None),
+                        "tag": getattr(x, "tag", None) if isinstance(getattr(x, "tag", None), str) else None,
+                        "sev": int(getattr(x, "sev", 0) or 0), "sign": int(getattr(x, "sign", 0) or 0)})
+        return out
+
     def _evh_full(s_, r_, d_):
         H = _evh(d_["df"]["close"], idx["close"])
         if not H:
@@ -1057,6 +1082,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
                       for x in dv_by[s].sort_values("ex_date").itertuples() if pd.Timestamp(x.ex_date) >= pd.Timestamp(last_date) - pd.Timedelta(days=5 * 365)]
                      if s in dv_by else []),
             "ev_hist": _evh_full(s, r, d),
+            "news": _news_of(s),
             "peers": {"cols": ["symbol", "price", "mcap_bn", "pe", "pb", "roe", "ni_yoy", "rev_yoy", "de",
                                "fscore", "div_yield", "upside", "composite"], "rows": peer_rows,
                       "median": {k: r.get(f"{k}_ind_med") for k in fu.PEER_METRICS},

@@ -481,23 +481,57 @@ def update_intraday(symbols: list[str], focus: list[str], budget_sec: float = 42
     return dict(stats)
 
 
-def update_news(symbols: list[str]) -> None:
-    from . import intraday as itd
+def news_focus(prices: pd.DataFrame, syms: list[str], top: int = 40) -> list[str]:
+    """Mã cần tìm tin kỹ (Google News, CBTT): mã mọi người đang nắm / theo dõi + mã thanh khoản lớn nhất."""
+    foc = list(focus_symbols())
     try:
-        df = itd.news(set(symbols))
+        from .. import users as users_
+        be = users_.backend()
+        U = users_.load(be) if be else None
+        for u in U or []:
+            d = u.get("data") or {}
+            foc += [str(h.get("symbol", "")).upper() for h in ((d.get("portfolio") or {}).get("holdings") or []) if isinstance(h, dict)]
+            foc += [str(w.get("symbol", "")).upper() for w in ((d.get("watchlist") or {}).get("items") or []) if isinstance(w, dict)]
+    except Exception as e:  # noqa: BLE001
+        log.debug("Mã theo dõi của người dùng: %s", e)
+    rec = prices[prices["date"] >= prices["date"].max() - timedelta(days=30)]
+    val = (rec["close"] * rec["volume"]).groupby(rec["symbol"]).mean().sort_values(ascending=False)
+    ss = set(syms)
+    big = [s for s in val.index if s in ss][:top]
+    return [s for s in dict.fromkeys(foc + big) if s in ss]
+
+
+def update_news(symbols: list[str], focus: list[str] | None = None) -> None:
+    from . import newsfeed as nfd
+    from . import news_hist as nh
+    focus = focus or []
+    try:
+        df, stats = nfd.fetch(set(symbols), focus)
     except Exception as e:  # noqa: BLE001
         log.warning("Tin tức lỗi: %s", e)
-        return
+        df, stats = pd.DataFrame(), {}
+    # công bố thông tin chính thức (Vietcap IQ) cho nhóm mã quan trọng, 3 ngày gần nhất
+    cb, t0 = [], time.time()
+    d1 = pd.Timestamp.now().normalize() + pd.Timedelta(days=1)
+    for s in focus[:60]:
+        if time.time() - t0 > 90:
+            break
+        try:
+            for x in nh.fetch(s, d1 - pd.Timedelta(days=4), d1, max_pages=1):
+                tag, sign, sev = nfd.classify(x["title"])
+                cb.append({**x, "src": "Công bố thông tin", "tag": tag, "sign": sign, "sev": sev})
+        except Exception:  # noqa: BLE001
+            continue
+    stats["Công bố thông tin (Vietcap)"] = len(cb)
+    if cb:
+        df = pd.concat([df, pd.DataFrame(cb)], ignore_index=True)
+    log.info("Tin tức theo nguồn: %s", {k: v for k, v in sorted(stats.items(), key=lambda kv: -kv[1])})
     if df.empty:
         log.info("Tin tức: không có tin nhắc mã nào")
         return
-    old = store.read("news")
-    df = pd.concat([old, df], ignore_index=True) if not old.empty else df
-    df["time"] = pd.to_datetime(df["time"])
-    df = df.drop_duplicates(["symbol", "link"], keep="first")
-    df = df[df["time"] >= pd.Timestamp.now() - pd.Timedelta(days=180)]
-    store.write("news", df.sort_values("time").reset_index(drop=True))
-    log.info("Tin tức: %d tin gắn mã (lưu %d)", int(df["time"].ge(pd.Timestamp.now() - pd.Timedelta(days=1)).sum()), len(df))
+    df = nfd.save(df)
+    recent = df[df["time"] >= pd.Timestamp.now() - pd.Timedelta(days=1)]
+    log.info("Tin tức: %d tin gắn mã 24h qua (%d tin có tác động), lưu %d", len(recent), int((recent["sev"] >= 2).sum()), len(df))
 
 
 def focus_symbols() -> list[str]:
@@ -669,7 +703,7 @@ def run(force_fin: bool = False, only: list[str] | None = None) -> None:
         except Exception as e:  # noqa: BLE001
             log.warning("Rổ chỉ số / ETF lỗi: %s", e)
     try:
-        update_news(syms)
+        update_news(syms, news_focus(prices, syms) if not only else [s for s in syms if s in only])
     except Exception as e:  # noqa: BLE001
         log.warning("Tin tức lỗi: %s", e)
     try:

@@ -30,6 +30,11 @@ from .data import store, vci
 from .data.http import FetchError
 from .analysis.exits import exit_msg
 
+
+def _nh(t: str) -> str:   # cùng cách băm tiêu đề với notify._h để không báo trùng
+    import hashlib
+    return hashlib.sha1(str(t).encode("utf-8")).hexdigest()[:10]
+
 log = logging.getLogger("live")
 VN = ZoneInfo("Asia/Ho_Chi_Minh")
 B_END = [9 * 60 + 30, 10 * 60, 10 * 60 + 30, 11 * 60, 11 * 60 + 30, 13 * 60 + 30, 14 * 60, 14 * 60 + 30, 14 * 60 + 45]
@@ -216,8 +221,27 @@ def run(notify: bool = True, slot: str | None = None) -> dict:
             if slot == "noon" and r.get("m_ret") is not None and "pump_am" not in r["flags"] and r["m_ret"] >= 1.5 and (c.get("p_fade") or 0) >= 55 and (c.get("n_up") or 0) >= 10:
                 r["flags"].append("pump_am")
 
+    # ---- tin có tác động (pháp lý, nợ, niêm yết, điều tra…) của mã đang nắm / theo dõi – báo ngay trong phiên
+    news_hot = []
+    try:
+        from .data import newsfeed as nfd
+        foc = list(dict.fromkeys(list(held) + list(wl) + extra))[:80]
+        if foc:
+            ndf, nst = nfd.fetch(set(foc), foc[:25], workers=8, budget_sec=70)
+            if not ndf.empty:
+                nfd.save(ndf)
+                hot = ndf[(ndf["sev"] >= 2) & (pd.to_datetime(ndf["time"]) >= pd.Timestamp.now() - pd.Timedelta(hours=36))]
+                news_hot = [{"symbol": x.symbol, "title": x.title, "src": x.src, "tag": x.tag, "link": x.link, "key": f"news:{x.symbol}:{_nh(x.title)}"} for x in hot.itertuples()]
+            log.info("Tin trong phiên: %d nguồn có tin, %d tin có tác động (%s)", sum(1 for v in nst.values() if v), len(news_hot),
+                     ", ".join(sorted({x["symbol"] for x in news_hot})))
+    except Exception as e:  # noqa: BLE001
+        log.warning("Tin trong phiên lỗi: %s", e)
+
+    def news_items(hx: dict, wx: dict) -> list[dict]:
+        return [{"kind": "news", **x, "own": "đang nắm" if x["symbol"] in hx else "đang theo dõi"} for x in news_hot if x["symbol"] in hx or x["symbol"] in wx]
+
     # ---- việc của anh (chủ sở hữu) và của từng người dùng
-    personal = items_for(rows, held, (ctx.get("holdings") or {}), wl, picks)
+    personal = items_for(rows, held, (ctx.get("holdings") or {}), wl, picks) + news_items(held, wl)
     if U is not None:
         personal = []
         cfgD = users_.config(be)
@@ -230,8 +254,15 @@ def run(notify: bool = True, slot: str | None = None) -> dict:
                 st_ = ux.get("style") or act
                 px_ = {p["symbol"]: p for p in allpicks if p.get("style") == st_}
                 its = items_for(rows, hx, ux.get("holdings") or {}, wx, px_)
+                ns_ = (x["data"].get("_nstate") or {})
+                nsent = set(ns_.get("news_sent") or [])
+                nits = [n for n in news_items(hx, wx) if n["key"] not in nsent]
+                its = its + nits
                 users_.save(be, x["id"], "_live", {"date": today, "at": now.isoformat(timespec="minutes"), "slot": slot, "items": its})
                 notes = live_notes(its, rows, S, today, x["features"])
+                if nits:   # ghi lại để lượt đóng cửa không báo lại
+                    ns_["news_sent"] = list(dict.fromkeys(list(nsent) + [n["key"] for n in nits]))[-300:]
+                    users_.save(be, x["id"], "_nstate", ns_)
                 r_ = users_.deliver(be, cfgD, x, notes, f"VN-Stock trong phiên {now.strftime('%H:%M')}: " + (notes[0]["title"] if len(notes) == 1 else f"{len(notes)} việc mới"))
                 nstat["users"] += 1
                 nstat["new"] += r_.get("new", 0)
@@ -360,6 +391,9 @@ def live_notes(items: list[dict], rows: dict, S: dict, today: str, feats: set) -
             out.append({"kind": "flag", "key": f"{today}:{p['key']}", "sev": 1 if p.get("held") else 0, "sym": s, "url": "#/swing/live",
                         "title": f"{s}{'' if p.get('held') else ' (theo dõi)'} {_v(r.get('chg'), 1)}%: biến động bất thường",
                         "body": flag_text(s, r, S.get(s) or {}) + (f". {adv}" if adv else "")})
+        elif p["kind"] == "news":
+            out.append({"kind": "news", "key": f"{today}:{p['key']}", "sev": 2, "sym": s, "url": f"#/s/{s}/news",
+                        "title": f"{s}: {p.get('tag') or 'tin quan trọng'}", "body": f"{p['title']} ({p.get('src') or ''}). Xem lại kế hoạch với mã {p.get('own') or ''}."})
         elif p["kind"] == "pick_in":
             out.append({"kind": "pick_in", "key": f"{today}:{p['key']}", "sev": 1, "sym": s, "url": f"#/s/{s}",
                         "title": f"{s} vào vùng mua {_v(p['zone'][0])}–{_v(p['zone'][1])}", "body": f"Giá {_v(p['px'])}, dừng lỗ {_v(p.get('stop'))}"})
@@ -446,6 +480,11 @@ def send(out: dict, ctx: dict, held: dict) -> bool:
                 lines.append(f"• <b>{p['symbol']}</b> đang trong vùng mua {_v(p['zone'][0])}–{_v(p['zone'][1])} (giá {_v(p['px'])}), dừng lỗ {_v(p.get('stop'))}")
             else:
                 lines.append(f"• <b>{p['symbol']}</b> {_v(p['px'])} đã vượt {_v(p['chase'])} – không mua đuổi, chờ về vùng {_v(p['zone'][0])}–{_v(p['zone'][1])}")
+    nw = [p for p in out["personal"] if p["kind"] == "news" and p["key"] not in sent]
+    if nw:
+        lines.append("<b>📰 TIN QUAN TRỌNG (mã của anh)</b>")
+        for p in nw:
+            lines.append(f"• <b>{p['symbol']}</b> ({p.get('own')}) – <b>{html.escape(p.get('tag') or '')}</b>: {html.escape(p['title'])} <i>({html.escape(p.get('src') or '')})</i>")
     mk = [m for m in out["market"] if m["sev"] >= 3 and f"mkt:{m['s']}:{','.join(sorted(m['flags']))}" not in sent][:5]
     if mk and lines:
         lines.append("<b>⚠️ BẤT THƯỜNG TRÊN THỊ TRƯỜNG</b>")
@@ -454,7 +493,7 @@ def send(out: dict, ctx: dict, held: dict) -> bool:
             lines.append(f"• <b>{m['s']}</b> {_v(r.get('chg'), 1)}%: {html.escape(flag_text(m['s'], r, S.get(m['s']) or {}))}")
     for p in ex_new:
         sent.add(p["key"] + (":hit" if p["hit"] else ":near"))
-    for p in fl + al + pk:
+    for p in fl + al + pk + nw:
         sent.add(p["key"])
     for m in mk:
         sent.add(f"mkt:{m['s']}:{','.join(sorted(m['flags']))}")

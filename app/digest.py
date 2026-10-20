@@ -106,8 +106,14 @@ def build(out_dir, u: pd.DataFrame, today: dict, market: dict, idx: pd.DataFrame
         nw = store.read("news")
         if not nw.empty:
             nw["time"] = pd.to_datetime(nw["time"])
-            nw = nw[nw["time"] >= pd.Timestamp(last_date) - pd.Timedelta(days=1)].sort_values("time", ascending=False).drop_duplicates("title")
-            news = [{"t": x.time.strftime("%Y-%m-%d %H:%M"), "title": x.title, "link": x.link, "src": x.src, "s": x.symbol} for x in nw.head(10).itertuples()]
+            nw = nw[nw["time"] >= pd.Timestamp(last_date) - pd.Timedelta(days=1)].copy()
+            nw["sev"] = pd.to_numeric(nw["sev"], errors="coerce").fillna(0) if "sev" in nw else 0
+            nw["sign"] = pd.to_numeric(nw["sign"], errors="coerce").fillna(0) if "sign" in nw else 0
+            liq_ = set(u.index[pd.to_numeric(u["avg_value_bn"], errors="coerce").fillna(0) >= 1]) if "avg_value_bn" in u else set(u.index)
+            nw = nw[nw["symbol"].isin(liq_) | (nw["sev"] >= 2)]
+            nw = nw.sort_values(["sev", "time"], ascending=[False, False]).drop_duplicates("title")
+            news = [{"t": x.time.strftime("%Y-%m-%d %H:%M"), "title": x.title, "link": x.link, "src": x.src, "s": x.symbol,
+                     "tag": x.tag if isinstance(getattr(x, "tag", None), str) else None, "sev": int(x.sev), "sign": int(x.sign)} for x in nw.head(30).itertuples()]
     except Exception as e:  # noqa: BLE001
         log.warning("Tin tức cho bản tin: %s", e)
     vn = ix.get("VNINDEX") or {}

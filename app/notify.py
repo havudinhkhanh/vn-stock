@@ -24,7 +24,7 @@ LIGHT_TXT = {"green": "XANH", "yellow": "VÀNG", "red": "ĐỎ"}
 BASKET_VI = {"swing": "Lướt sóng", "long": "Dài hạn", "income": "Cổ tức", "garp": "GARP", "dividend": "Cổ tức", "value": "Giá trị", "defensive": "Phòng thủ",
              "growth": "Tăng trưởng"}
 GROUPS = {"light": None, "pick_new": "🛒 MUA MỚI", "pick_out": None, "act": "📌 DANH MỤC CỦA ANH", "near": "⏳ GẦN MỨC THOÁT – chưa chạm, chưa cần bán", "warn": None,
-          "alert": "🔔 CẢNH BÁO GIÁ", "event": "⚡ CÓ SỰ KIỆN (mã của anh)", "event_ok": "🎯 SAU SỰ KIỆN – ĐIỂM VÀO (mã của anh)", "event_new": "🎯 CƠ HỘI SAU SỰ KIỆN", "flow": "🐋 DÒNG TIỀN LỚN (mã của anh)", "rel": "🔗 MÃ LIÊN QUAN (mã của anh)"}
+          "alert": "🔔 CẢNH BÁO GIÁ", "event": "⚡ CÓ SỰ KIỆN (mã của anh)", "event_ok": "🎯 SAU SỰ KIỆN – ĐIỂM VÀO (mã của anh)", "event_new": "🎯 CƠ HỘI SAU SỰ KIỆN", "flow": "🐋 DÒNG TIỀN LỚN (mã của anh)", "rel": "🔗 MÃ LIÊN QUAN (mã của anh)", "news": "📰 TIN QUAN TRỌNG (mã của anh)"}
 FEATURE_OF = {"pick_new": "today", "pick_out": "today", "flow": "flow", "rel": "pairs", "event_new": "today"}
 VI_FLOW = {"dist": "XẢ âm thầm", "acc": "GOM âm thầm", "brk": "BỨT PHÁ có KL", "acc_brk": "GOM rồi BỨT PHÁ"}
 
@@ -167,10 +167,25 @@ def collect(today: dict, prev: dict, *, live_sent: set | None = None, mine: set 
         kind = "event_ok" if mine_x else "event_new"
         add(kind, f"pe:{x['symbol']}:{x['start']}", 2 if (mine_x and x.get("quality")) else 1,
             f"• <b>{x['symbol']}</b>: SAU SỰ KIỆN – {html.escape(txt)}", f"{x['symbol']}: điểm vào sau sự kiện", txt, sym=x["symbol"], url=f"#/s/{x['symbol']}/ev-{x['start']}")
+    # tin có tác động (pháp lý, nợ, niêm yết, điều tra…) của mã đang nắm / theo dõi
+    held_syms = {p["symbol"] for p in pfo.get("positions", [])}
+    nw_prev = set(prev.get("news_sent", []))
+    nw_now = []
+    for x in today.get("news_alerts") or []:
+        if x["symbol"] not in (mine | held_syms):
+            continue
+        key = f"news:{x['symbol']}:{_h(x['title'])}"
+        nw_now.append(key)
+        if key in nw_prev or key in live_sent:
+            continue
+        own = "đang nắm" if x["symbol"] in held_syms else "đang theo dõi"
+        add("news", key, 2, f"• <b>{x['symbol']}</b> ({own}) – <b>{html.escape(x.get('tag') or 'Tin quan trọng')}</b>: {html.escape(x['title'])} <i>({html.escape(x.get('src') or '')})</i>",
+            f"{x['symbol']}: {x.get('tag') or 'tin quan trọng'}", f"{x['title']} ({x.get('src') or ''}). Xem lại kế hoạch với mã {own}.", sym=x["symbol"], url=f"#/s/{x['symbol']}/news")
     sent_ids = list(sent | {a["id"] for a in today.get("alerts") or []})[-500:]
     state = {"light": reg["light"], "picks": cur_syms if (feats is None or "today" in feats) else prev.get("picks", []),
              "acts": {p["symbol"]: p["action"] for p in acts}, "warnings": pfo.get("warnings", []), "alerts_sent": sent_ids,
-             "near_sent": list(near_now), "flow_sent": flow_now, "rel_sent": rel_now, "ev_sent": ev_now, "pe_sent": pe_now}
+             "near_sent": list(near_now), "flow_sent": flow_now, "rel_sent": rel_now, "ev_sent": ev_now, "pe_sent": pe_now,
+             "news_sent": list(dict.fromkeys(list(nw_prev) + nw_now))[-300:]}
     return items, state
 
 

@@ -2484,7 +2484,8 @@ async function viewStock(sym, tabArg) {
       ${isNum(last) && last < 5 ? '<span class="pill" title="Giá dưới 5.000đ">Penny</span>' : ""}</div>
     <div style="flex-basis:100%">${actBar(sym, { label: true, held })}</div>
   </div>
-  <div class="subtabs stick" role="tablist" id="stabs"><span class="stk-id" aria-hidden="true"><a href="#/s/${sym}" onclick="scrollTo({top:0});return false">${sym}</a><b>${nf(last)}</b><b class="${cls(chg)}">${pct(chg, 1)}</b><small>${esc(d.row?.peer_label || d.industry || "")}</small></span>${[["ov", "Tổng quan"], ["vl", "Dự phóng & định giá"], ["rp", "Báo cáo phân tích"], ["fa", "Cơ bản"], ["ta", "Kỹ thuật"], ["wv", "Sóng & mô hình"], ["sm", "Tạo lập & dòng tiền"], ["pe", "Cùng ngành"]]
+  ${newsAlert(d)}
+  <div class="subtabs stick" role="tablist" id="stabs"><span class="stk-id" aria-hidden="true"><a href="#/s/${sym}" onclick="scrollTo({top:0});return false">${sym}</a><b>${nf(last)}</b><b class="${cls(chg)}">${pct(chg, 1)}</b><small>${esc(d.row?.peer_label || d.industry || "")}</small></span>${[["ov", "Tổng quan"], ["vl", "Dự phóng & định giá"], ["rp", "Báo cáo phân tích"], ["fa", "Cơ bản"], ["ta", "Kỹ thuật"], ["wv", "Sóng & mô hình"], ["sm", "Tạo lập & dòng tiền"], ["pe", "Cùng ngành"], ["news", "Tin tức"]]
     .map(([k, n]) => `<button role="tab" data-t="${k}">${n}</button>`).join("")}</div>
   ${(() => { const C = ctxRecs(secs || {}, d.sector, d.industry), pm = d.peers?.median, M = C.mkt || {}, pe0 = fa.pe ?? r.pe, pb0 = fa.pb ?? r.pb;
     const b = pm && (isNum(pm.pe) || isNum(pm.pb)) ? { pe_med: pm.pe, pb_med: pm.pb } : C.ind || C.sec || {};
@@ -2617,6 +2618,10 @@ async function viewStock(sym, tabArg) {
     if (L.wy && wy2.ok) (wy2.events || []).forEach((x) => add(x.date, ["SC", "ST", "Spring", "LPS", "SOS"].includes(x.event) ? "belowBar" : "aboveBar", css("--brand"), "circle", x.event));
     if (L.tr) myTrades.forEach((x) => add(x.date, x.side === "buy" ? "belowBar" : "aboveBar", x.side === "buy" ? (css("--brass") || css("--brand")) : css("--ink"), x.side === "buy" ? "arrowUp" : "arrowDown", `${x.side === "buy" ? "Mua" : "Bán"} ${nf(x.qty, 0)}`));
     if (L.dv) (d.divs || []).forEach((x) => add(x.d, "aboveBar", css("--ref"), "circle", x.t === "cash" ? `CT ${nf(x.v, 0)}đ` : `CP ${nf(x.v, 0)}%`));
+    if (L.ev) (d.news || []).filter((n) => n.sev >= 2 || (n.sev >= 1 && n.sign)).forEach((n) => {   // tin có tác động = sự kiện
+      const dd = n.t.slice(0, 10), T = d.ohlc.t, i = T.findIndex((x) => x >= dd);
+      if (i >= 0) add(T[i], n.sign > 0 ? "belowBar" : "aboveBar", n.sign > 0 ? css("--up") : n.sign < 0 ? css("--down") : css("--ref"), n.sign > 0 ? "arrowUp" : "arrowDown", "📰 " + (n.tag || "Tin").split(" – ")[0]);
+    });
     if (L.ev) EVH.forEach((e) => {
       add(e.start, "aboveBar", css("--down"), "arrowDown", "⚡ Sự kiện");
       if (e.low_date !== e.start) add(e.low_date, "belowBar", css("--ink-3"), "circle", `Đáy ${pct(e.dd_low, 0)}`);
@@ -2665,7 +2670,7 @@ async function viewStock(sym, tabArg) {
 
   // ---- các tab
   const tabs = { ov: () => "", ta: tabTech, wv: (x) => `<div class="g g2"><section class="panel">${wavesBlock(x.waves)}</section><section class="panel"><div class="ph"><h2>Mức giá quan trọng</h2></div>${levelsKv(x.waves)}</section></div>`,
-    sm: tabSmart, fa: tabFund, vl: tabVal, rp: tabReport, pe: tabPeers };
+    sm: tabSmart, fa: tabFund, vl: tabVal, rp: tabReport, pe: tabPeers, news: tabNews };
   const show = (k, jump) => {
     $$(".subtabs button").forEach((b) => b.classList.toggle("on", b.dataset.t === k));
     if (LS) { LS.grid.classList.toggle("onlychart", ["ta", "wv", "sm"].includes(k)); LS.grid.hidden = !["ov", "ta", "wv", "sm"].includes(k); LS.bar.hidden = k !== "ov"; }
@@ -3920,7 +3925,7 @@ function sigCard(x, mine) {
     <p>${esc(x.meaning || "")}</p>
     ${hist ? `<ul class="sgl">${hist}</ul>` : ""}
     <p class="adv"><b>Nên làm:</b> ${esc(x.advice || "")}</p>
-    ${(x.news || []).length ? `<div class="nws">${x.news.map((n) => `<a href="${esc(n.link)}" target="_blank" rel="noopener">📰 ${esc(n.title)}</a> <small class="faint">${esc(n.t)} · ${esc(n.src)}</small>`).join("<br>")}</div>` : `<small class="faint">Không thấy tin nào nhắc mã này trong 3 ngày (CafeF, VnExpress) – có thể là dòng tiền chứ không phải thông tin.</small>`}
+    ${(x.news || []).length ? `<div class="nws">${x.news.map((n) => `<a href="${esc(n.link)}" target="_blank" rel="noopener">📰 ${esc(n.title)}</a> <small class="faint">${esc(n.t)} · ${esc(n.src)}</small>`).join("<br>")}</div>` : `<small class="faint">Không thấy tin nào nhắc mã này trong 3 ngày (đã quét CafeF, Vietstock, VnExpress, Google News…) – có thể là dòng tiền chứ không phải thông tin.</small>`}
   </div>`;
 }
 
@@ -3964,6 +3969,29 @@ function eventsPanel(t) {
     ${A.length ? `<details style="margin-top:6px"><summary>⚡ Đang có sự kiện – chưa vào (${A.length} mã)</summary><div class="tw"><table><thead><tr><th class="l">Mã</th><th>Từ</th><th>So với đỉnh trước</th><th>Phiên giảm sàn</th><th>Còn chờ</th></tr></thead><tbody>
       ${A.map((x) => `<tr><td class="l"><a href="#/s/${x.symbol}"><b>${x.symbol}</b></a></td><td>${esc(x.start)}</td><td class="down">${pct(x.dd_now, 0)}</td><td>${x.n_down}</td><td><small>${x.wait_since ? `${x.wait_since} phiên nữa đủ 120` : ""}${x.wait_since && x.wait_quiet ? " · " : ""}${x.wait_quiet ? `${x.wait_quiet} phiên không giảm sàn` : ""}</small></td></tr>`).join("")}</tbody></table></div></details>` : ""}
     <p class="faint" style="font-size:.72rem;margin-top:6px">${EV_NOTE} Mua 1/2 ngay, 1/2 khi chỉnh về vùng dưới; cắt lỗ −15%; nắm 6–12 tháng. Chỉ 23% số đợt quay lại được ≥ 90% đỉnh cũ trong 1 năm – mục tiêu lấy thận trọng.</p></section>`;
+}
+// ---- tin tức nhiều nguồn của mã: tin có tác động (pháp lý, nợ, niêm yết, điều tra…) đứng đầu và được đánh dấu như sự kiện
+function newsRow(n) {
+  const c = n.sign < 0 ? "down" : n.sign > 0 ? "up" : "ref";
+  return `<div class="nwr ${n.sev >= 2 ? "hot" : ""}"><time>${esc((n.t || "").slice(8, 10))}/${esc((n.t || "").slice(5, 7))} ${esc((n.t || "").slice(11, 16))}</time>
+    <div>${n.tag ? `<span class="pill ${c === "down" ? "sell" : c === "up" ? "buy" : ""}">${esc(n.tag)}</span> ` : ""}<a href="${esc(n.link || "#")}" target="_blank" rel="noopener">${esc(n.title)}</a> <small class="faint">${esc(n.src || "")}</small></div></div>`;
+}
+function newsAlert(d) {
+  const H = (d.news || []).filter((n) => n.sev >= 2 && n.t >= new Date(Date.now() - 10 * 864e5).toISOString().slice(0, 10));
+  if (!H.length) return "";
+  const n = H[0];
+  return `<div class="note newsbar ${n.sign < 0 ? "neg" : ""}">📰 <b>Sự kiện tin tức ${esc((n.t || "").slice(8, 10))}/${esc((n.t || "").slice(5, 7))}: ${esc(n.tag || "")}</b> – ${esc(n.title)} <small>(${esc(n.src || "")})</small>${H.length > 1 ? ` <a href="#/s/${d.symbol}/news">+${H.length - 1} tin khác</a>` : ""}
+    <br><small>Giá có thể phản ứng mạnh hơn bình thường – xem lại kế hoạch (dừng lỗ, tỷ trọng) trước khi mua thêm. Số liệu định giá/kỹ thuật chưa phản ánh tin này.</small></div>`;
+}
+function tabNews(d) {
+  const N = d.news || [], hot = N.filter((n) => n.sev >= 2), rest = N.filter((n) => n.sev < 2);
+  const srcs = [...new Set(N.map((n) => n.src).filter(Boolean))];
+  return `<div class="g g-main"><div class="stack">
+    ${hot.length ? `<section class="panel hero"><div class="ph"><h2>Tin có tác động</h2><span class="meta">pháp lý, nợ, niêm yết, điều tra… · đánh dấu 📰 trên biểu đồ</span></div>${hot.map(newsRow).join("")}</section>` : ""}
+    <section class="panel"><div class="ph"><h2>Tin tức ${esc(d.symbol)} – 45 ngày</h2><span class="meta">${N.length} tin · ${srcs.length} nguồn</span></div>
+      ${rest.map(newsRow).join("") || '<p class="muted">Chưa thấy tin nào nhắc mã này.</p>'}</section></div>
+    <div class="stack"><section class="panel"><div class="ph"><h2>Nguồn tin</h2></div><p style="font-size:.8rem">${srcs.map((x) => `<span class="pill">${esc(x)}</span>`).join(" ") || "—"}</p>
+      <p class="faint" style="font-size:.74rem">Quét RSS của CafeF, Vietstock, VnExpress, VnEconomy, Tuổi Trẻ, Thanh Niên, Dân trí, Người Lao Động, ZNews, Tin nhanh CK, VietnamPlus; Google News (tiếng Việt + tiếng Anh cho DN có hoạt động quốc tế) và công bố thông tin của DN. Tin được gắn mã theo mã chứng khoán hoặc tên thương hiệu (Vietjet, Vingroup, Hòa Phát…), phân loại tự động theo từ khoá – có thể sót hoặc nhầm, anh nên mở bài gốc.</p></section></div></div>`;
 }
 function evHistStrip(d) {
   const H = d.ev_hist || [];
@@ -6076,11 +6104,16 @@ async function viewDigest(date, home = false) {
       ["Gom âm thầm", nf(F.count?.acc, 0), "up"], ["Xả âm thầm", nf(F.count?.dist, 0), "down"], ["Bứt phá có KL", nf(F.count?.brk, 0), "up"], ["Phiên bất thường", `${nf(W.n, 0)} <small>${nf(W.neg, 0)} xấu · ${nf(W.pos, 0)} tốt</small>`]], false, "c2")}</section>
   </div>
   <div class="g g3 sec">
-    <section class="panel"><div class="ph"><h2>Ngành</h2><span class="meta">bình quân theo vốn hoá, mã GTGD ≥ 5 tỷ</span></div><div class="tw"><table><thead><tr><th class="l">Ngành</th><th>%</th><th>Tăng/giảm</th><th class="l">Mạnh nhất</th></tr></thead><tbody>
-      ${(D.sectors || []).map((x) => `<tr><td class="l">${esc(x.name)}</td><td class="${cls(x.chg)}">${pct(x.chg)}</td><td><small>${x.up}/${x.down}</small></td><td class="l"><small>${(x.best || []).map(([s, c]) => `${sym(s)} <span class="${cls(c)}">${pct(c, 1)}</span>`).join(" ")}</small></td></tr>`).join("")}</tbody></table></div></section>
+    <section class="panel"><div class="ph"><h2>Ngành</h2><span class="meta">bình quân theo vốn hoá, mã GTGD ≥ 5 tỷ</span></div>${(() => {
+      const L = D.sectors || [], tr = (x) => `<tr><td class="l">${esc(x.name)}</td><td class="${cls(x.chg)}">${pct(x.chg)}</td><td><small>${x.up}/${x.down}</small></td><td class="l"><small>${(x.best || []).slice(0, 2).map(([s, c]) => `${sym(s)} <span class="${cls(c)}">${pct(c, 1)}</span>`).join(" ")}</small></td></tr>`;
+      const th = '<thead><tr><th class="l">Ngành</th><th>%</th><th>Tăng/giảm</th><th class="l">Mạnh nhất</th></tr></thead>';
+      const top = L.slice(0, 8), bot = L.length > 16 ? L.slice(-8) : L.slice(8), mid = L.length > 16 ? L.slice(8, -8) : [];
+      return `<div class="tw"><table class="dgsec">${th}<tbody>${top.map(tr).join("")}${mid.length ? `<tr class="gap"><td colspan="4"><button class="chip" onclick="this.closest('table').classList.toggle('open')">± ${mid.length} ngành ở giữa</button></td></tr>${mid.map((x) => tr(x).replace("<tr>", '<tr class="mid">')).join("")}` : ""}${bot.map(tr).join("")}</tbody></table></div>`; })()}</section>
     <section class="panel"><div class="ph"><h2>Kéo / đè VN-Index</h2><span class="meta">ước tính điểm đóng góp</span></div>
-      <div class="rows">${(D.pull_up || []).map(([s, p, c]) => `<div class="row"><span>${sym(s)}</span><span class="${cls(c)}">${pct(c)}</span><b class="up">+${nf(p, 1)} điểm</b></div>`).join("")}</div>
-      <div class="rows" style="margin-top:6px">${(D.pull_dn || []).map(([s, p, c]) => `<div class="row"><span>${sym(s)}</span><span class="${cls(c)}">${pct(c)}</span><b class="down">${nf(p, 1)} điểm</b></div>`).join("")}</div></section>
+      <div class="tw"><table class="dgpull"><thead><tr><th class="l">Mã</th><th>%</th><th>Điểm</th></tr></thead><tbody>
+        ${(D.pull_up || []).map(([s, p, c]) => `<tr><td class="l">${sym(s)}</td><td class="${cls(c)}">${pct(c)}</td><td class="up"><b>+${nf(p, 1)}</b></td></tr>`).join("")}
+        <tr class="sp"><td colspan="3"></td></tr>
+        ${(D.pull_dn || []).map(([s, p, c]) => `<tr><td class="l">${sym(s)}</td><td class="${cls(c)}">${pct(c)}</td><td class="down"><b>${nf(p, 1)}</b></td></tr>`).join("")}</tbody></table></div></section>
     <section class="panel"><div class="ph"><h2>Dòng tiền lớn</h2><a class="meta" href="#/swing/flow">chi tiết</a></div>
       <p><b class="up">Gom âm thầm:</b> ${(F.acc || []).map(sym).join(", ") || "—"}</p><p><b class="down">Xả âm thầm:</b> ${(F.dist || []).map(sym).join(", ") || "—"}</p><p><b class="up">Bứt phá có KL:</b> ${(F.brk || []).map(sym).join(", ") || "—"}</p>
       <p class="faint" style="font-size:.72rem">Kiểm chứng VN: xả âm thầm thường kém VN-Index 20 phiên sau; gom đơn thuần không đủ để mua; bứt phá có KL tăng xác suất có nhịp +20%.</p></section>
@@ -6092,16 +6125,17 @@ async function viewDigest(date, home = false) {
   </div>
   <div class="g g3 sec">
     <section class="panel"><div class="ph"><h2>Phiên bất thường đáng chú ý</h2><a class="meta" href="#/swing/today">chi tiết</a></div>
-      ${(W.top || []).map((x) => `<div class="ev"><span><b class="${x.dir < 0 ? "down" : x.dir > 0 ? "up" : ""}">${sym(x.s)} ${pct(x.ret)}</b> <small class="muted">${esc(x.meaning)}</small></span></div>`).join("") || '<p class="muted">Không có.</p>'}</section>
+      ${(W.top || []).map((x) => `<div class="dgw"><b class="${x.dir < 0 ? "down" : x.dir > 0 ? "up" : ""}">${sym(x.s)} ${pct(x.ret)}</b><small class="muted">${esc(x.meaning)}</small></div>`).join("") || '<p class="muted">Không có.</p>'}</section>
     <section class="panel"><div class="ph"><h2>Sự kiện 7 ngày tới</h2><a class="meta" href="#/watch/calendar">lịch</a></div>
       ${(D.events || []).map((e) => `<div class="ev"><time>${esc(e.date.slice(5))}</time><span>${e.symbol ? sym(e.symbol) + " " : ""}${esc(e.title)}${isNum(e.yield) ? ` <small class="up">${nf(e.yield, 1)}%</small>` : ""}</span></div>`).join("") || '<p class="muted">Không có sự kiện.</p>'}</section>
-    <section class="panel"><div class="ph"><h2>Tin tức</h2></div>
-      ${(D.news || []).map((n) => `<div class="ev"><time>${esc(n.t.slice(11))}</time><span>${n.s ? sym(n.s) + " " : ""}<a href="${esc(n.link)}" target="_blank" rel="noopener">${esc(n.title)}</a> <small class="faint">${esc(n.src)}</small></span></div>`).join("") || '<p class="muted">Không có tin mới gắn với mã thanh khoản.</p>'}</section>
+    <section class="panel"><div class="ph"><h2>Tin tức</h2><span class="meta">nhiều nguồn · tin có tác động đứng đầu</span></div>
+      ${(D.news || []).map((n) => `<div class="nwr ${n.sev >= 2 ? "hot" : ""}"><time>${esc((n.t || "").slice(8, 10))}/${esc((n.t || "").slice(5, 7))} ${esc((n.t || "").slice(11, 16))}</time><div>${n.s ? sym(n.s) + " " : ""}${n.tag ? `<span class="pill ${n.sign < 0 ? "sell" : n.sign > 0 ? "buy" : ""}">${esc(n.tag)}</span> ` : ""}<a href="${esc(n.link)}" target="_blank" rel="noopener">${esc(n.title)}</a> <small class="faint">${esc(n.src || "")}</small></div></div>`).join("") || '<p class="muted">Không có tin mới gắn với mã thanh khoản.</p>'}</section>
   </div>
   <p class="faint" style="font-size:.72rem;margin-top:8px">Bản tin tự động tạo từ số liệu sau phiên – thông tin tham khảo, không phải khuyến nghị đầu tư.</p>`;
   $("#dgSel").onchange = (e) => (location.hash = "#/digest/" + e.target.value);
   bindDecision();
-  await LAY.apply(home ? "digest-home" : "digest", app());
+  await LAY.apply(home ? "digest-home" : "digest", app(), { span: { "tin-tuc": 2 } });
+  $(".lay")?.classList.add("lay-top");   // thẻ không kéo giãn theo thẻ cao nhất hàng
 }
 
 // ---- thanh đầu trang: chuông + tài khoản
