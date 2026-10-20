@@ -11,7 +11,7 @@ from app.data import store  # noqa: E402
 
 out = Path("data/debug")
 out.mkdir(parents=True, exist_ok=True)
-for name in ("fin_q", "fin_y", "listing", "dividends", "shares_now", "adjust_events", "div_meta", "index_members", "etf_list", "basket_prices", "owners", "org_codes"):
+for name in ("fin_q", "fin_y", "listing", "dividends", "shares_now", "adjust_events", "div_meta", "index_members", "etf_list", "basket_prices", "owners", "org_codes", "news"):
     df = store.read(name)
     if not df.empty:
         df.to_parquet(out / f"{name}.parquet", index=False)

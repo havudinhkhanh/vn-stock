@@ -107,8 +107,19 @@ def _alias_rx() -> list[tuple[re.Pattern, str]]:
 _ALX = _alias_rx()
 
 
+# mã trùng chữ viết tắt thông dụng (tiền tệ, TP.HCM, CEO, CPI…): chỉ nhận khi có ngữ cảnh chứng khoán hoặc tên thương hiệu
+AMBIG = {"API", "BIG", "BOT", "CAR", "CEO", "CNN", "CPI", "NAV", "ONE", "PPP", "PRO", "SEA", "TOP", "TPP", "USD", "VIP", "VND", "HCM", "DHA", "GAS", "OIL", "ART", "LAS", "PET", "FIT", "TIG", "ICT", "IDC", "ITC", "VTV", "STK", "HAI", "SAM", "NET", "MCP", "SGP", "TTT"}
+_CTX = r"(?i:cổ phiếu|mã|cp|hose|hnx|upcom|hsx|ticker|shares of)\s*:?\s*"
+
+
 def tag_symbols(text: str, symbols: set[str]) -> set[str]:
-    found = {w for w in re.findall(r"(?<![A-Z0-9])([A-Z][A-Z0-9]{2})(?![A-Z0-9])", text) if w in symbols}
+    found = set()
+    for w in re.findall(r"(?<![A-Za-z0-9.])([A-Z][A-Z0-9]{2})(?![A-Za-z0-9])", text):
+        if w not in symbols:
+            continue
+        if w in AMBIG and not re.search(_CTX + w + r"(?![A-Z0-9])|" + w + r"\s*\((?:HOSE|HNX|UPCOM|UPCoM|HSX)", text):
+            continue
+        found.add(w)
     for rx, s in _ALX:
         if s in symbols and rx.search(text):
             found.add(s)
@@ -199,5 +210,8 @@ def save(df: pd.DataFrame) -> pd.DataFrame:
     df["k"] = df["title"].fillna("").str.lower().str.replace(r"\W+", " ", regex=True).str.strip()
     df = df.sort_values("time").drop_duplicates(["symbol", "k"], keep="first").drop(columns="k")
     df = df[df["time"] >= pd.Timestamp.now() - pd.Timedelta(days=180)].reset_index(drop=True)
+    # bỏ tin gắn nhầm mã trùng chữ viết tắt (USD/VND, TP.HCM, CEO…) của các lượt trước
+    bad = df["symbol"].isin(AMBIG) & ~df.apply(lambda r: r["symbol"] in tag_symbols(str(r["title"]), {r["symbol"]}), axis=1) & (df["src"] != "Công bố thông tin")
+    df = df[~bad].reset_index(drop=True)
     store.write("news", df)
     return df
