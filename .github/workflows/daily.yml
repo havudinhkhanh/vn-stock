@@ -162,7 +162,7 @@ jobs:
           GH_DISPATCH_TOKEN: ${{ secrets.GH_DISPATCH_TOKEN }}
         run: |
           python scripts/cloudflare.py wrangler-toml > wrangler.toml
-          python scripts/optimize_site.py site || true   # thu gọn JS/CSS + gắn phiên bản để trình duyệt lưu đệm
+          python scripts/optimize_site.py site 2>&1 | grep -v "npm notice" | tee data/optimize.txt || true   # thu gọn JS/CSS + gắn phiên bản để trình duyệt lưu đệm
           npx --yes wrangler@3 pages project create vn-stock --production-branch main || true
           if [ -n "$GH_DISPATCH_TOKEN" ]; then
             echo "$GH_DISPATCH_TOKEN" | npx --yes wrangler@3 pages secret put GH_TOKEN --project-name vn-stock || true
@@ -174,6 +174,9 @@ jobs:
           curl -s -o /dev/null -w "data %{http_code}\n" https://vn-stock.pages.dev/data/today.json >> data/site_check.txt || true
           curl -s -o /dev/null -w "blog %{http_code}\n" https://vn-stock.pages.dev/ban-tin/ >> data/site_check.txt || true
           curl -s -o /dev/null -w "sitemap %{http_code}\n" https://vn-stock.pages.dev/sitemap.xml >> data/site_check.txt || true
+          cat data/optimize.txt >> data/site_check.txt 2>/dev/null || true
+          css=$(grep -o 'app.css?v=[0-9a-f]*' site/index.html | head -1)
+          [ -n "$css" ] && curl -sI "https://vn-stock.pages.dev/$css" | grep -i "^cache-control" | sed 's/^/app.css /' >> data/site_check.txt || true
 
       - name: Đẩy log chạy & dữ liệu kiểm tra lên nhánh status
         if: always() && steps.slot.outputs.skip != 'true' && steps.slot.outputs.mode == 'full'
