@@ -572,7 +572,7 @@ def update_baskets(budget_sec: float = 240) -> None:
         log.info("Rổ chỉ số & ETF: %d mã, %d rổ có thành phần · giá %d dòng", df["symbol"].nunique(), len({r["index"] for r in rows}), len(df))
 
 
-def update_owners(symbols: list[str], per_run: int = 150, refresh_days: int = 30, budget_sec: float = 150) -> None:
+def update_owners(symbols: list[str], per_run: int = 300, refresh_days: int = 30, budget_sec: float = 300) -> None:
     """Cổ đông lớn của từng mã (Vietcap IQ) + mã tổ chức (organCode) → biết công ty niêm yết nào là công ty con của ai (định giá SOTP)."""
     t0 = time.time()
     codes = store.read("org_codes")
@@ -661,7 +661,7 @@ def run(force_fin: bool = False, only: list[str] | None = None) -> None:
     if not only:
         try:
             liq_o = liquid_symbols(prices, float(config.get("universe.fin_min_avg_value_bn", 0.3)))
-            update_owners([s for s in liq_o if s in set(syms)], int(config.get("data.owners_per_run", 150)))
+            update_owners([s for s in liq_o if s in set(syms)], int(config.get("data.owners_per_run", 300)))
         except Exception as e:  # noqa: BLE001
             log.warning("Cổ đông lớn lỗi: %s", e)
         try:
