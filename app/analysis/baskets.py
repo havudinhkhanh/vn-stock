@@ -64,13 +64,16 @@ def _perf(c: pd.Series) -> dict:
 
 
 def _bt(c: pd.Series, S: pd.Series | None, vni: pd.Series | None) -> dict:
-    """Kiểm chứng 3 cách đánh rổ trên chính chỉ số (chưa tính phí & cổ tức): mua giữ / theo MA200 / MA200 + vào lại khi sợ hãi vừa qua."""
+    """Kiểm chứng 3 cách đánh rổ trên chính chỉ số (đã trừ phí giao dịch, chưa tính cổ tức): mua giữ / theo MA200 / MA200 + vào lại khi sợ hãi vừa qua."""
     c = c[c.index >= pd.Timestamp("2016-01-01")]
     if len(c) < 400:
         return {"ok": False}
     r = c.pct_change().fillna(0)
     ma = c.rolling(200, min_periods=150).mean()
-    rules = {"hold": pd.Series(1.0, index=c.index), "ma200": (c > ma).astype(float)}
+    # chỉ xét vào phiên cuối mỗi tuần (bớt mua/bán qua lại khi giá lình xình quanh MA200 – đã thử: ít lệnh hơn, lãi bằng/hơn xét hằng ngày)
+    wend = pd.Series(c.index, index=c.index).groupby(c.index.to_period("W")).transform("max") == c.index
+    trend = (c > ma).astype(float).where(wend & ma.notna()).ffill().fillna(0)
+    rules = {"hold": pd.Series(1.0, index=c.index), "ma200": trend}
     if S is not None and vni is not None and len(S) > 300:
         st = _states(S, vni).reindex(c.index).ffill()
         rec = pd.Series(0.0, index=c.index)
@@ -80,11 +83,12 @@ def _bt(c: pd.Series, S: pd.Series | None, vni: pd.Series | None) -> dict:
                 left = 120
             rec.iloc[i] = 1.0 if left > 0 else 0.0
             left -= 1
-        rules["ma200_fear"] = ((c > ma).astype(float) + rec).clip(0, 1)
+        rules["ma200_fear"] = (trend + rec).clip(0, 1)
     out = {}
     for k, pos in rules.items():
         p = pos.shift(1).fillna(0)
-        eq = (1 + r * p).cumprod()
+        fee = p.diff().abs().fillna(p.iloc[0]) * 0.002   # phí mua 0,15% + bán 0,25% (gồm thuế) ≈ 0,2% mỗi lần đổi
+        eq = (1 + r * p - fee).cumprod()
         yrs = len(eq) / 250
         out[k] = {"cagr": _r(100 * (eq.iloc[-1] ** (1 / yrs) - 1), 1), "mdd": _r(100 * (eq / eq.cummax() - 1).min(), 1),
                   "expo": _r(100 * p.mean(), 0), "trades": int((p.diff().abs() > 0).sum() // 2), "now": bool(pos.iloc[-1] > 0),
@@ -112,6 +116,16 @@ def _valuation(mem: list[str], u: pd.DataFrame, picks: set) -> dict:
             "in_buy": sorted(set(m.index) & picks),
             "top": [{"s": s, "w": _r(r.w, 1), "chg1m": _r(r.chg1m, 1), "pe": _r(r.pe, 1), "upside": _r(r.upside, 1), "trend": r.trend,
                      "sector": r.get("peer_label") or r.get("sector")} for s, r in top.head(40).iterrows()]}
+
+
+def _name_index(name: str) -> str | None:
+    """Rổ theo tên quỹ: 'Quỹ ETF DCVFMVN DIAMOND' → VNDIAMOND …"""
+    n = str(name).upper().replace(" ", "")
+    for pat, k in (("DIAMOND", "VNDIAMOND"), ("FINLEAD", "VNFINLEAD"), ("FINSELECT", "VNFINSELECT"), ("MIDCAP", "VNMIDCAP"),
+                   ("VNX50", "VNX50"), ("VN100", "VN100"), ("VN30", "VN30"), ("MITECH", "VNMITECH"), ("VNSHINE", "VNSHINE"), ("VN50GROWTH", "VN50GROWTH")):
+        if pat in n:
+            return k
+    return None
 
 
 def build(bp: pd.DataFrame, g: dict, members: pd.DataFrame, etfs: pd.DataFrame, u: pd.DataFrame, picks: set,
@@ -153,25 +167,28 @@ def build(bp: pd.DataFrame, g: dict, members: pd.DataFrame, etfs: pd.DataFrame, 
         c, v = d["close"].astype(float), d["volume"].astype(float)
         rec = {"s": s, "name": names.get(s, s), **_perf(c), "val20": _r((c * v).iloc[-20:].mean() / 1e6, 2),   # giá nghìn đồng × CCQ → tỷ đồng
                "days_traded20": int((v.iloc[-20:] > 0).sum())}
-        er = c.pct_change().iloc[-250:]
-        best, bc = None, 0.0
-        for k, rr in rets.items():
-            x = pd.concat([er, rr], axis=1, join="inner").dropna()
-            x = x[(x.iloc[:, 0] != 0)]
-            if len(x) < 40:
-                continue
-            cc = x.iloc[:, 0].corr(x.iloc[:, 1])
-            if cc == cc and cc > bc:
-                best, bc = k, cc
-        if best and bc >= 0.85:
+        # bám rổ nào: ưu tiên tên quỹ (VN30, DIAMOND…), kiểm tra lại bằng tương quan lợi nhuận TUẦN 1 năm qua
+        # (giá đóng cửa ETF ngày nào cũng lệch NAV vì ít giao dịch → tương quan ngày thấp giả tạo)
+        wk = lambda z: z.resample("W-FRI").last().pct_change()  # noqa: E731
+        ew = wk(c).iloc[-53:]
+        corr = {}
+        for k in rets:
+            x = pd.concat([ew, wk(ser[k]["close"].astype(float))], axis=1, join="inner").dropna()
+            if len(x) >= 20:
+                corr[k] = float(x.iloc[:, 0].corr(x.iloc[:, 1]))
+        nm_k = _name_index(names.get(s, s))
+        best = nm_k if nm_k in corr else (max(corr, key=corr.get) if corr and max(corr.values()) >= 0.9 else None)
+        if nm_k and nm_k not in ser:
+            rec["track_name"] = nm_k
+        if best:
             ic = ser[best]["close"].astype(float)
-            rec["track"], rec["corr"] = best, _r(bc, 3)
+            rec["track"], rec["corr"] = best, _r(corr.get(best), 3)
             j = pd.concat([c, ic], axis=1, join="inner").dropna()
             if len(j) > 250:
                 rec["td1y"] = _r(100 * ((j.iloc[-1, 0] / j.iloc[-251, 0]) - (j.iloc[-1, 1] / j.iloc[-251, 1])), 1)
-            dr = (j.iloc[:, 0].pct_change() - j.iloc[:, 1].pct_change()).iloc[-250:]
-            rec["te"] = _r(100 * dr.std() * np.sqrt(250), 1)
-        rec["line"] = {"t": [x.strftime("%Y-%m-%d") for x in c.index[-250:]], "c": [_r(x, 2) for x in c.iloc[-250:]]}
+            jw = j.resample("W-FRI").last().pct_change().iloc[-52:]
+            rec["te"] = _r(100 * (jw.iloc[:, 0] - jw.iloc[:, 1]).std() * np.sqrt(52), 1)
+        rec["line"] = {"t": [x.strftime("%Y-%m-%d") for x in c.index[-500:]], "c": [_r(x, 2) for x in c.iloc[-500:]]}
         etf_out.append(rec)
     etf_out.sort(key=lambda x: -(x.get("val20") or 0))
     for rec in idx_out:

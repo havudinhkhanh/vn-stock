@@ -1440,3 +1440,4 @@ table.mp-t td.wrap{min-width:180px;max-width:320px;white-space:normal}
 #bkT td.l small,#etfT td.l small{white-space:normal}
 .ms-play{margin:8px 0 0;font-size:.82rem;color:var(--ink-2)}
 tr.bk-row{cursor:pointer}tr.bk-row:hover td{background:var(--sunk)}
+#bkT td.sym,#etfT td.sym{min-width:230px}
