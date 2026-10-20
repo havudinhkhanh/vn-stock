@@ -187,6 +187,30 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     idx = g.get("VNINDEX")
     if idx is None or len(idx) < 250:
         raise SystemExit("Thiếu dữ liệu VN-Index")
+    # quỹ ETF: thêm giá vào g (KHÔNG vào danh sách cổ phiếu) để danh mục / cảnh báo giá / mức thoát tính được cho ETF anh nắm
+    etf_info = {}
+    try:
+        _el, _bp = store.read("etf_list"), store.read("basket_prices")
+        if not _el.empty and not _bp.empty:
+            for s, d in _bp[_bp["symbol"].isin(set(_el["symbol"]))].groupby("symbol"):
+                d = d.set_index("date").sort_index()[["open", "high", "low", "close", "volume"]]
+                if len(d) < 5 or s in g:
+                    continue
+                g[s] = d
+                c = d["close"]
+                tr = pd.concat([d["high"] - d["low"], (d["high"] - c.shift()).abs(), (d["low"] - c.shift()).abs()], axis=1).max(axis=1)
+                e20 = ind.ema(c, 20) if len(c) >= 20 else None
+                etf_info[s] = {"atr": float(tr.rolling(14).mean().iloc[-1]) if len(c) > 15 else None,
+                               "e20": float(e20.iloc[-1]) if e20 is not None else None,
+                               "e20_below2": bool(e20 is not None and len(c) >= 22 and (c.iloc[-2:] < e20.iloc[-2:]).all()),
+                               "fair": None, "fair_hi": None, "div_yield": None, "etf": True}
+                from .analysis.baskets import wk_below200
+                ma200 = c.rolling(200, min_periods=150).mean()
+                if ma200.notna().any():
+                    etf_info[s]["wk_below200"] = wk_below200(c)
+                    etf_info[s]["ma200"] = float(ma200.iloc[-1])
+    except Exception as e:  # noqa: BLE001
+        log.warning("Giá ETF cho danh mục lỗi: %s", e)
     last_date = idx.index[-1]
     wide = prices[~prices["symbol"].isin(INDEX_SYMS)].pivot_table(index="date", columns="symbol",
                                                                   values="close").sort_index()
@@ -540,7 +564,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
 
     # ------------------------------------------------------------ danh mục đang nắm
     closes = {s: g[s]["close"] for s in held if s in g}
-    advice = pf.advise(holdings, u, closes, cfg, regime, cash_vnd, capital) if holdings else None
+    advice = pf.advise(holdings, u, closes, cfg, regime, cash_vnd, capital, extra=etf_info) if holdings else None
 
     # ------------------------------------------------------------ backtest (theo lịch)
     # kiểm chứng theo MÂM SO SÁNH: "ngành" trong backtest = mâm (gán cho mọi mã niêm yết, kể cả mã đã huỷ niêm yết còn trong dữ liệu giá)
@@ -859,7 +883,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         log.exception("Bản tin công khai (SEO) lỗi: %s", e)
     # ------------------------------------------------------------ phần riêng từng người dùng
     owner_today, owner_watch = today, None
-    pctx = {"u": u, "g": g, "cfg0": cfg0, "regime": regime, "last_date": last_date, "plan_syms": plan_syms, "active_style": active_style,
+    pctx = {"etf_info": etf_info, "u": u, "g": g, "cfg0": cfg0, "regime": regime, "last_date": last_date, "plan_syms": plan_syms, "active_style": active_style,
             "co": pab.LAST_CO, "rel_by": rel_by, "close": wide, "vni": idx["close"], "fwd": fres,
             "sbt": (json.loads(store.path("styles_bt.json").read_text(encoding="utf-8")) if store.path("styles_bt.json").exists() else None)}
     # báo cáo tuần: lượt chạy thứ 7 / chủ nhật (giờ VN) – hoặc VNSTOCK_WEEKLY=1 để thử

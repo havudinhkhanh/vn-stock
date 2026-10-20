@@ -48,7 +48,15 @@ def plan(h: dict, price: float, peak: float, held: int | None, info: dict, max_s
             L.append({"key": key, "kind": kind, "label": label, "price": round(px, 2) if px is not None else None,
                       "sell": sell, "trig": trig, "why": why})
 
-    if style == "swing":
+    if info.get("etf"):
+        # quỹ ETF = cả rổ: thoát theo quy tắc đánh rổ đã kiểm chứng (đóng cửa TUẦN dưới MA200), cộng mức lỗ tối đa anh đặt
+        add("stop", "stop", "Dừng lỗ tối đa", cost * (1 - max_sl_pct / 100), 1, "below", f"Lỗ tối đa {max_sl_pct:.0f}% so với giá vốn (mức anh đặt)")
+        ma = _ok(info.get("ma200"))
+        if ma:
+            add("ma200w", "cond", "Đóng cửa tuần dưới MA200", ma, 1, "cond",
+                "Quy tắc đánh rổ đã kiểm chứng: tuần nào đóng cửa dưới MA200 thì bán, chờ một tuần đóng cửa lại trên MA200 mới mua lại")
+            L[-1]["hit"] = bool(info.get("wk_below200"))
+    elif style == "swing":
         r0 = min(max(cost - 2.5 * atr, cost * 0.90), cost * 0.95)
         risk = cost - r0
         stop = max(r0, peak - 2.5 * atr)

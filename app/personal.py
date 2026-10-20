@@ -89,7 +89,7 @@ def compute(data: dict, ctx: dict) -> dict:
     style = prof.get("style") if prof.get("style") in ("swing", "position", "long", "income") else ctx["active_style"]
     held = {h["symbol"].upper() for h in holdings}
     closes = {s: ctx["g"][s]["close"] for s in held if s in ctx["g"]}
-    advice = pf.advise(holdings, ctx["u"], closes, cfg, ctx["regime"], cash, capital) if holdings else None
+    advice = pf.advise(holdings, ctx["u"], closes, cfg, ctx["regime"], cash, capital, extra=ctx.get("etf_info")) if holdings else None
     watch = watch_of(data)
     wsyms = {str(w["symbol"]).upper() for w in watch}
     out = {"date": str(pd.Timestamp(ctx["last_date"]).date()), "portfolio": advice, "alerts": alerts_for(watch, ctx["g"], ctx["last_date"], ctx["plan_syms"], style),

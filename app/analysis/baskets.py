@@ -72,6 +72,8 @@ def _bt(c: pd.Series, S: pd.Series | None, vni: pd.Series | None) -> dict:
     ma = c.rolling(200, min_periods=150).mean()
     # chỉ xét vào phiên cuối mỗi tuần (bớt mua/bán qua lại khi giá lình xình quanh MA200 – đã thử: ít lệnh hơn, lãi bằng/hơn xét hằng ngày)
     wend = pd.Series(c.index, index=c.index).groupby(c.index.to_period("W")).transform("max") == c.index
+    if c.index[-1].weekday() < 4:   # tuần này chưa kết thúc
+        wend.iloc[-1] = False
     trend = (c > ma).astype(float).where(wend & ma.notna()).ffill().fillna(0)
     rules = {"hold": pd.Series(1.0, index=c.index), "ma200": trend}
     if S is not None and vni is not None and len(S) > 300:
@@ -116,6 +118,15 @@ def _valuation(mem: list[str], u: pd.DataFrame, picks: set) -> dict:
             "in_buy": sorted(set(m.index) & picks),
             "top": [{"s": s, "w": _r(r.w, 1), "chg1m": _r(r.chg1m, 1), "pe": _r(r.pe, 1), "upside": _r(r.upside, 1), "trend": r.trend,
                      "sector": r.get("peer_label") or r.get("sector")} for s, r in top.head(40).iterrows()]}
+
+
+def wk_below200(c: pd.Series) -> bool | None:
+    """Tuần ĐÃ KẾT THÚC gần nhất đóng cửa dưới MA200? (thứ Hai–Năm: tuần này chưa xong → xét tuần trước)."""
+    ma = c.rolling(200, min_periods=150).mean()
+    wk = pd.DataFrame({"c": c, "m": ma}).groupby(c.index.to_period("W")).last().dropna()
+    if len(wk) > 1 and c.index[-1].weekday() < 4:
+        wk = wk.iloc[:-1]
+    return bool(wk["c"].iloc[-1] < wk["m"].iloc[-1]) if len(wk) else None
 
 
 def _name_index(name: str) -> str | None:
@@ -167,6 +178,12 @@ def build(bp: pd.DataFrame, g: dict, members: pd.DataFrame, etfs: pd.DataFrame, 
         c, v = d["close"].astype(float), d["volume"].astype(float)
         rec = {"s": s, "name": names.get(s, s), **_perf(c), "val20": _r((c * v).iloc[-20:].mean() / 1e6, 2),   # giá nghìn đồng × CCQ → tỷ đồng
                "days_traded20": int((v.iloc[-20:] > 0).sum())}
+        tr = pd.concat([d["high"] - d["low"], (d["high"] - c.shift()).abs(), (d["low"] - c.shift()).abs()], axis=1).max(axis=1)
+        e20 = c.ewm(span=20, adjust=False).mean()
+        rec["atr"] = _r(tr.rolling(14).mean().iloc[-1], 3) if len(c) > 15 else None
+        rec["e20"] = _r(e20.iloc[-1], 2) if len(c) >= 20 else None
+        rec["e20_below2"] = bool(len(c) >= 22 and (c.iloc[-2:] < e20.iloc[-2:]).all())
+        rec["wk_below200"] = wk_below200(c)
         # bám rổ nào: ưu tiên tên quỹ (VN30, DIAMOND…), kiểm tra lại bằng tương quan lợi nhuận TUẦN 1 năm qua
         # (giá đóng cửa ETF ngày nào cũng lệch NAV vì ít giao dịch → tương quan ngày thấp giả tạo)
         wk = lambda z: z.resample("W-FRI").last().pct_change()  # noqa: E731

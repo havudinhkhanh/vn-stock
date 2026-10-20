@@ -12,7 +12,7 @@ def _v(x, nd=2):
 
 
 def advise(holdings: list[dict], u: pd.DataFrame, closes: dict[str, pd.Series], cfg: dict,
-           regime: dict, cash_vnd: float = 0.0, capital: float | None = None) -> dict:
+           regime: dict, cash_vnd: float = 0.0, capital: float | None = None, extra: dict | None = None) -> dict:
     risk = cfg.get("risk") or {}
     max_sl = float(risk.get("max_stop_loss_pct", 12)) / 100
     rows = []
@@ -37,7 +37,8 @@ def advise(holdings: list[dict], u: pd.DataFrame, closes: dict[str, pd.Series], 
         since = c[c.index >= pd.Timestamp(r["date"])] if c is not None and r.get("date") else c
         peak = float(since.max()) if since is not None and len(since) else price
         held = int(len(since) - 1) if since is not None and r.get("date") and len(since) else None
-        inf = {k: (info.get(k) if info is not None else None) for k in ("atr", "e20", "e20_below2", "fair", "fair_hi", "div_yield")}
+        src = info if info is not None else (extra or {}).get(sym)   # ETF: chỉ số kỹ thuật tính riêng (không có trong bảng cổ phiếu)
+        inf = {k: (src.get(k) if src is not None else None) for k in ("atr", "e20", "e20_below2", "fair", "fair_hi", "div_yield", "etf", "ma200", "wk_below200")}
         ep = ex.plan(hmap.get(sym, {}), price, peak, held, inf, max_sl * 100)
         pnl = (price / cost - 1) * 100 if cost else None
         actions, reasons = [], []
@@ -79,6 +80,11 @@ def advise(holdings: list[dict], u: pd.DataFrame, closes: dict[str, pd.Series], 
                 actions.append("CÂN NHẮC GIẢM TỶ TRỌNG")
                 reasons.append("Giá trong xu hướng giảm và đang lỗ – giảm bớt 1/3 để bảo toàn vốn")
                 sev = max(sev, 1)
+        ex_ = (extra or {}).get(sym) if info is None else None
+        if ex_ and ex_.get("wk_below200") and sev < 2 and not any(x["key"] == "ma200w" for x in ep["levels"]):   # ETF thiếu MA200 trong mức thoát
+            actions.append("XEM LẠI – RỔ DƯỚI MA200")
+            reasons.append(f"Tuần gần nhất {sym} đóng cửa dưới MA200 ({_v(ex_.get('ma200'))}) – quy tắc đánh rổ đã kiểm chứng: đứng ngoài tới khi một tuần đóng cửa lại trên MA200")
+            sev = max(sev, 1)
         if not actions:
             actions.append("GIỮ")
             nxt = sorted([x for x in ep["levels"] if x["status"] in ("near", "far") and x.get("dist") is not None], key=lambda z: abs(z["dist"]))
