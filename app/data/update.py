@@ -521,6 +521,57 @@ def liquid_symbols(prices: pd.DataFrame, min_value_bn: float) -> list[str]:
     return sorted(val[val >= min_value_bn].index)
 
 
+def update_baskets(budget_sec: float = 240) -> None:
+    """Rổ chỉ số + quỹ ETF: thành phần rổ (mỗi ngày), danh sách ETF, giá ngày chỉ số rổ & ETF → basket_prices."""
+    t0 = time.time()
+    rows = []
+    for ix, grp in vci.INDEX_GROUP.items():
+        try:
+            rows += [{"index": ix, "symbol": m} for m in vci.group_symbols(grp)]
+        except FetchError as e:
+            log.warning("Thành phần rổ %s lỗi: %s", ix, e)
+    if rows:
+        mem = pd.DataFrame(rows)
+        mem["asof"] = pd.Timestamp.now().normalize()
+        old = store.read("index_members")
+        if not old.empty:   # rổ nào lượt này lỗi thì giữ thành phần cũ
+            old = old[~old["index"].isin(mem["index"].unique())]
+            mem = pd.concat([old, mem], ignore_index=True)
+        store.write("index_members", mem)
+    try:
+        etf = vci.etf_list()
+        if not etf.empty:
+            store.write("etf_list", etf)
+    except FetchError as e:
+        log.warning("Danh sách ETF lỗi: %s", e)
+        etf = store.read("etf_list")
+    syms = list(vci.BASKET_INDEX) + (list(etf["symbol"]) if not etf.empty else [])
+    cur = store.read("basket_prices")
+    last = cur.groupby("symbol")["date"].max() if not cur.empty else pd.Series(dtype="datetime64[ns]")
+    frames = []
+    for s in syms:
+        if time.time() - t0 > budget_sec:
+            log.warning("Giá rổ/ETF: hết thời gian, còn lại để lượt sau")
+            break
+        st = (last[s] - timedelta(days=7)).to_pydatetime() if s in last.index else HISTORY_START
+        try:
+            got = vci.prices([s], datetime(st.year, st.month, st.day), batch=1)
+        except FetchError as e:
+            log.debug("Giá %s lỗi: %s", s, e)
+            continue
+        for k, df in got.items():
+            df = df.copy()
+            df["symbol"] = k
+            frames.append(df)
+    if frames:
+        new = pd.concat(frames, ignore_index=True)[["symbol", "date", "open", "high", "low", "close", "volume"]]
+        for c in ("open", "high", "low", "close", "volume"):
+            new[c] = pd.to_numeric(new[c], errors="coerce").astype("float64")
+        new = new.dropna(subset=["close", "date"])
+        df = store.upsert("basket_prices", new, ["symbol", "date"])
+        log.info("Rổ chỉ số & ETF: %d mã, %d rổ có thành phần · giá %d dòng", df["symbol"].nunique(), len({r["index"] for r in rows}), len(df))
+
+
 def run(force_fin: bool = False, only: list[str] | None = None) -> None:
     listing = update_listing()
     exch = set(config.get("universe.exchanges", ["HOSE", "HNX", "UPCOM"]))
@@ -563,6 +614,11 @@ def run(force_fin: bool = False, only: list[str] | None = None) -> None:
         update_intraday(iu, foc[: int(icfg.get("tick_symbols", 12))], float(icfg.get("budget_sec", 420)), float(icfg.get("tick_budget_sec", 150)))
     except Exception as e:  # noqa: BLE001
         log.exception("Dữ liệu trong phiên lỗi: %s", e)
+    if not only:
+        try:
+            update_baskets(float(config.get("data.basket_budget_sec", 240)))
+        except Exception as e:  # noqa: BLE001
+            log.warning("Rổ chỉ số / ETF lỗi: %s", e)
     try:
         update_news(syms)
     except Exception as e:  # noqa: BLE001

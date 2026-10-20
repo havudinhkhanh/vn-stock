@@ -827,6 +827,18 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         sw_per = swb.run(prices[~prices["symbol"].isin(INDEX_SYMS)], listing, u, idx["close"], last_date, out_dir, advice, style_plans, held_all, wl_syms, active_style)
     except Exception as e:  # noqa: BLE001
         log.exception("Hành vi giá lỗi: %s", e)
+    # ------------------------------------------------------------ rổ chỉ số & ETF
+    try:
+        from .analysis import baskets as bk_, flow as fl_
+        bko = bk_.build(store.read("basket_prices"), g, store.read("index_members"), store.read("etf_list"), u, set(pick_syms),
+                        fl_.LAST.get("S"), idx["close"])
+        bko["date"] = str(last_date.date())
+        bko["mood"] = (json.loads((out_dir / "flow.json").read_text(encoding="utf-8")).get("sentiment") or {}) if (out_dir / "flow.json").exists() else {}
+        bko["mood"] = {k: bko["mood"].get(k) for k in ("now", "label", "date", "playbook")}
+        dump(out_dir / "baskets.json", bko)
+        log.info("Rổ chỉ số & ETF: %d rổ, %d ETF", len(bko["indices"]), len(bko["etfs"]))
+    except Exception as e:  # noqa: BLE001
+        log.exception("Rổ chỉ số & ETF lỗi: %s", e)
     rel_by = {}
     try:
         log.info("Mã liên quan: đồng pha, dẫn dắt, chiến thuật…")

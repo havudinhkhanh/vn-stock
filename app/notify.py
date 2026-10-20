@@ -23,7 +23,7 @@ LIGHT_TXT = {"green": "XANH", "yellow": "VÀNG", "red": "ĐỎ"}
 
 BASKET_VI = {"swing": "Lướt sóng", "long": "Dài hạn", "income": "Cổ tức", "garp": "GARP", "dividend": "Cổ tức", "value": "Giá trị", "defensive": "Phòng thủ",
              "growth": "Tăng trưởng"}
-GROUPS = {"light": None, "pick_new": "🛒 MUA MỚI", "pick_out": None, "act": "📌 DANH MỤC CỦA ANH", "near": "⏳ SẮP CHẠM MỨC THOÁT", "warn": None,
+GROUPS = {"light": None, "pick_new": "🛒 MUA MỚI", "pick_out": None, "act": "📌 DANH MỤC CỦA ANH", "near": "⏳ GẦN MỨC THOÁT – chưa chạm, chưa cần bán", "warn": None,
           "alert": "🔔 CẢNH BÁO GIÁ", "event": "⚡ CÓ SỰ KIỆN (mã của anh)", "event_ok": "🎯 SAU SỰ KIỆN – ĐIỂM VÀO (mã của anh)", "event_new": "🎯 CƠ HỘI SAU SỰ KIỆN", "flow": "🐋 DÒNG TIỀN LỚN (mã của anh)", "rel": "🔗 MÃ LIÊN QUAN (mã của anh)"}
 FEATURE_OF = {"pick_new": "today", "pick_out": "today", "flow": "flow", "rel": "pairs", "event_new": "today"}
 VI_FLOW = {"dist": "XẢ âm thầm", "acc": "GOM âm thầm", "brk": "BỨT PHÁ có KL", "acc_brk": "GOM rồi BỨT PHÁ"}
@@ -98,9 +98,9 @@ def collect(today: dict, prev: dict, *, live_sent: set | None = None, mine: set 
     for k, (p, x) in near_now.items():
         if k in near_prev:
             continue
-        act = "bán hết" if x["sell"] >= 0.999 else ("xem lại" if x["sell"] == 0 else f"bán {round(x['sell'] * 100)}% (≈ {_fmt(x.get('qty'), 0)} cp)")
-        add("near", f"near:{k}", 2, f"• <b>{p['symbol']}</b>: {html.escape(x['label'])} {_fmt(x.get('price'))} – còn {_fmt(x.get('dist'), 1)}% · {act}",
-            f"{p['symbol']} sắp chạm {x['label']} {_fmt(x.get('price'))}", f"Còn {_fmt(x.get('dist'), 1)}% · {act}", sym=p["symbol"], url="#/portfolio")
+        from .analysis.exits import exit_msg
+        line, ttl, body = exit_msg(p["symbol"], html.escape(x["label"]), x.get("price"), p.get("price"), x.get("trig", "below"), x.get("sell"), x.get("qty"))
+        add("near", f"near:{k}", 2, line, ttl, body, sym=p["symbol"], url="#/portfolio")
     for w in pfo.get("warnings", []):
         if w not in prev.get("warnings", []):
             add("warn", f"warn:{_h(w)}", 1, "⚠️ " + html.escape(w), "Cảnh báo danh mục", w, url="#/portfolio")

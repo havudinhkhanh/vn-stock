@@ -84,7 +84,7 @@ def advise(holdings: list[dict], u: pd.DataFrame, closes: dict[str, pd.Series], 
             nxt = sorted([x for x in ep["levels"] if x["status"] in ("near", "far") and x.get("dist") is not None], key=lambda z: abs(z["dist"]))
             if nxt:
                 x = nxt[0]
-                reasons.append(f"Mức gần nhất: {x['label']} {_v(x['price'])} ({'+' if x['dist'] > 0 else ''}{_v(x['dist'], 1)}%)")
+                reasons.append(f"Mức gần nhất: {x['label']} {_v(x['price'])} – cách {_v(abs(x['dist']), 1)}% {'phía trên' if x['dist'] > 0 else 'phía dưới'}, chưa chạm")
             else:
                 reasons.append("Các tiêu chí cơ bản và định giá vẫn ổn")
         mv = r["qty"] * price * 1000

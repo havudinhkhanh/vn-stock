@@ -156,6 +156,11 @@ def sentiment(C: pd.DataFrame, H: pd.DataFrame, V: pd.DataFrame, liq: pd.DataFra
         test[str(k)] = {"ic": _r(x["s"].rank().corr(x["f"].rank()), 3), "n": int(len(x)),
                         "q": [{"q": int(a) + 1, "r": _r(100 * g.mean()), "hit": _r(100 * (g > 0).mean(), 0)} for a, g in x.groupby(q)["f"]],
                         "all": _r(100 * x["f"].mean())}
+    try:
+        play = playbook(S, ix)
+    except Exception:  # noqa: BLE001
+        play = None
+    LAST["S"], LAST["ix"] = S, ix
     last = S.index[-1] if len(S) else None
     lab = lambda v: "Hưng phấn" if v >= 80 else "Lạc quan" if v >= 60 else "Trung tính" if v >= 40 else "Thận trọng" if v >= 20 else "Sợ hãi"  # noqa: E731
     comp_now = {}
@@ -167,4 +172,72 @@ def sentiment(C: pd.DataFrame, H: pd.DataFrame, V: pd.DataFrame, liq: pd.DataFra
     return {"now": _r(S.iloc[-1], 0) if len(S) else None, "label": lab(S.iloc[-1]) if len(S) else None, "date": str(last.date()) if last is not None else None,
             "chg5": _r(S.iloc[-1] - S.iloc[-6], 0) if len(S) > 6 else None, "comp": comp_now, "test": test,
             "hist": {"t": [str(d.date()) for d in hist.index], "v": [_r(v, 1) for v in hist.values]},
-            "breadth_pct": _r(100 * D["breadth"].iloc[-1], 0) if len(D) else None}
+            "breadth_pct": _r(100 * D["breadth"].iloc[-1], 0) if len(D) else None, "playbook": play}
+
+
+LAST: dict = {}   # chuỗi tâm lý + VN-Index của lượt chạy gần nhất (rổ chỉ số dùng lại để kiểm chứng thời điểm vào)
+
+STATES = {
+    "fear_deep": ("Sợ hãi sau khi đã giảm sâu", "Tâm lý < 20 và VN-Index đã giảm ≥ 20% từ đỉnh",
+                  "Vùng tích lũy dần cho dài hạn: giải ngân từng phần (chia 3–4 lần), ưu tiên rổ chỉ số / mã đầu ngành cơ bản tốt. Có thể còn giảm thêm vài % – không dồn hết một lần."),
+    "fear_mid": ("Sợ hãi giữa đợt giảm", "Tâm lý < 20, VN-Index giảm 10–20% từ đỉnh",
+                 "Lịch sử xấu nhất: thường còn giảm tiếp. CHƯA bắt đáy – giữ tiền, tôn trọng dừng lỗ; chờ tâm lý hồi lên > 50 hoặc VN-Index giảm sâu hơn (≥ 20%)."),
+    "fear_shallow": ("Cú sốc đầu tiên", "Tâm lý < 20 khi VN-Index mới giảm < 10% từ đỉnh",
+                     "Thường chưa phải đáy, hay là khởi đầu một đợt điều chỉnh. Không mua đuổi bắt đáy; mã đang nắm thì giữ kỷ luật dừng lỗ."),
+    "recover": ("Sợ hãi vừa qua", "Tâm lý từ < 20 bật lên > 50 trong vòng 30 phiên",
+                "Tín hiệu vào lại có xác nhận: có thể giải ngân dần theo danh sách MUA; đặt dừng lỗ dưới đáy vừa tạo."),
+    "greed_up": ("Hưng phấn trong xu hướng tăng", "Tâm lý ≥ 80 và VN-Index trên MA200",
+                 "Ở VN, hưng phấn + xu hướng tăng thường còn chạy tiếp – không bán chỉ vì “thị trường nóng”. Giữ mã mạnh, nâng dừng lỗ, không mua đuổi mã đã tăng nóng."),
+    "greed_down": ("Hồi mạnh trong xu hướng giảm", "Tâm lý ≥ 80 nhưng VN-Index dưới MA200",
+                   "Mẫu lịch sử ít (vài đợt, chủ yếu sau đáy 2020, 2023) và đa số là đầu sóng hồi phục – giải ngân từng phần, xác nhận thêm khi VN-Index vượt MA200."),
+    "neutral_up": ("Bình thường – xu hướng tăng", "Tâm lý 20–80, VN-Index trên MA200",
+                   "Đi theo kế hoạch: giải ngân theo danh sách MUA, giữ dừng lỗ."),
+    "neutral_down": ("Bình thường – xu hướng giảm", "Tâm lý 20–80, VN-Index dưới MA200",
+                     "1–3 tháng tới thường yếu hơn bình thường, nhưng 1 năm sau lịch sử lại tốt. Mua dần mã mạnh hơn thị trường, chưa dồn tỷ trọng; VN-Index vượt lại MA200 thì tăng dần."),
+}
+
+
+def _states(S: pd.Series, ix: pd.Series) -> pd.Series:
+    ix = ix.reindex(S.index).ffill()
+    dd = ix / ix.cummax() - 1
+    up = ix > ix.rolling(200, min_periods=150).mean()
+    st, last_fear = [], -10 ** 6
+    for i, (v, d, u) in enumerate(zip(S.values, dd.values, up.values)):
+        if v < 20:
+            last_fear = i
+            st.append("fear_deep" if d <= -0.20 else "fear_mid" if d <= -0.10 else "fear_shallow")
+        elif v > 50 and 0 < i - last_fear <= 30:
+            st.append("recover")
+        elif v >= 80:
+            st.append("greed_up" if u else "greed_down")
+        else:
+            st.append("neutral_up" if u else "neutral_down")
+    return pd.Series(st, index=S.index)
+
+
+def playbook(S: pd.Series, ix: pd.Series) -> dict:
+    """Mỗi trạng thái tâm lý × mức giảm từ đỉnh × xu hướng: lịch sử VN-Index đi đâu sau đó, và hôm nay đang ở trạng thái nào."""
+    ix = ix.reindex(S.index).ffill()
+    st = _states(S, ix)
+    out = []
+    for k, (nm, cond, act) in STATES.items():
+        m = (st == k).astype(int)
+        rec = {"key": k, "name": nm, "cond": cond, "act": act, "days": int(m.sum()), "ep": int(((m == 1) & (m.shift(1).rolling(10, min_periods=1).max().fillna(0) == 0)).sum())}   # số đợt (cách nhau ≥ 10 phiên)
+        for h in (20, 60, 120, 250):
+            f = (ix.shift(-h) / ix - 1)[st == k].dropna()
+            # lấy mẫu cách 5 phiên để bớt chồng lấn
+            f5 = f.iloc[::5]
+            rec[f"r{h}"] = _r(100 * f.mean(), 1) if len(f) >= 10 else None
+            rec[f"w{h}"] = _r(100 * (f > 0).mean(), 0) if len(f) >= 10 else None
+            rec[f"n{h}"] = int(len(f5))
+        mdd = [(ix.iloc[i:i + 61].min() / ix.iloc[i] - 1) for i in range(len(ix) - 1) if st.iloc[i] == k]
+        rec["dd60"] = _r(100 * float(np.mean(mdd)), 1) if len(mdd) >= 10 else None
+        out.append(rec)
+    base = {f"r{h}": _r(100 * (ix.shift(-h) / ix - 1).mean(), 1) for h in (20, 60, 120, 250)}
+    pk = float(ix.cummax().iloc[-1])
+    ma200 = ix.rolling(200, min_periods=150).mean()
+    cur = st.iloc[-1]
+    return {"now": cur, "name": STATES[cur][0], "act": STATES[cur][2], "states": out, "base": base,
+            "vni": _r(ix.iloc[-1], 2), "peak": _r(pk, 2), "peak_date": str(ix.idxmax().date()), "dd": _r(100 * (ix.iloc[-1] / pk - 1), 1),
+            "lvl20": _r(pk * 0.8, 0), "ma200": _r(ma200.iloc[-1], 0), "above200": bool(ix.iloc[-1] > ma200.iloc[-1]),
+            "since": str(S.index[0].date())}

@@ -1429,3 +1429,14 @@ main{padding:16px 22px 48px}
 /* không cho cả trang bị kéo ngang vì 1 phần tử tràn */
 main{overflow-x:clip}
 .multi>*{min-width:0}.mcell .mh b{min-width:0}.mcell svg{max-width:100%}
+/* rổ chỉ số & ETF · tâm lý → nên làm gì */
+.tabs a.nav-wide{display:none}
+@media (min-width:980px){.tabs a.nav-wide{display:flex}}
+.mp-now{border-left:4px solid var(--ref);padding:8px 12px;border-radius:6px;background:var(--sunk)}
+.mp-now.up{border-left-color:var(--up)}.mp-now.down{border-left-color:var(--down)}
+.mp-now small{display:block;color:var(--ink-3);font-size:.72rem;text-transform:uppercase;letter-spacing:.05em}
+.mp-now>b{font-size:1.05rem}.mp-now>p{margin:4px 0 0;font-size:.86rem}
+table.mp-t td.wrap{min-width:180px;max-width:320px;white-space:normal}
+#bkT td.l small,#etfT td.l small{white-space:normal}
+.ms-play{margin:8px 0 0;font-size:.82rem;color:var(--ink-2)}
+tr.bk-row{cursor:pointer}tr.bk-row:hover td{background:var(--sunk)}

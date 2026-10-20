@@ -135,3 +135,35 @@ def _lot_part(rem: float, frac: float) -> float:
         return rem
     q = math.floor(rem * frac / 100 + 1e-6) * 100
     return q if q > 0 else (min(100.0, rem) if rem >= 100 else rem)
+
+
+# ----------------------------------------------------------------- câu chữ thông báo mức thoát (dùng chung Telegram / web / thông báo đẩy)
+def _vn(x, nd=2):
+    if x is None:
+        return "—"
+    return f"{x:,.{nd}f}".replace(",", "_").replace(".", ",").replace("_", ".")
+
+
+def act_text(sell, qty=None) -> str:
+    sell = sell or 0
+    if sell >= 0.999:
+        return "bán hết"
+    if sell <= 0:
+        return "xem lại luận điểm"
+    return f"bán {round(sell * 100)}%" + (f" (≈ {_vn(qty, 0)} cp)" if qty else "")
+
+
+def exit_msg(sym: str, label: str, level, px, trig: str, sell, qty=None, hit: bool = False, html_b: bool = True) -> tuple[str, str, str]:
+    """→ (dòng Telegram, tiêu đề ngắn, nội dung ngắn). Nói rõ ĐÃ chạm hay CHƯA, và việc cần làm là có điều kiện."""
+    b = (lambda t: f"<b>{t}</b>") if html_b else (lambda t: t)
+    act = act_text(sell, qty)
+    below = trig != "above"
+    if hit:
+        line = f"• {b(sym)} ĐÃ CHẠM {label} {_vn(level)} (giá {_vn(px)}) → {b(act)} theo kế hoạch"
+        return line, f"{sym} ĐÃ CHẠM {label} {_vn(level)}", f"Giá {_vn(px)} → {act} theo kế hoạch"
+    d = abs(100 * (level / px - 1)) if level and px else None
+    gap = f"còn {_vn(d, 1)}%" if d is not None else "gần"
+    cond = f"nếu giá {'giảm về' if below else 'lên tới'} {_vn(level)} thì {act}"
+    line = f"• {b(sym)} giá {_vn(px)} – cách {label.lower() if label.startswith(('Dừng', 'Chốt')) else label} {_vn(level)} {gap}, <i>chưa chạm</i> → {cond}" if html_b else \
+        f"• {sym} giá {_vn(px)} – cách {label} {_vn(level)} {gap}, chưa chạm → {cond}"
+    return line, f"{sym} gần {label} {_vn(level)} (chưa chạm)", f"Giá {_vn(px)}, {gap}. Chưa cần làm gì – {cond}."

@@ -28,6 +28,7 @@ from . import config
 from .data import intraday as itd
 from .data import store, vci
 from .data.http import FetchError
+from .analysis.exits import exit_msg
 
 log = logging.getLogger("live")
 VN = ZoneInfo("Asia/Ho_Chi_Minh")
@@ -294,7 +295,7 @@ def items_for(rows: dict, held: dict, hlevels: dict, wl: dict, picks: dict) -> l
                 continue
             if hit or 0 <= dist <= 3:
                 qty = float(h.get("qty") or 0)
-                personal.append({"kind": "exit", "symbol": s, "key": f"{s}:{L['key']}:{p}", "hit": bool(hit), "label": L.get("label"), "price": p,
+                personal.append({"kind": "exit", "symbol": s, "key": f"{s}:{L['key']}:{p}", "hit": bool(hit), "label": L.get("label"), "price": p, "trig": L.get("trig"),
                                  "sell": L.get("sell"), "qty": int(round(qty * (L.get("sell") or 0) / 100) * 100) if L.get("sell") else 0,
                                  "dist": _f(dist, 1), "px": px})
         if r["flags"]:
@@ -348,13 +349,9 @@ def live_notes(items: list[dict], rows: dict, S: dict, today: str, feats: set) -
             continue
         s, r = p["symbol"], rows.get(p["symbol"], {})
         if p["kind"] == "exit":
-            act = "bán hết" if (p.get("sell") or 0) >= 0.999 else ("xem lại luận điểm" if not p.get("sell") else f"bán {round(p['sell'] * 100)}% (≈ {_v(p['qty'], 0)} cp)")
-            if p["hit"]:
-                out.append({"kind": "exit", "key": f"{today}:hit:{p['key']}", "sev": 3, "sym": s, "url": "#/portfolio",
-                            "title": f"{s} ĐÃ CHẠM {p.get('label') or ''} {_v(p['price'])}", "body": f"Giá {_v(p['px'])} → {act}"})
-            else:
-                out.append({"kind": "near", "key": f"{today}:near:{p['key']}", "sev": 2, "sym": s, "url": "#/portfolio",
-                            "title": f"{s} sắp chạm {p.get('label') or ''} {_v(p['price'])}", "body": f"Còn {_v(p['dist'], 1)}% · giá {_v(p['px'])} · {act}"})
+            _, ttl, body = exit_msg(s, p.get("label") or "", p["price"], p["px"], p.get("trig") or "below", p.get("sell"), p.get("qty"), hit=p["hit"], html_b=False)
+            out.append({"kind": "exit" if p["hit"] else "near", "key": f"{today}:{'hit' if p['hit'] else 'near'}:{p['key']}", "sev": 3 if p["hit"] else 2,
+                        "sym": s, "url": "#/portfolio", "title": ttl, "body": body})
         elif p["kind"] == "alert":
             out.append({"kind": "alert", "key": f"{today}:{p['key']}", "sev": 2, "sym": s, "url": f"#/s/{s}",
                         "title": f"Cảnh báo giá {s}", "body": p["text"] + (f" · {p['note']}" if p.get("note") else "")})
@@ -421,13 +418,13 @@ def send(out: dict, ctx: dict, held: dict) -> bool:
     lines = []
     ex_new = [p for p in out["personal"] if p["kind"] == "exit" and p["key"] + (":hit" if p["hit"] else ":near") not in sent]
     if ex_new:
-        lines.append("<b>📌 DANH MỤC – MỨC THOÁT</b>")
-        for p in ex_new:
-            act = "bán hết" if (p.get("sell") or 0) >= 0.999 else ("xem lại luận điểm" if not p.get("sell") else f"bán {round(p['sell'] * 100)}% (≈ {_v(p['qty'], 0)} cp)")
-            if p["hit"]:
-                lines.append(f"• <b>{p['symbol']}</b> ĐÃ CHẠM {html.escape(p['label'] or '')} {_v(p['price'])} – giá {_v(p['px'])} → <b>{act}</b>")
-            else:
-                lines.append(f"• <b>{p['symbol']}</b> còn {_v(p['dist'], 1)}% tới {html.escape(p['label'] or '')} {_v(p['price'])} – giá {_v(p['px'])} · {act}")
+        hits, nears = [p for p in ex_new if p["hit"]], [p for p in ex_new if not p["hit"]]
+        for grp, head in ((hits, "🔴 DANH MỤC – ĐÃ CHẠM MỨC THOÁT (làm theo kế hoạch)"), (nears, "⏳ DANH MỤC – GẦN MỨC THOÁT (chưa chạm, chưa cần bán)")):
+            if not grp:
+                continue
+            lines.append(f"<b>{head}</b>")
+            for p in grp:
+                lines.append(exit_msg(p["symbol"], html.escape(p["label"] or ""), p["price"], p["px"], p.get("trig") or "below", p.get("sell"), p.get("qty"), hit=p["hit"])[0])
     fl = [p for p in out["personal"] if p["kind"] == "flag" and p["key"] not in sent]
     if fl:
         lines.append("<b>👀 MÃ CỦA ANH – BIẾN ĐỘNG</b>")

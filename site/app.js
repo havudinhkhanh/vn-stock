@@ -419,6 +419,7 @@ async function route() {
     else if (r === "help" || r === "faq") { setTab(""); await viewHelp(); }
     else if (r === "report") { setTab("portfolio"); await viewReport(); }
     else if (r === "desk") { setTab("desk"); await viewDesk(); }
+    else if (r === "etf") { setTab("etf"); await viewEtf(arg[0]); }
     else { app().innerHTML = `<div class="empty">Không có trang này. <a href="#/">Về trang Hôm nay</a></div>`; }
   } catch (e) {
     console.error(e);
@@ -999,7 +1000,7 @@ async function viewMarket() {
   const st = { idx: "VNINDEX", per: lsGet("heatPer", "r1m"), sort: "mcap_bn", asc: false };
   const idxKpis = Object.entries(m.indices).map(([k, v]) => [esc(k), `${nf(v.close)}<br><small class="${cls(v.chg)}">${pct(v.chg, 2)}</small>`]);
   app().innerHTML = `
-  <div class="ph"><h1>Thị trường</h1><span class="meta">phiên ${esc(m.date)}</span></div>
+  <div class="ph"><h1>Thị trường</h1><a class="chip" href="#/etf" style="margin-left:6px">◔ Rổ chỉ số & ETF →</a><span class="meta">phiên ${esc(m.date)}</span></div>
   ${kpis([...idxKpis, ...(secs?.market?.pe_med ? [["P/E TT gia quyền", `<b>${nf(secs.market.pe_w_pos ?? secs.market.pe_w, 1)}</b><br><small>TB LS ${nf(secs.market.pew_hist_med, 1)}</small>`, "", "", "hl"], ["P/E TT trung vị", `<b>${nf(secs.market.pe_med, 1)}</b><br><small>TB LS ${nf(secs.market.pe_hist_med, 1)}</small>`, "", "", "hl"], ["P/B TT", `${nf(secs.market.pb_w)}<br><small>TV ${nf(secs.market.pb_med)}</small>`, "", "", "hl"]] : []), ["Đèn", `${LIGHT_VI[reg.light]} · ${reg.exposure}%`, reg.light === "green" ? "up" : reg.light === "red" ? "down" : "ref"], ["Điều kiện đạt", `${reg.score}/${reg.max_score}`],
     ["Tăng / giảm", `<span class="up">${br.adv ?? "—"}</span> / <span class="down">${br.dec ?? "—"}</span>`], ["Đỉnh / đáy 52T", `${br.new_hi ?? "—"} / ${br.new_lo ?? "—"}`],
     ["% trên MA50", nf(br.above50, 0) + "%"], ["% trên MA200", nf(br.above200, 0) + "%"], ["Ngày phân phối", reg.distribution_days, reg.distribution_days >= 6 ? "down" : ""],
@@ -1499,6 +1500,90 @@ async function viewSector(name, lvArg) {
     const c = mkChart($("#secBt"), { rightPriceScale: { mode: 1, borderColor: css("--line") } });
     c.addLineSeries({ color: css("--up"), lineWidth: 2, priceLineVisible: false }).setData(bt.curve.map((p) => ({ time: p.d, value: p.top })));
     c.addLineSeries({ color: css("--ink-3"), lineWidth: 1, priceLineVisible: false }).setData(bt.curve.map((p) => ({ time: p.d, value: p.all })));
+    c.timeScale().fitContent();
+  }
+}
+
+// ================================================================ RỔ CHỈ SỐ & ETF + TÂM LÝ → NÊN LÀM GÌ
+function moodPlay(P, compact = false) {
+  if (!P || !P.states) return "";
+  const cur = P.states.find((x) => x.key === P.now) || {};
+  const tone = /fear_mid|fear_shallow/.test(P.now) ? "down" : /fear_deep|recover|greed_up/.test(P.now) ? "up" : "ref";
+  const head = `<div class="mp-now ${tone}"><small>Trạng thái hôm nay</small><b>${esc(P.name)}</b><p>${esc(P.act)}</p>
+    <p class="faint" style="font-size:.76rem;margin:4px 0 0">VN-Index ${nf(P.vni, 0)} · ${P.dd < 0 ? `đã giảm ${nf(-P.dd, 1)}% từ đỉnh ${nf(P.peak, 0)} (${esc(P.peak_date)})` : "đang ở đỉnh"} · ${P.above200 ? "trên" : "dưới"} MA200 (${nf(P.ma200, 0)}) · mốc giảm 20% từ đỉnh ≈ <b>${nf(P.lvl20, 0)}</b></p>
+    ${isNum(cur.r120) ? `<p style="font-size:.8rem;margin:6px 0 0">Lịch sử trạng thái này (${nf(cur.ep, 0)} đợt từ ${esc((P.since || "").slice(0, 4))}): VN-Index 3 tháng sau TB <b class="${cls(cur.r60)}">${pct(cur.r60)}</b> (tăng ${nf(cur.w60, 0)}% số lần), 6 tháng <b class="${cls(cur.r120)}">${pct(cur.r120)}</b>, 1 năm <b class="${cls(cur.r250)}">${pct(cur.r250)}</b> · bình thường 1 năm ${pct(P.base?.r250)}.</p>` : ""}</div>`;
+  if (compact) return head;
+  return `${head}<div class="tw sec"><table class="mp-t"><thead><tr><th class="l">Trạng thái</th><th class="l">Khi nào</th><th>Số đợt</th><th>3 tháng sau</th><th>6 tháng sau</th><th>1 năm sau</th><th title="Mức giảm thêm trung bình (tệ nhất) trong 3 tháng sau">Giảm thêm TB</th><th class="l">Nên làm gì</th></tr></thead>
+    <tbody>${P.states.map((s) => `<tr class="${s.key === P.now ? "mine" : ""}"><td class="l"><b>${esc(s.name)}</b>${s.key === P.now ? ' <span class="pill brand">hôm nay</span>' : ""}</td><td class="l wrap"><small>${esc(s.cond)}</small></td><td>${nf(s.ep, 0)}</td>
+      ${[60, 120, 250].map((h) => `<td class="${cls(s["r" + h])}">${pct(s["r" + h])}<br><small class="faint">${isNum(s["w" + h]) ? nf(s["w" + h], 0) + "% lần tăng" : ""}</small></td>`).join("")}
+      <td class="down">${pct(s.dd60)}</td><td class="l wrap"><small>${esc(s.act)}</small></td></tr>`).join("")}
+      <tr class="muted"><td class="l">Mọi ngày (đối chứng)</td><td></td><td></td>${[60, 120, 250].map((h) => `<td>${pct(P.base?.["r" + h])}</td>`).join("")}<td></td><td></td></tr></tbody></table></div>
+    <p class="faint" style="font-size:.74rem">VN-Index từ ${esc(P.since || "")}, chưa tính cổ tức. Mỗi ngày nằm trong trạng thái được tính một lần nên các ngày cùng một đợt chồng lên nhau – nhìn <b>số đợt</b> để biết mẫu ít hay nhiều. Đây là xác suất lịch sử, không phải cam kết.</p>`;
+}
+const trendPill = (r) => r.above200 == null ? "" : r.above200 ? `<span class="pill buy" title="Giá trên MA200 (${nf(r.ma200, 0)})">trên MA200</span>` : `<span class="pill sell" title="Giá dưới MA200 (${nf(r.ma200, 0)})">dưới MA200</span>`;
+async function viewEtf(key) {
+  const B = await load("data/baskets.json");
+  const I = B.indices || [], E = B.etfs || [];
+  const byE = Object.fromEntries(E.map((e) => [e.s, e]));
+  if (key) {
+    const r = I.find((x) => x.key === key) || I.find((x) => (byE[key]?.track) === x.key);
+    if (r) return viewEtfOne(B, r, byE[key] ? key : null);
+  }
+  const P = B.mood?.playbook;
+  const bas = I.filter((x) => x.kind === "basket"), secI = I.filter((x) => x.kind === "sector");
+  const ruleNow = (x) => { const m = x.bt?.rules?.ma200; return m ? (m.now ? '<b class="up">Đang nắm</b>' : '<b class="down">Đứng ngoài</b>') : "—"; };
+  app().innerHTML = `<div class="ph"><h1>Rổ chỉ số & ETF</h1><span class="meta">dữ liệu ${esc(B.date || "")} · ${bas.length} rổ · ${E.length} quỹ ETF</span></div>
+    <section class="panel hero"><div class="ph"><h2>Tâm lý thị trường – nên làm gì lúc này?</h2><span class="meta">tâm lý ${nf(B.mood?.now, 0)}/100 · ${esc(B.mood?.label || "")} · <a href="#/swing/mood">chi tiết</a></span></div>${P ? moodPlay(P) : `<p class="muted">Chưa có dữ liệu tâm lý (gói Pro).</p>`}</section>
+    <section class="panel flush sec"><div class="ph"><h2>Các rổ chỉ số</h2><span class="meta">bấm vào rổ để xem thành phần, định giá, ETF bám rổ</span></div>
+      <div class="tw"><table id="bkT"><thead><tr><th class="l sym">Rổ</th><th>Điểm</th><th>Hôm nay</th><th>1 tháng</th><th>3 tháng</th><th>1 năm</th><th>Từ đầu năm</th><th title="Đang thấp hơn đỉnh cao nhất bao nhiêu %">Từ đỉnh</th><th class="l">Xu hướng</th><th title="P/E gia quyền vốn hoá của các mã trong rổ (tính từ BCTC từng mã)">P/E rổ</th><th>% mã tăng</th><th title="Quy tắc đã kiểm chứng: nắm rổ khi chỉ số đóng cửa trên MA200, đứng ngoài khi dưới">Quy tắc MA200</th><th class="l">ETF bám rổ</th></tr></thead>
+      <tbody>${bas.map((x) => `<tr class="bk-row" data-go="#/etf/${x.key}"><td class="l sym"><a href="#/etf/${x.key}"><b>${esc(x.name)}</b></a><br><small class="faint">${esc(x.desc)}</small></td><td>${nf(x.close)}</td><td class="${cls(x.chg)}">${pct(x.chg, 2)}</td>
+        <td class="${cls(x.r1m)}">${pct(x.r1m)}</td><td class="${cls(x.r3m)}">${pct(x.r3m)}</td><td class="${cls(x.r1y)}">${pct(x.r1y)}</td><td class="${cls(x.ytd)}">${pct(x.ytd)}</td><td class="down">${pct(x.dd)}</td><td class="l">${trendPill(x)}</td>
+        <td>${nf(x.val?.pe_w, 1)}</td><td>${isNum(x.val?.up_pct) ? nf(x.val.up_pct, 0) + "%" : "—"}</td><td>${ruleNow(x)}</td><td class="l">${(x.etfs || []).map((s) => `<a href="#/etf/${s}">${s}</a>`).join(" ") || '<span class="faint">—</span>'}</td></tr>`).join("")}</tbody></table></div></section>
+    <section class="panel flush sec"><div class="ph"><h2>Quỹ ETF đang niêm yết</h2><span class="meta">rổ bám theo = rổ có lợi nhuận ngày tương quan cao nhất 1 năm qua</span></div>
+      <div class="tw"><table id="etfT"><thead><tr><th class="l sym">Quỹ</th><th class="l">Bám rổ</th><th>Giá</th><th>Hôm nay</th><th>1 tháng</th><th>1 năm</th><th title="Lợi nhuận 1 năm của quỹ trừ lợi nhuận của rổ (âm = kém rổ: phí quản lý, tiền mặt, lệch danh mục; quỹ có chia cổ tức sẽ thấp hơn)">Lệch rổ 1 năm</th><th title="Độ lệch theo dõi (tracking error) năm hoá – càng nhỏ càng bám sát">Độ bám</th><th title="Giá trị giao dịch TB 20 phiên">GTGD/ngày</th><th class="l">Xu hướng</th></tr></thead>
+      <tbody>${E.map((e) => `<tr class="bk-row" data-go="#/etf/${e.s}"><td class="l sym"><a href="#/etf/${e.s}"><b>${e.s}</b></a><br><small class="faint">${esc(e.name)}</small></td><td class="l">${e.track ? esc((I.find((x) => x.key === e.track) || {}).name || e.track) : '<span class="faint">chưa rõ</span>'}</td>
+        <td>${nf(e.close)}</td><td class="${cls(e.chg)}">${pct(e.chg, 2)}</td><td class="${cls(e.r1m)}">${pct(e.r1m)}</td><td class="${cls(e.r1y)}">${pct(e.r1y)}</td><td class="${cls(e.td1y)}">${pct(e.td1y)}</td><td>${isNum(e.te) ? nf(e.te, 1) + "%" : "—"}</td>
+        <td class="${(e.val20 || 0) < 1 ? "down" : ""}">${bn(e.val20)}${(e.val20 || 0) < 1 ? '<br><small>ít thanh khoản</small>' : ""}</td><td class="l">${trendPill(e)}</td></tr>`).join("")}</tbody></table></div>
+      <p class="faint" style="font-size:.72rem;padding:6px 12px">Chọn ETF: ưu tiên quỹ <b>GTGD/ngày lớn</b> (mua bán dễ, chênh lệch giá mua–bán nhỏ) và <b>lệch rổ nhỏ</b>. Hệ thống chưa có giá trị tài sản ròng (NAV) của quỹ nên chưa tính được chiết khấu/thặng dư so với NAV.</p></section>
+    ${secI.length ? `<section class="panel flush sec"><div class="ph"><h2>Chỉ số ngành của sở (HOSE)</h2><span class="meta">chỉ để theo dõi – chưa có ETF</span></div><div class="tw"><table><thead><tr><th class="l sym">Chỉ số</th><th>Điểm</th><th>1 tháng</th><th>3 tháng</th><th>1 năm</th><th>Từ đỉnh</th><th class="l">Xu hướng</th></tr></thead>
+      <tbody>${secI.sort((a, b) => (b.r3m ?? -99) - (a.r3m ?? -99)).map((x) => `<tr><td class="l sym"><b>${esc(x.name)}</b> <small class="faint">${esc(x.desc)}</small></td><td>${nf(x.close)}</td><td class="${cls(x.r1m)}">${pct(x.r1m)}</td><td class="${cls(x.r3m)}">${pct(x.r3m)}</td><td class="${cls(x.r1y)}">${pct(x.r1y)}</td><td class="down">${pct(x.dd)}</td><td class="l">${trendPill(x)}</td></tr>`).join("")}</tbody></table></div></section>` : ""}
+    ${(() => { const L = bas.filter((x) => x.bt?.ok); if (!L.length) return ""; return `<section class="panel flush sec"><div class="ph"><h2>Kiểm chứng cách đánh rổ</h2><span class="meta">trên chính chỉ số, từ 2016 · chưa tính phí & cổ tức</span></div>
+      <div class="tw"><table><thead><tr><th class="l sym">Rổ</th><th>Mua & giữ<br><small>lãi/năm · sụt tối đa</small></th><th>Theo MA200<br><small>lãi/năm · sụt tối đa · thời gian nắm</small></th><th>MA200 + bắt đáy khi sợ hãi<br><small>lãi/năm · sụt tối đa</small></th></tr></thead>
+      <tbody>${L.map((x) => { const R = x.bt.rules, c = (k) => R[k] ? `<b class="${cls(R[k].cagr)}">${pct(R[k].cagr)}</b> · <span class="down">${pct(R[k].mdd, 0)}</span>${k === "ma200" ? ` · ${nf(R[k].expo, 0)}%` : ""}` : "—"; return `<tr><td class="l sym"><a href="#/etf/${x.key}"><b>${esc(x.name)}</b></a> <small class="faint">từ ${esc(x.bt.from.slice(0, 4))}</small></td><td>${c("hold")}</td><td>${c("ma200")}</td><td>${c("ma200_fear")}</td></tr>`; }).join("")}</tbody></table></div>
+      <p class="note" style="margin:8px 12px 12px">Đọc bảng: <b>theo MA200</b> (nắm rổ khi chỉ số đóng cửa trên đường trung bình 200 phiên, bán ra khi đóng cửa dưới) thường cho lãi/năm gần bằng mua & giữ nhưng <b>sụt tối đa chỉ khoảng một nửa</b> – tránh được phần lớn các đợt sập (2018, 2022). Đổi lại phải chịu vài lần mua lại cao hơn giá bán. "Bắt đáy khi sợ hãi" ở VN chưa cho kết quả tốt hơn – sợ hãi thường kéo dài.</p></section>`; })()}`;
+  $$("tr.bk-row").forEach((tr) => (tr.onclick = (e) => { if (!e.target.closest("a")) location.hash = tr.dataset.go; }));
+}
+function viewEtfOne(B, r, etfSym) {
+  const E = (B.etfs || []).filter((e) => e.track === r.key), V = r.val || {}, R = r.bt?.rules || {};
+  const cur = etfSym ? (B.etfs || []).find((e) => e.s === etfSym) : null;
+  app().innerHTML = `<nav class="crumbs stk"><a href="#/etf">← Rổ chỉ số & ETF</a><span>›</span><b>${esc(cur ? cur.s : r.name)}</b><span class="cx">${cur ? `bám ${esc(r.name)} · ` : ""}hôm nay <b class="${cls((cur || r).chg)}">${pct((cur || r).chg, 2)}</b></span></nav>
+    <div class="ph"><h1>${esc(cur ? cur.s : r.name)}</h1>${trendPill(cur || r)}<span class="pill">${esc(cur ? cur.name : r.desc)}</span>${cur && cur.corr ? `<span class="faint" style="font-size:.76rem">bám rổ ${esc(r.name)} · tương quan ${nf(cur.corr, 3)}</span>` : ""}<span class="meta">dữ liệu ${esc(B.date || "")}</span></div>
+    ${kpis([["Giá / điểm", nf((cur || r).close)], ["Hôm nay", pct((cur || r).chg, 2), cls((cur || r).chg)], ["1 tháng", pct((cur || r).r1m), cls((cur || r).r1m)], ["3 tháng", pct((cur || r).r3m), cls((cur || r).r3m)], ["1 năm", pct((cur || r).r1y), cls((cur || r).r1y)],
+      ["Từ đầu năm", pct((cur || r).ytd), cls((cur || r).ytd)], ["Từ đỉnh", pct((cur || r).dd), "down"], ["MA200", nf((cur || r).ma200)], ["Đáy – đỉnh 52 tuần", `${nf((cur || r).lo52)} – ${nf((cur || r).hi52)}`], ["Biến động/năm", pct((cur || r).vol, 0, false)],
+      cur ? ["GTGD/ngày", bn(cur.val20)] : null, cur ? ["Lệch rổ 1 năm", pct(cur.td1y), cls(cur.td1y)] : null], true)}
+    <div class="g g-main sec"><section class="panel"><div class="ph"><h2>${esc(cur ? cur.s : r.name)} – 2 năm gần nhất</h2><span class="meta">đường vàng = MA200</span></div><div class="chart" id="bkC"></div></section>
+      <section class="panel"><div class="ph"><h2>Quy tắc đánh rổ – hôm nay</h2><span class="meta">kiểm chứng trên ${esc(r.name)} từ ${esc(r.bt?.from || "")}</span></div>
+        ${R.ma200 ? `<p class="note"><b>Theo MA200:</b> ${R.ma200.now ? `chỉ số đang <b class="up">trên MA200</b> → nắm rổ; bán khi đóng cửa dưới ${nf(r.ma200, 0)}.` : `chỉ số đang <b class="down">dưới MA200</b> → đứng ngoài; mua lại khi đóng cửa trên ${nf(r.ma200, 0)} (cần tăng ${pct(100 * (r.ma200 / r.close - 1))}).`}</p>` : ""}
+        ${kpis([["Mua & giữ", `${pct(R.hold?.cagr)}/năm<br><small class="down">sụt ${pct(R.hold?.mdd, 0)}</small>`], ["Theo MA200", `${pct(R.ma200?.cagr)}/năm<br><small class="down">sụt ${pct(R.ma200?.mdd, 0)}</small>`, "", `Nắm ${nf(R.ma200?.expo, 0)}% thời gian · ${nf(R.ma200?.trades, 0)} lần vào`],
+          ["MA200 + bắt đáy", `${pct(R.ma200_fear?.cagr)}/năm<br><small class="down">sụt ${pct(R.ma200_fear?.mdd, 0)}</small>`]])}
+        ${R.hold ? lineSvg([{ name: "Mua & giữ", color: css("--ink-3"), pts: R.hold.curve.map((p) => ({ x: p.d.slice(2, 7), y: p.v })) }, { name: "Theo MA200", color: css("--up"), width: 2, pts: (R.ma200?.curve || []).map((p) => ({ x: p.d.slice(2, 7), y: p.v })) }], { h: 170, dec: 0, label: "Giá trị 100 đồng" }) : ""}
+</section></div>
+    ${r.mtf ? `<div class="sec">${mtfPanel(r.mtf, `${esc(r.name)} – đa khung thời gian`)}</div>` : ""}
+    ${V.n ? `<section class="panel sec"><div class="ph"><h2>Định giá rổ ${esc(r.name)}</h2><span class="meta">${V.n} mã · tính từ BCTC từng mã trong hệ thống</span></div>
+      ${kpis([["P/E gia quyền", nf(V.pe_w, 1), "", "Tổng vốn hoá ÷ tổng lợi nhuận 12 tháng của các mã có lãi"], ["P/E trung vị", nf(V.pe_med, 1)], ["P/B gia quyền", nf(V.pb_w, 2)], ["ROE trung vị", pct(V.roe_med, 1, false)], ["LN 12T trung vị", pct(V.ni_yoy_med), cls(V.ni_yoy_med)],
+        ["Cổ tức gia quyền", pct(V.div_w, 1, false)], ["Tiềm năng TV", pct(V.upside_med), cls(V.upside_med), "Trung vị (giá hợp lý − giá)/giá của các mã"], ["% mã xu hướng tăng", isNum(V.up_pct) ? nf(V.up_pct, 0) + "%" : "—"], ["Mã trong DS MUA", (V.in_buy || []).map((s) => `<a href="#/s/${s}">${s}</a>`).join(", ") || "0"]])}</section>
+      <section class="panel flush sec"><div class="ph"><h2>Thành phần rổ</h2><span class="meta">tỷ trọng ước theo vốn hoá – sở còn điều chỉnh theo free-float và trần tỷ trọng, nên chỉ để tham khảo</span></div>
+        <div class="tw tall"><table><thead><tr><th class="l sym">Mã</th><th class="l">Mâm</th><th>Tỷ trọng ≈</th><th>1 tháng</th><th>P/E</th><th>Tiềm năng</th><th class="l">Xu hướng</th></tr></thead>
+        <tbody>${(V.top || []).map((m) => `<tr><td class="l sym"><a href="#/s/${m.s}"><b>${m.s}</b></a>${(V.in_buy || []).includes(m.s) ? ' <span class="pill buy">MUA</span>' : ""}</td><td class="l"><small>${esc(m.sector || "")}</small></td><td>${nf(m.w, 1)}%</td><td class="${cls(m.chg1m)}">${pct(m.chg1m)}</td><td>${nf(m.pe, 1)}</td><td class="${cls(m.upside)}">${pct(m.upside)}</td><td class="l">${esc(TREND_VI[m.trend] || "—")}</td></tr>`).join("")}</tbody></table></div></section>` : ""}
+    ${E.length ? `<section class="panel flush sec"><div class="ph"><h2>ETF bám rổ ${esc(r.name)}</h2><span class="meta">${E.length} quỹ</span></div><div class="tw"><table><thead><tr><th class="l sym">Quỹ</th><th>Giá</th><th>1 năm</th><th>Lệch rổ 1 năm</th><th>Độ bám</th><th>GTGD/ngày</th></tr></thead>
+      <tbody>${E.map((e) => `<tr class="${e.s === etfSym ? "mine" : ""}"><td class="l sym"><a href="#/etf/${e.s}"><b>${e.s}</b></a> <small class="faint">${esc(e.name)}</small></td><td>${nf(e.close)}</td><td class="${cls(e.r1y)}">${pct(e.r1y)}</td><td class="${cls(e.td1y)}">${pct(e.td1y)}</td><td>${isNum(e.te) ? nf(e.te, 1) + "%" : "—"}</td><td>${bn(e.val20)}</td></tr>`).join("")}</tbody></table></div></section>` : ""}`;
+  stuckWatch($(".crumbs.stk"));
+  const L = (cur || r).line;
+  if (L && L.t?.length) {
+    const c = mkChart($("#bkC")), b = css("--brass") || css("--brand");
+    c.addAreaSeries({ lineColor: b, topColor: b + "44", bottomColor: b + "00", lineWidth: 2 }).setData(L.t.map((d, i) => ({ time: d, value: L.c[i] })));
+    const ma = L.c.map((_, i) => i >= 199 ? L.c.slice(i - 199, i + 1).reduce((a, x) => a + x, 0) / 200 : null);
+    c.addLineSeries({ color: css("--ref"), lineWidth: 1, priceLineVisible: false, lastValueVisible: false }).setData(ser(L.t, ma));
     c.timeScale().fitContent();
   }
 }
@@ -3554,7 +3639,7 @@ function stepsFor(d, ctx) {
     if (hit.length) hit.forEach((l) => st.push(l.sell > 0 ? { t: `Làm ngay: ${l.label}${l.price ? " (" + nf(l.price) + ")" : ""} → ${fracVi(l.sell).toLowerCase()}${l.qty ? " " + nf(l.qty, 0) + " cp" : ""}`, c: l.kind === "tp" ? "up" : "down",
       d: `${l.why}. Phiên tới đặt lệnh bán LO bằng giá tham chiếu hoặc lệnh ATC nếu muốn chắc khớp${isNum(l.proceeds) ? `; tiền về ≈ ${big(l.proceeds)} đ sau phí, thuế` : ""}. Khớp xong bấm "Bán" ở bảng Kế hoạch thoát trong tab Danh mục để hệ thống ghi lãi/lỗ và đánh dấu đã làm.` }
       : { t: `Xem lại luận điểm: ${l.label}`, c: "ref", d: `${l.why}. Việc cần làm: (1) đọc BCTC quý gần nhất – lợi nhuận còn tăng không; (2) so P/E với ngành; (3) nếu lý do mua ban đầu không còn, bán dần 1/2 trong 1–2 tuần; nếu vẫn còn, ghi lại lý do giữ vào Nhật ký.` }));
-    else st.push({ t: "Chưa chạm mức thoát nào – giữ", d: near.length ? `Sắp chạm: ${near.map((l) => `${l.label} ${nf(l.price)}`).join("; ")}. Đặt sẵn lệnh chờ trên app CTCK.` : `Mức gần nhất: ${ep.levels.filter((l) => l.price).map((l) => `${l.label} ${nf(l.price)} (${pct(l.dist, 1)})`).slice(0, 2).join("; ")}.` });
+    else st.push({ t: "Chưa chạm mức thoát nào – giữ", d: near.length ? `Gần (chưa chạm): ${near.map((l) => `${l.label} ${nf(l.price)} – cách ${nf(Math.abs(l.dist), 1)}%`).join("; ")}. Có thể đặt sẵn lệnh điều kiện trên app CTCK.` : `Mức gần nhất: ${ep.levels.filter((l) => l.price).map((l) => `${l.label} ${nf(l.price)} (cách ${nf(Math.abs(l.dist), 1)}% ${l.trig === "above" ? "phía trên" : "phía dưới"})`).slice(0, 2).join("; ")}.` });
     if ((verdict === "buy" || verdict === "lean_buy") && cap) {
       const wNow = (h.qty * px * 1000) / cap * 100;
       if (wNow < maxW - 2 && lv) st.push({ t: `Có thể mua thêm tới trần ${maxW}% vốn (đang ${nf(wNow, 1)}%)`, d: `Chỉ mua thêm trong vùng ${nf(lv.zone[0])}–${nf(lv.zone[1])}, tối đa ${nf(lot(((maxW - wNow) / 100) * cap / (lv.zone[1] * 1000)), 0)} cp; không bình quân giá khi khung tuần đang giảm.` });
@@ -3702,7 +3787,7 @@ function personalLine(p, rows) {
   if (p.kind === "exit") {
     const act = (p.sell || 0) >= 0.999 ? "bán hết" : !p.sell ? "xem lại luận điểm" : `bán ${Math.round(p.sell * 100)}% (≈ ${nf(p.qty, 0)} cp)`;
     return p.hit ? `<li class="pl down">${a} <b>ĐÃ CHẠM</b> ${esc(p.label || "")} ${nf(p.price)} – giá ${nf(p.px)} → <b>${act}</b>. Đặt lệnh ngay trên app CTCK${p.sell >= 0.999 ? " (LO tại giá hiện tại hoặc ATC)" : ""}.</li>`
-      : `<li class="pl ref">${a} còn ${nf(p.dist, 1)}% tới ${esc(p.label || "")} ${nf(p.price)} – giá ${nf(p.px)} · ${act}. Đặt sẵn lệnh chờ trên app nếu CTCK hỗ trợ lệnh điều kiện.</li>`;
+      : `<li class="pl ref">${a} giá ${nf(p.px)} – cách ${esc(p.label || "")} ${nf(p.price)} còn ${nf(Math.abs(p.dist), 1)}%, <i>chưa chạm</i> → nếu giá ${p.trig === "above" ? "lên tới" : "giảm về"} ${nf(p.price)} thì ${act}. Có thể đặt sẵn lệnh điều kiện trên app CTCK.</li>`;
   }
   if (p.kind === "flag") return `<li class="pl">${a}${p.held ? "" : " <span class='muted'>(theo dõi)</span>"} ${nf(r.px)} <b class="${cls(r.chg)}">${pct(r.chg)}</b>: ${(p.flags || []).map(flagPill).join(" ")} <small class="blk">${esc(liveAdvice(p.flags, p.held))}</small></li>`;
   if (p.kind === "alert") return `<li class="pl">${a} 🔔 ${esc(p.text)}${p.note ? ` <small class="muted">${esc(p.note)}</small>` : ""}</li>`;
@@ -3863,7 +3948,7 @@ function moodStrip(FJ) {
   if (!FJ?.sentiment) return "";
   const S = FJ.sentiment, k = FJ.count || {};
   return `<section class="panel sec moodstrip"><div class="ph"><h2 data-g="mood">Tâm lý thị trường</h2><span class="meta"><a href="#/digest">📰 Bản tin phiên</a> · <a href="#/swing/mood">chi tiết & kiểm chứng</a></span></div>
-    <div class="ms-row">${moodGauge(S, false)}<div class="ms-k"><a href="#/swing/flow"><b class="down">${nf(k.dist, 0)}</b> mã xả âm thầm</a><a href="#/swing/flow"><b class="up">${nf(k.acc, 0)}</b> mã gom âm thầm</a><a href="#/swing/flow"><b class="up">${nf(k.brk, 0)}</b> mã bứt phá có KL</a></div></div></section>`;
+    <div class="ms-row">${moodGauge(S, false)}<div class="ms-k"><a href="#/swing/flow"><b class="down">${nf(k.dist, 0)}</b> mã xả âm thầm</a><a href="#/swing/flow"><b class="up">${nf(k.acc, 0)}</b> mã gom âm thầm</a><a href="#/swing/flow"><b class="up">${nf(k.brk, 0)}</b> mã bứt phá có KL</a></div></div>${S.playbook ? `<p class="ms-play"><b>${esc(S.playbook.name)}:</b> ${esc(S.playbook.act)} <a href="#/etf">Rổ & ETF →</a></p>` : ""}</section>`;
 }
 function flowView(FJ, mine) {
   FLOW_N = FJ.window || 10;
@@ -3897,6 +3982,7 @@ function moodView(FJ) {
     <section class="panel"><div class="ph"><h2>Thành phần</h2><span class="meta">xếp hạng so với 2 năm gần nhất</span></div>
       <div class="tw"><table><thead><tr><th class="l">Chỉ báo</th><th>Hiện tại</th><th>Xếp hạng</th></tr></thead><tbody>${comp.map((c) => `<tr><td class="l">${esc(c.name)}</td><td>${nf(c.raw, c.name.includes("Thanh khoản") ? 2 : 1)}${c.name.includes("Thanh khoản") ? "×" : "%"}</td><td>${minibar(c.rank)} ${nf(c.rank, 0)}</td></tr>`).join("")}</tbody></table></div>
       <p class="faint" style="font-size:.74rem">Chưa có lịch sử khối ngoại và dư nợ margin nên chưa đưa vào.</p></section></div>
+    ${S.playbook ? `<section class="panel hero sec"><div class="ph"><h2>Sợ hãi hay hưng phấn – nên làm gì?</h2><span class="meta">kiểm chứng trên VN-Index · <a href="#/etf">Rổ chỉ số & ETF →</a></span></div>${moodPlay(S.playbook)}</section>` : ""}
     <div class="g g2 sec"><section class="panel"><div class="ph"><h2>Kiểm chứng: 20 phiên sau</h2></div>${tt("20")}</section><section class="panel"><div class="ph"><h2>Kiểm chứng: 60 phiên sau</h2></div>${tt("60")}</section></div>
     ${(() => { const q = T["20"]?.q || []; if (q.length < 5) return ""; const nm = ["sợ hãi nhất", "thấp", "giữa", "cao", "hưng phấn nhất"], best = q.reduce((a, b) => (b.r > a.r ? b : a)), worst = q.reduce((a, b) => (b.r < a.r ? b : a));
       return `<p class="note">Trên dữ liệu VN từ 2016: 20 phiên sau, nhóm tâm lý <b>${nm[best.q - 1]}</b> cho VN-Index tốt nhất (${pct(best.r, 2)}), nhóm <b>${nm[worst.q - 1]}</b> kém nhất (${pct(worst.r, 2)}). Mức độ dự báo yếu (tương quan ${nf(T["20"].ic, 3)}) – dùng để điều chỉnh tỷ trọng cổ phiếu, không dùng một mình để mua/bán.</p>`; })()}`;

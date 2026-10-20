@@ -20,6 +20,15 @@ IQ = "https://iq.vietcap.com.vn/api/iq-insight-service"
 
 INDEX_MAP = {"VNINDEX": "VNINDEX", "HNXINDEX": "HNXIndex", "UPCOMINDEX": "HNXUpcomIndex",
              "VN30": "VN30"}
+# rổ chỉ số (giá chỉ số, không chia 1000) – mã gọi biểu đồ của Vietcap đã dò ở probe_etf
+BASKET_INDEX = {"VN100": "VN100", "VNMIDCAP": "VNMIDCAP", "VNSMALLCAP": "VNSMALLCAP", "VNALLSHARE": "VNALLSHARE",
+                "VNDIAMOND": "VNDIAMOND", "VNFINLEAD": "VNFINLEAD", "VNFINSELECT": "VNFINSELECT", "VNX50": "VNX50", "VNSI": "VNSI",
+                "HNX30": "HNX30", "VNIT": "VNIT", "VNREAL": "VNREAL", "VNFIN": "VNFIN", "VNMAT": "VNMAT", "VNIND": "VNIND",
+                "VNCONS": "VNCONS", "VNENE": "VNENE", "VNHEAL": "VNHEAL", "VNUTI": "VNUTI", "VNCOND": "VNCOND"}
+INDEX_MAP.update(BASKET_INDEX)
+# nhóm thành phần (getByGroup) ứng với từng chỉ số
+INDEX_GROUP = {"VN30": "VN30", "VN100": "VN100", "VNMIDCAP": "VNMidCap", "VNSMALLCAP": "VNSmallCap", "VNALLSHARE": "VNAllShare",
+               "HNX30": "HNX30", "VNDIAMOND": "VNDiamond", "VNFINLEAD": "VNFinLead", "VNFINSELECT": "VNFinSelect"}
 
 # Loại doanh nghiệp theo ngành ICB cấp 4 (để đọc đúng mẫu BCTC)
 BANK_ICB4 = {"Ngân hàng", "Quản lý tài sản", "Tài chính cá nhân"}
@@ -75,6 +84,31 @@ def listing() -> pd.DataFrame:
     out = df[[c for c in keep if c in df]].rename(
         columns={"icbName2": "sector", "icbName3": "industry", "icbName4": "subindustry"})
     return out.drop_duplicates("symbol").reset_index(drop=True)
+
+
+def group_symbols(group: str) -> list[str]:
+    """Mã thành phần của một nhóm/rổ (VN30, VN100, VNDiamond, ETF…)."""
+    r = get("VCI", TRADING + f"price/symbols/getByGroup?group={group}")
+    return [str(x.get("symbol")) for x in (r or []) if isinstance(x, dict) and x.get("symbol")]
+
+
+def etf_list() -> pd.DataFrame:
+    """Danh sách quỹ ETF đang niêm yết (mã, tên, sàn)."""
+    syms = set(group_symbols("ETF"))
+    raw = []
+    for base in (TRADING, MT):
+        try:
+            raw = get("VCI", base + "price/symbols/getAll")
+            break
+        except FetchError:
+            continue
+    info = {x.get("symbol"): x for x in raw or [] if isinstance(x, dict)}
+    rows = []
+    for s in sorted(syms | {k for k, v in info.items() if str(v.get("type", "")).upper() == "ETF" and str(v.get("board", "")).upper() != "DELISTED"}):
+        x = info.get(s, {})
+        rows.append({"symbol": s, "name": x.get("organName") or x.get("organShortName") or s,
+                     "exchange": str(x.get("board") or "HOSE").replace("HSX", "HOSE"), "status": str(x.get("board") or "")})
+    return pd.DataFrame(rows)
 
 
 def industries() -> pd.DataFrame:
