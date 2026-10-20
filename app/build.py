@@ -473,6 +473,13 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     post_events, ev_active = [], []
     overrides = ({k.upper(): v for k, v in (((owner or {}).get("data", {}).get("assumptions")) or {}).items() if isinstance(v, dict)}
                  if multi else load_overrides())
+    _liqpe = pd.to_numeric(u["pe"], errors="coerce")
+    mkt_pe = float(_liqpe[(_liqpe > 0) & (_liqpe < 100) & (pd.to_numeric(u["avg_value_bn"], errors="coerce") >= 2)].median()) if len(u) else 12.0
+    try:
+        _own, _orgd = store.read("owners"), store.read("org_codes")
+        org_map = dict(zip(_orgd["symbol"], _orgd["organ"])) if not _orgd.empty else {}
+    except Exception:  # noqa: BLE001
+        _own, org_map = pd.DataFrame(), {}
     for s in u.index:
         r = u.loc[s]
         d = details.get(s)
@@ -498,9 +505,28 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
                  "label": r.get("peer_used_label"),
                  "conglo": ("tập đoàn đa ngành, không có mâm tương đồng" if r.get("peer") == "conglomerate" else
                             None)}
+        try:
+            so_ = va.sotp(s, _own, org_map, u, float(vcfg.get("sotp_min_pct", 0.2)), float(vcfg.get("sotp_discount", 20)) / 100)
+        except Exception as e:  # noqa: BLE001
+            log.debug("SOTP %s lỗi: %s", s, e)
+            so_ = None
+        if so_ and (so_.get("listed_share") or 0) >= float(vcfg.get("sotp_min_share", 25)):
+            peers["sotp"] = so_
         ep = evx.episode(d["df"]["close"])
         val = va.value(fa, model, peers, hist, r["beta"], vcfg, mos, event=ep if ep and ep["phase"] == "active" else None,
                        liq_bn=float(r.get("avg_value_bn") or 0))
+        try:
+            val["market"] = va.market_view(fa, hist, val, mkt_pe, so_)
+            _mk = val["market"]
+            if val.get("ok") and not val.get("reliable") and not val.get("event"):   # nhãn nói rõ thị trường đang định giá kiểu gì
+                if _mk.get("kind") == "holding":
+                    val["verdict"] = f"Tập đoàn – xem SOTP ({_mk['sotp']['per_share']:,.1f})".replace(".", ",")
+                elif _mk.get("kind") == "expect" and _mk.get("g") is not None:
+                    val["verdict"] = f"Giá theo kỳ vọng – cần LN +{_mk['g']:.0f}%/năm"
+                elif _mk.get("kind") in ("pessimist", "doubt"):
+                    val["verdict"] = "Thị trường bi quan hơn BCTC"
+        except Exception as e:  # noqa: BLE001
+            log.debug("Góc nhìn thị trường %s lỗi: %s", s, e)
         if ep and ep["phase"] == "window":
             qual = bool((fa.get("ni_ttm") or 0) > 0 and (fa.get("de") if fa.get("de") is not None else 0) < 1.5)
             ep["plan"] = evx.entry_plan(ep, qual, val.get("fair") if val.get("reliable") else None)

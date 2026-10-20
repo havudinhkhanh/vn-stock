@@ -2511,7 +2511,8 @@ async function viewStock(sym, tabArg) {
       <section class="panel"><div class="ph"><h2>Định giá: ${esc(v.verdict || "chưa định giá được")}</h2><span class="meta">điểm ${scoreCell(r.composite)}</span></div>
         ${v.ok ? kpis([["Hợp lý", nf(v.fair)], ["Khoảng", `${nf(v.fair_lo)}–${nf(v.fair_hi)}`], ["Mua dưới", nf(v.buy_below)], ["Tiềm năng", pct(v.upside), cls(v.upside)]], false, "c2") : `<p class="muted">${esc(v.reason || "")}</p>`}
         ${normNote(v)}
-        ${v.warning ? `<p class="note" style="margin-top:6px">${esc(v.warning)}</p>` : ""}</section>
+        ${v.warning && !(v.market && v.reliable === false) ? `<p class="note" style="margin-top:6px">${esc(v.warning)}</p>` : ""}
+        ${v.market && (v.reliable === false || ["expect", "holding", "pessimist", "doubt"].includes(v.market.kind)) ? `<details class="sec" open><summary><b>Thị trường đang định giá thế nào?</b></summary>${mktView(d, true)}</details>` : ""}</section>
       ${valCtx(d, secs || {})}
     </div>
     <div class="stack">${(() => { const C = ctxRecs(secs || {}, d.sector, d.industry), P = (secs?.peer || []).find((s) => s.name === d.row?.peer_label && !s.conglo), x = P?.outlook ? P : C.ind?.outlook ? C.ind : C.sec; return x ? outlookBox(x, `Triển vọng ${P === x ? "mâm" : "ngành"} ${esc(x.name)}`) : ""; })()}
@@ -2994,12 +2995,42 @@ function fsView(base, rows, a, opt = {}) {
     ${bad ? `<p class="note">Bảng cân đối lệch ${nf(Math.max(...S.map((x) => Math.abs(x.bs.chk))), 0)} tỷ – báo lỗi giúp em.</p>` : ""}
     <p class="faint" style="margin-top:6px;font-size:.74rem">${note}</p>`;
 }
+// ---- thị trường đang định giá thế nào? (đối chiếu giá trị cơ bản với cách thị trường đang trả)
+function mktView(d, compact = false) {
+  const v = d.valuation || {}, M = v.market;
+  if (!M || !M.pe && !M.bands && !M.sotp) return "";
+  const r = d.row || {}, px = r.price, sym = d.symbol;
+  const K = { pe: "P/E", pb: "P/B" };
+  const gTxt = isNum(M.g) ? `Giá ${nf(px)} chỉ hợp lý nếu lợi nhuận tăng khoảng <b class="${M.g >= 30 ? "down" : M.g < 0 ? "up" : ""}">${pct(M.g, 0)}/năm trong 5 năm</b> rồi P/E về mặt bằng thị trường (${nf(M.pe_exit, 1)} lần), chiết khấu ${nf(M.ke, 0)}%/năm.`
+    : M.loss ? "Doanh nghiệp đang lỗ 12 tháng – giá đang trả cho kỳ vọng hồi phục, chưa có lợi nhuận để so." : "";
+  const st = M.stat ? `Lịch sử VN 2018–2025: mã có mức kỳ vọng ${esc(M.stat.band)} như vậy, 12 tháng sau <b class="${cls(M.stat.med12)}">${pct(M.stat.med12, 1)}</b> so với VN-Index (trung vị), thắng VN-Index ${nf(M.stat.win, 0)}% số lần${M.stat.avg12 >= 3 && M.stat.avg12 > M.stat.med12 + 5 ? ` – có số ít mã tăng rất mạnh kéo trung bình lên ${pct(M.stat.avg12, 0)}` : ""}.` : "";
+  const B = M.bands || [], A = B[0];
+  const bandTxt = A ? `${sym} thường được thị trường trả <b>${K[A.k]} ${nf(A.lo, A.k === "pb" ? 2 : 1)}–${nf(A.hi, A.k === "pb" ? 2 : 1)} lần</b> (5 năm qua, trung vị ${nf(A.med, A.k === "pb" ? 2 : 1)} – bội số ổn định nhất của mã); hiện ${nf(A.cur, A.k === "pb" ? 2 : 1)} lần → <b>${esc(A.pos)} vùng quen thuộc</b>. Theo mặt bằng này giá ≈ <b>${nf(A.val_med)}</b> (${nf(A.val_lo)}–${nf(A.val_hi)}).` : "";
+  const S = M.sotp;
+  const sotpTxt = S ? `<div class="sec"><b>Tổng giá trị các phần (SOTP)</b> – công ty con niêm yết chiếm ${nf(S.listed_share, 0)}% vốn hoá ${sym}:
+      <div class="tw"><table><thead><tr><th class="l">Công ty con</th><th>Sở hữu</th><th>Vốn hoá (tỷ)</th><th>Phần của ${sym} (tỷ)</th></tr></thead><tbody>
+      ${S.parts.map((p) => `<tr><td class="l"><a href="#/s/${p.s}"><b>${p.s}</b></a> <small class="faint">${esc((p.name || "").slice(0, 34))}</small></td><td>${nf(p.pct, 1)}%</td><td>${nf(p.mcap, 0)}</td><td>${nf(p.value, 0)}</td></tr>`).join("")}
+      <tr><td class="l">Phần còn lại (theo sổ sách)</td><td></td><td></td><td>${nf(S.rest_book, 0)}</td></tr>
+      <tr><td class="l"><b>Tổng (NAV)</b> · trừ chiết khấu holding ${nf(S.discount, 0)}%</td><td></td><td></td><td><b>${nf(S.nav, 0)}</b> → <b>${nf(S.per_share)}</b>/cp</td></tr></tbody></table></div>
+      <p class="faint" style="font-size:.74rem">Vốn hoá ${sym} ${nf(S.mcap, 0)} tỷ ${S.premium > 0 ? `<b class="down">cao hơn ${nf(S.premium, 0)}%</b>` : `<b class="up">thấp hơn ${nf(-S.premium, 0)}%</b>`} so với NAV sau chiết khấu – phần chênh là giá thị trường đang trả cho mảng chưa niêm yết / kỳ vọng mới. Tỷ lệ sở hữu theo danh sách cổ đông lớn công bố gần nhất.</p></div>` : "";
+  const use = { expect: `<b>Cách dùng:</b> đây là cổ phiếu <b>"kỳ vọng"</b> – giá đi theo câu chuyện tăng trưởng, không theo lợi nhuận hiện tại. Đừng bán/mua chỉ vì "giá hợp lý" thấp hơn giá; nếu nắm thì đánh theo xu hướng, đặt dừng lỗ chặt, tỷ trọng nhỏ hơn bình thường, và theo dõi LN từng quý có đạt mức tăng trưởng mà giá đang đòi hỏi không.`,
+    holding: `<b>Cách dùng:</b> tập đoàn nên nhìn <b>SOTP</b> (bảng trên) thay vì P/E hợp nhất; mức chênh so với NAV cho biết thị trường đang trả thêm bao nhiêu cho phần chưa niêm yết.`,
+    pessimist: `<b>Cách dùng:</b> giá đang ngầm định lợi nhuận <b>giảm</b> – thị trường bi quan hơn BCTC. Trước khi coi là "rẻ", tìm lý do (lợi nhuận bất thường một lần, nợ, pháp lý, ngành đi xuống). Hệ thống chỉ cho mua khi xu hướng giá xác nhận.`,
+    doubt: `<b>Cách dùng:</b> theo BCTC mã rẻ hơn giá nhiều, nhưng giá chỉ ngầm định lợi nhuận tăng ${pct(M.g, 0)}/năm – thị trường <b>không tin lợi nhuận hiện tại bền</b> (lợi nhuận ghi nhận theo dự án/một lần, nợ, pháp lý…). Đừng mua chỉ vì "rẻ"; chờ BCTC các quý sau xác nhận và xu hướng giá đảo chiều.`,
+    loss: `<b>Cách dùng:</b> mã đang lỗ – định giá theo lợi nhuận không áp dụng được; dựa vào xu hướng và tiến độ hồi phục từng quý.`,
+    normal: v.reliable === false ? `<b>Cách dùng:</b> giá trị cơ bản chưa đáng tin cho mã này – ưu tiên vùng giá theo mặt bằng quen thuộc ở trên và xu hướng.` : "" }[M.kind] || "";
+  const head = isNum(M.gap) && Math.abs(M.gap) >= 40 ? `<p class="note">Giá thị trường ${M.gap > 0 ? "cao hơn" : "thấp hơn"} giá trị cơ bản (${nf(v.fair)}) <b>${nf(Math.abs(M.gap), 0)}%</b> – hai bên đang định giá theo hai kiểu khác nhau, nên đọc thêm phần dưới.</p>` : "";
+  const body = `${head}${gTxt ? `<p style="font-size:.84rem">${gTxt} ${st}</p>` : ""}${bandTxt ? `<p style="font-size:.84rem">${bandTxt}</p>` : ""}${sotpTxt}${use ? `<p class="note" style="margin-top:6px">${use}</p>` : ""}`;
+  if (compact) return body;
+  return `<section class="panel"><div class="ph"><h2>Thị trường đang định giá ${esc(sym)} thế nào?</h2><span class="meta">đối chiếu, không trộn vào giá trị hợp lý</span></div>${body}</section>`;
+}
 function tabVal(d) {
   const v = d.valuation || {};
   if (!v.ok || !v.model) return `<div class="empty">${esc(v.reason || "Không đủ số liệu để dự phóng (doanh nghiệp lỗ, vốn chủ âm hoặc thiếu BCTC).")}</div>`;
   const a = v.model.assumptions;
   return `<div class="g g-main"><div class="stack">
     ${panel("Giá trị hợp lý", `${corpBox(d.fa)}<div id="vOut"></div>`)}
+    ${mktView(d)}
     ${panel("Báo cáo tài chính dự phóng", `<div id="pOut"></div><p class="faint" style="margin-top:6px;font-size:.74rem">Doanh thu tăng theo giả định, giảm dần về mức dài hạn; biên lợi nhuận và chi phí theo tỷ lệ doanh thu; lợi nhuận khác giảm 20%/năm.
       Lãi vay = lãi suất × dư nợ bình quân (dư nợ = nợ/vốn × vốn chủ + vay cho dự án mới); FCFE = LN + khấu hao − đầu tư TSCĐ − tăng vốn lưu động + vay ròng.
       Ngân hàng/CTCK/bảo hiểm dự phóng thẳng lợi nhuận. Kịch bản Xấu/Tốt điều chỉnh tăng trưởng và biên lợi nhuận.</p>`, "tỷ đồng")}</div>
@@ -3295,6 +3326,9 @@ const HELP_LABELS = [
   ["Đạt giá – ngoài danh sách MUA", "Giá và xu hướng đạt nhưng rổ của mã không được phân bổ vốn, đã đủ số mã, vượt trần ngành hoặc đèn thị trường không cho – chỉ theo dõi."],
   ["Rẻ / Hơi rẻ / Hợp lý / Đắt", "So giá với giá trị hợp lý (P/E và P/B mục tiêu theo ngành điều chỉnh theo ROE, DCF, DDM khi phù hợp). Rẻ = dưới vùng mua an toàn."],
   ["Chưa đáng tin – cần rà lại", "Các phương pháp lệch nhau quá xa hoặc giá trị lệch quá xa giá thị trường – thường do số liệu bất thường. Không dùng để quyết định."],
+  ["Giá theo kỳ vọng – cần LN +x%/năm", "Giá thị trường cao hơn nhiều so với giá trị tính từ lợi nhuận hiện tại: giá chỉ hợp lý nếu lợi nhuận tăng x%/năm trong 5 năm. Lịch sử VN: nhóm cần tăng >30%/năm thường kém VN-Index ~10%/năm (trung vị), nhưng có số ít tăng rất mạnh – đánh theo xu hướng + dừng lỗ, không mua/bán chỉ vì định giá."],
+  ["Tập đoàn – xem SOTP", "Tập đoàn có công ty con niêm yết: định giá theo tổng giá trị các phần (công ty con theo giá thị trường × tỷ lệ sở hữu + phần còn lại theo sổ sách, trừ chiết khấu holding)."],
+  ["Thị trường bi quan hơn BCTC", "Giá đang ngầm định lợi nhuận giảm – tìm lý do trước khi coi là rẻ."],
   ["Có sự kiện – chưa định giá", "Giá sụt ≥ 45% kèm ≥ 3 phiên giảm sàn: thị trường đang định giá thông tin BCTC chưa có. Chờ ≥ 120 phiên và ≥ 60 phiên liền không giảm sàn rồi mới tính điểm vào."],
   ["Lợi nhuận đang xấu đi", "Quý gần nhất lỗ hoặc dưới ½ cùng kỳ: P/E dùng EPS điều chỉnh theo 2 quý gần nhất, chưa mua mới cho tới khi BCTC quý sau xác nhận."],
   ["Đèn thị trường", "Xanh / Vàng / Đỏ từ 7 điều kiện (xu hướng VN-Index, độ rộng, phân phối…). Quyết định tỷ trọng cổ phiếu tối đa."],

@@ -230,6 +230,12 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
             pbj = float(np.clip((roe_n - g) / max(ke - g, 0.02), 0.3, 4.0))
             methods.append({"key": "pbroe", "mult": pbj, "name": f"P/B hợp lý theo ROE ({pbj:.2f}x = (ROE−g)/(ke−g))",
                             "value": _r(pbj * bvps / 1000), "w": 0.40, "range": None})
+    # 6) Tập đoàn / holding có công ty con niêm yết chiếm phần lớn giá trị: tổng giá trị các phần (SOTP)
+    so = peers.get("sotp")
+    if so and so.get("per_share"):
+        ps = so["per_share"]
+        methods.append({"key": "sotp", "name": f"Tổng giá trị các phần (SOTP): {len(so['parts'])} công ty con niêm yết theo giá thị trường × tỷ lệ sở hữu + phần còn lại theo sổ sách, chiết khấu holding {so['discount']:.0f}%",
+                        "value": ps, "w": 0.6 if peers.get("conglo") else 0.3, "range": [_r(ps * 0.85), _r(ps * 1.15)]})
     methods = [m for m in methods if m["value"] and m["value"] > 0]
     if not [m for m in methods if m["w"] > 0]:
         methods = []
@@ -334,3 +340,108 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
                          "floor": cfg.get("ke_min", 12.0)},
             "liq": liq, "verdict": verdict, "reliable": reliable, "warning": warning, "flag": flag, "event": event, "det": det, "methods": methods, "norm": nz, "ke": _r(ke * 100, 2), "beta": _r(b, 2),
             "scenarios": sc, "model": model, "hist": {k: _r(v, 2) for k, v in hist.items()}}
+
+
+# ----------------------------------------------------------------- thị trường đang định giá thế nào? (lớp đối chiếu với giá trị cơ bản)
+# Kiểm chứng 2018–2025 (6.327 lần công bố BCTC quý, mã GTGD ≥ 2 tỷ): tăng trưởng LN 5 năm mà GIÁ đang ngầm định
+# (P/E hiện tại → về P/E trung vị thị trường sau 5 năm, chiết khấu 12%) và lợi nhuận 12 tháng sau so với VN-Index.
+IMPLIED_STATS = [   # (ngưỡng trên, nhãn, trung vị vượt VN-Index 12 tháng %, % lần thắng VN-Index, TB %)
+    (0.0, "< 0%/năm", -0.4, 50, 12.8), (0.10, "0–10%/năm", 0.2, 51, 11.1), (0.20, "10–20%/năm", -3.1, 47, 7.6),
+    (0.30, "20–30%/năm", -4.7, 44, 4.2), (0.50, "30–50%/năm", -11.4, 38, 0.2), (9.9, "> 50%/năm", -9.5, 40, 6.2)]
+
+
+def implied_growth(pe: float | None, ke: float, pe_exit: float, years: int = 5) -> float | None:
+    """Giá hôm nay = EPS × (1+g)^n × P/E cuối kỳ ÷ (1+ke)^n → g."""
+    if not pe or pe <= 0 or not pe_exit:
+        return None
+    return float((pe * (1 + ke) ** years / pe_exit) ** (1 / years) - 1)
+
+
+def market_view(fa: dict, hist: dict, val: dict, mkt_pe: float | None, sotp: dict | None = None) -> dict:
+    """Đối chiếu: giá thị trường đang ngầm định gì, mã thường được thị trường trả bao nhiêu lần (lịch sử của chính mã),
+    và (tập đoàn) giá trị các công ty con niêm yết. Không trộn vào giá trị hợp lý – dùng để hiểu khoảng cách và cách dùng."""
+    price, eps, bvps = fa.get("price"), fa.get("eps"), fa.get("bvps")
+    if not price:
+        return {}
+    ke = (val.get("ke") or 12.0) / 100
+    pe_exit = float(np.clip(mkt_pe or 12.0, 8, 16))
+    pe = price * 1000 / eps if eps and eps > 0 else None
+    pb = price * 1000 / bvps if bvps and bvps > 0 else None
+    g = implied_growth(pe, ke, pe_exit)
+    out = {"pe": _r(pe, 1), "pb": _r(pb, 2), "pe_exit": _r(pe_exit, 1), "ke": _r(ke * 100, 1), "g": _r(100 * g, 1) if g is not None else None,
+           "loss": bool(eps is not None and eps <= 0)}
+    if g is not None:
+        st = next(x for x in IMPLIED_STATS if g < x[0])
+        out["stat"] = {"band": st[1], "med12": st[2], "win": st[3], "avg12": st[4]}
+    # cách thị trường quen định giá chính mã (5 năm): bội số nào ổn định nhất
+    bands = []
+    for k, cur, base in (("pe", pe, eps), ("pb", pb, bvps)):
+        lo, md, hi = hist.get(f"{k}_lo"), hist.get(f"{k}_med"), hist.get(f"{k}_hi")
+        if lo and md and hi and cur and base and base > 0:
+            pos = "thấp hơn" if cur < lo else "cao hơn" if cur > hi else "trong"
+            bands.append({"k": k, "lo": _r(lo, 2), "med": _r(md, 2), "hi": _r(hi, 2), "cur": _r(cur, 2), "pos": pos, "spread": _r(hi / lo, 2),
+                          "val_med": _r(md * base / 1000), "val_lo": _r(lo * base / 1000), "val_hi": _r(hi * base / 1000)})
+    if bands:
+        bands.sort(key=lambda b: b["spread"])
+        out["bands"] = bands
+        out["anchor"] = bands[0]["k"]
+    if sotp:
+        out["sotp"] = sotp
+    fair = val.get("fair")
+    if fair and price:
+        out["gap"] = _r(100 * (price / fair - 1), 0)
+    # kiểu mã → cách dùng
+    kind = "normal"
+    if sotp and sotp.get("per_share"):
+        kind = "holding"
+    if g is not None and g >= 0.30:
+        kind = "expect" if kind == "normal" else kind
+    elif g is not None and g < 0:
+        kind = "pessimist" if kind == "normal" else kind
+    elif out["loss"]:
+        kind = "loss"
+    if kind == "normal" and g is not None and g < 0.10 and out.get("gap") is not None and out["gap"] <= -40:
+        kind = "doubt"   # cơ bản nói rẻ nhiều, giá chỉ ngầm định tăng trưởng thấp: thị trường không tin lợi nhuận hiện tại bền
+    out["kind"] = kind
+    return out
+
+
+def sotp(sym: str, owners: pd.DataFrame | None, org: dict, u: pd.DataFrame, min_pct: float = 0.2, discount: float = 0.2) -> dict | None:
+    """Tổng giá trị các phần (tập đoàn / holding): công ty con niêm yết theo GIÁ THỊ TRƯỜNG × tỷ lệ sở hữu
+    + phần còn lại (vốn chủ hợp nhất − giá trị sổ sách các phần đã tính) theo giá trị sổ sách, trừ chiết khấu holding."""
+    if owners is None or owners.empty or sym not in u.index:
+        return None
+    code = org.get(sym)
+    if not code:
+        return None
+    ch = owners[(owners["owner_code"] == code) & (owners["pct"] >= min_pct) & (owners["symbol"] != sym)]
+    ch = ch.sort_values("pct", ascending=False).drop_duplicates("symbol")
+    if ch.empty:
+        return None
+    p = u.loc[sym]
+    mcap, pb = _num(p.get("mcap_bn")), _num(p.get("pb"))
+    price = _num(p.get("price"))
+    if not mcap or not price or not pb or pb <= 0:
+        return None
+    eq = mcap / pb
+    parts, look, book = [], 0.0, 0.0
+    for r in ch.itertuples():
+        if r.symbol not in u.index:
+            continue
+        c = u.loc[r.symbol]
+        mc, cpb = _num(c.get("mcap_bn")), _num(c.get("pb"))
+        if not mc:
+            continue
+        v = r.pct * mc
+        b = r.pct * mc / cpb if cpb and cpb > 0 else 0.0
+        look += v
+        book += b
+        parts.append({"s": r.symbol, "name": c.get("name"), "pct": _r(100 * r.pct, 1), "mcap": _r(mc, 0), "value": _r(v, 0), "book": _r(b, 0), "as_of": r.public or None})
+    if not parts:
+        return None
+    rest = max(0.0, eq - book)
+    nav = look + rest
+    shares = mcap / price
+    per = nav * (1 - discount) / shares
+    return {"parts": parts, "listed": _r(look, 0), "rest_book": _r(rest, 0), "nav": _r(nav, 0), "discount": _r(100 * discount, 0),
+            "per_share": _r(per), "mcap": _r(mcap, 0), "listed_share": _r(100 * look / mcap, 0), "premium": _r(100 * (mcap / (nav * (1 - discount)) - 1), 0)}

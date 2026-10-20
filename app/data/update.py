@@ -17,7 +17,7 @@ import pandas as pd
 
 from .. import config
 from . import kbs, normalize, store, vci, yahoo
-from .http import BREAKER, FetchError
+from .http import BREAKER, FetchError, get
 
 log = logging.getLogger("update")
 
@@ -572,6 +572,50 @@ def update_baskets(budget_sec: float = 240) -> None:
         log.info("Rổ chỉ số & ETF: %d mã, %d rổ có thành phần · giá %d dòng", df["symbol"].nunique(), len({r["index"] for r in rows}), len(df))
 
 
+def update_owners(symbols: list[str], per_run: int = 150, refresh_days: int = 30, budget_sec: float = 150) -> None:
+    """Cổ đông lớn của từng mã (Vietcap IQ) + mã tổ chức (organCode) → biết công ty niêm yết nào là công ty con của ai (định giá SOTP)."""
+    t0 = time.time()
+    codes = store.read("org_codes")
+    have = set(codes["symbol"]) if not codes.empty else set()
+    new_c = []
+    for s in [x for x in symbols if x not in have][:per_run]:
+        if time.time() - t0 > budget_sec / 2:
+            break
+        try:
+            d = (get("VCI", f"{vci.IQ}/v1/company/{s}") or {}).get("data") or {}
+            if d.get("organCode"):
+                new_c.append({"symbol": s, "organ": str(d["organCode"])})
+        except FetchError:
+            continue
+    if new_c:
+        codes = store.upsert("org_codes", pd.DataFrame(new_c), ["symbol"])
+    own = store.read("owners")
+    today = pd.Timestamp.now().normalize()
+    last = own.groupby("symbol")["fetched"].max() if not own.empty else pd.Series(dtype="datetime64[ns]")
+    todo = [x for x in symbols if x not in last.index or (today - last[x]).days >= refresh_days]
+    todo.sort(key=lambda x: (x in last.index, last.get(x, pd.Timestamp(0))))
+    rows, done = [], []
+    for s in todo[:per_run]:
+        if time.time() - t0 > budget_sec:
+            break
+        try:
+            data = (get("VCI", f"{vci.IQ}/v1/company/{s}/shareholder") or {}).get("data") or []
+        except FetchError:
+            continue
+        done.append(s)
+        for x in data:
+            if not isinstance(x, dict) or x.get("percentage") is None:
+                continue
+            rows.append({"symbol": s, "owner_code": str(x.get("ownerCode") or ""), "owner_name": x.get("ownerName") or "", "pct": float(x["percentage"]),
+                         "type": x.get("ownerType") or "", "public": str(x.get("publicDate") or "")[:10], "fetched": today})
+    if done:
+        keep = own[~own["symbol"].isin(done)] if not own.empty else own
+        out = pd.concat([keep, pd.DataFrame(rows)], ignore_index=True) if rows else keep
+        if rows or not keep.empty:
+            store.write("owners", out)
+    log.info("Cổ đông lớn: %d mã lượt này · mã tổ chức %d mã · còn %d mã chờ", len(done), len(codes), max(0, len(todo) - len(done)))
+
+
 def run(force_fin: bool = False, only: list[str] | None = None) -> None:
     listing = update_listing()
     exch = set(config.get("universe.exchanges", ["HOSE", "HNX", "UPCOM"]))
@@ -615,6 +659,11 @@ def run(force_fin: bool = False, only: list[str] | None = None) -> None:
     except Exception as e:  # noqa: BLE001
         log.exception("Dữ liệu trong phiên lỗi: %s", e)
     if not only:
+        try:
+            liq_o = liquid_symbols(prices, float(config.get("universe.fin_min_avg_value_bn", 0.3)))
+            update_owners([s for s in liq_o if s in set(syms)], int(config.get("data.owners_per_run", 150)))
+        except Exception as e:  # noqa: BLE001
+            log.warning("Cổ đông lớn lỗi: %s", e)
         try:
             update_baskets(float(config.get("data.basket_budget_sec", 240)))
         except Exception as e:  # noqa: BLE001
