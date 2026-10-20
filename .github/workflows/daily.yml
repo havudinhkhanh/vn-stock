@@ -162,6 +162,7 @@ jobs:
           GH_DISPATCH_TOKEN: ${{ secrets.GH_DISPATCH_TOKEN }}
         run: |
           python scripts/cloudflare.py wrangler-toml > wrangler.toml
+          python scripts/optimize_site.py site || true   # thu gọn JS/CSS + gắn phiên bản để trình duyệt lưu đệm
           npx --yes wrangler@3 pages project create vn-stock --production-branch main || true
           if [ -n "$GH_DISPATCH_TOKEN" ]; then
             echo "$GH_DISPATCH_TOKEN" | npx --yes wrangler@3 pages secret put GH_TOKEN --project-name vn-stock || true

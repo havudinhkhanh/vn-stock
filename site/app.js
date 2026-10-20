@@ -6,14 +6,18 @@ const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const isNum = (x) => x !== null && x !== undefined && x !== "" && typeof x !== "boolean" && !Number.isNaN(Number(x));
-const nf = (x, d = 2) => (isNum(x) ? Number(x).toLocaleString("vi-VN", { minimumFractionDigits: d, maximumFractionDigits: d }) : "—");
+// định dạng số: dùng lại bộ Intl.NumberFormat (toLocaleString tạo bộ mới mỗi lần – rất chậm với bảng hàng nghìn ô)
+const NF = {};
+const nf = (x, d = 2) => (isNum(x) ? (NF[d] || (NF[d] = new Intl.NumberFormat("vi-VN", { minimumFractionDigits: d, maximumFractionDigits: d }))).format(Number(x)) : "—");
 const pct = (x, d = 1, sign = true) => (isNum(x) ? (sign && x > 0 ? "+" : "") + nf(x, d) + "%" : "—");
 const cls = (x) => (!isNum(x) ? "" : x > 0 ? "up" : x < 0 ? "down" : "ref");
 const bn = (x) => (isNum(x) ? nf(x, 0) + " tỷ" : "—");
 const vnd = (x) => (isNum(x) ? nf(x, 0) + " đ" : "—");
 const big = (x) => !isNum(x) ? "—" : Math.abs(x) >= 1e6 ? nf(x / 1e6, 1) + " tr" : Math.abs(x) >= 1e3 ? nf(x / 1e3, 1) + " k" : nf(x, 0);
 const mcapFmt = (x) => !isNum(x) ? "—" : x >= 1e6 ? nf(x / 1e6, 2) + " triệu tỷ" : x >= 1000 ? nf(x / 1000, 1) + " nghìn tỷ" : nf(x, 0) + " tỷ";
-const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+// màu theo biến CSS: nhớ theo giao diện sáng/tối (đọc getComputedStyle mỗi lần ép trình duyệt tính lại style)
+const CSSV = {};
+const css = (v) => { const k = (document.documentElement.dataset.theme || "") + v; return k in CSSV ? CSSV[k] : (CSSV[k] = getComputedStyle(document.documentElement).getPropertyValue(v).trim()); };
 const enc = encodeURIComponent;
 const LIGHT_VI = { green: "Xanh", yellow: "Vàng", red: "Đỏ" };
 const BASKET_SHORT = { garp: "GARP", dividend: "Cổ tức", value: "Giá trị", defensive: "Phòng thủ", growth: "Tăng trưởng", swing: "Lướt sóng", long: "Dài hạn", income: "Cổ tức" };
@@ -28,7 +32,9 @@ const lsSet = (k, v) => { try { localStorage.setItem("vnstock_" + k, JSON.string
 const cache = {};
 async function load(path) {
   if (cache[path]) return cache[path];
-  const r = await fetch(path + (path.includes("?") ? "" : `?v=${window.__ver || ""}`), { cache: "no-cache" });
+  // có phiên bản (giờ tạo dữ liệu + gói) → trình duyệt được dùng lại bản đã tải; chưa có (meta.json) → luôn hỏi lại máy chủ
+  const v = window.__ver || "";
+  const r = await fetch(path + (path.includes("?") ? "" : `?v=${v}`), { cache: v ? "default" : "no-cache" });
   if (!r.ok) throw new Error(`Không tải được ${path} (HTTP ${r.status})`);
   return (cache[path] = await r.json());
 }
@@ -243,6 +249,16 @@ function stickTop() {
   if (nv && getComputedStyle(nv).position === "sticky") t = Math.max(t, parseFloat(getComputedStyle(nv).top) + nv.offsetHeight);
   return t;
 }
+// thanh dính: gắn lớp "stuck" khi đã dính lên đầu (để hiện tên mã/giá gọn) – tự gỡ khi rời trang
+function stuckWatch(el) {
+  if (!el) return;
+  let raf = 0;
+  const f = () => { raf = 0; if (!el.isConnected) { removeEventListener("scroll", h); return; } el.classList.toggle("stuck", el.getBoundingClientRect().top <= parseFloat(el.style.top || getComputedStyle(el).top) + 1 && scrollY > 40); };
+  const h = () => { if (!raf) raf = requestAnimationFrame(f); };
+  addEventListener("scroll", h, { passive: true }); f();
+}
+const setStick = () => document.documentElement.style.setProperty("--stick", stickTop() + "px");
+addEventListener("resize", () => requestAnimationFrame(setStick));
 function loadScript(src) { return new Promise((ok, no) => { if (document.querySelector(`script[src="${src}"]`)) return ok(); const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = no; document.head.appendChild(s); }); }
 const laySlug = (t) => String(t || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/[^a-z0-9 ]+/g, " ").trim().split(/\s+/).filter((w) => w && !/\d/.test(w)).slice(0, 4).join("-");
 const LAY = {
@@ -376,6 +392,7 @@ function disposeCharts() { while (charts.length) { try { charts.pop().remove(); 
 async function route() {
   disposeCharts();
   $("#tbox")?.remove();
+  setStick();
   const h = location.hash.replace(/^#\/?/, "");
   const parts = h.split("/");
   const r = parts[0], arg = parts.slice(1).map((x) => decodeURIComponent(x));
@@ -409,7 +426,7 @@ async function route() {
       <p class="muted">Hệ thống cập nhật mỗi chiều sau 15h35. Nếu đây là lần đầu, chờ lượt chạy đầu tiên hoàn tất (khoảng 30–60 phút).</p></div>`;
   }
   if (multiUser()) deTelegram(app());
-  app().classList.remove("enter"); void app().offsetWidth; app().classList.add("enter");
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) app().animate?.([{ opacity: 0.4 }, { opacity: 1 }], { duration: 180, easing: "ease-out" });   // không ép trình duyệt tính bố cục ngay
   app().focus({ preventScroll: true });
 }
 // chế độ nhiều người dùng: Telegram chỉ dành cho chủ sở hữu – trên web gọi chung là "thông báo"
@@ -1225,7 +1242,10 @@ function bindSectorAside(secs, rows, GROUPS, c) {
   const box = $("#secAside"); if (!box) return;
   $$("[data-go]", box).forEach((b) => (b.onclick = () => (location.hash = b.dataset.go)));
   $("#secSel", box)?.addEventListener("change", (e) => (location.hash = e.target.value));
-  const redraw = () => { box.outerHTML = sectorAside(secs, rows, GROUPS, { ...c, tax: lsGet("secTax", "peer") }); bindSectorAside(secs, rows, GROUPS, { ...c, tax: lsGet("secTax", "peer") }); };
+  const redraw = () => { const y = box.scrollTop; box.outerHTML = sectorAside(secs, rows, GROUPS, { ...c, tax: lsGet("secTax", "peer") }); bindSectorAside(secs, rows, GROUPS, { ...c, tax: lsGet("secTax", "peer"), _y: y }); };
+  // cột trái dính khi cuộn, tự cuộn riêng: giữ vị trí khi mở/đóng nhóm, lần đầu đưa mục đang xem vào giữa
+  if (c._y != null) box.scrollTop = c._y;
+  else requestAnimationFrame(() => { const on = box.querySelector(".sec-list .on"); if (on && box.scrollHeight > box.clientHeight + 4) box.scrollTop = Math.max(0, on.offsetTop - box.clientHeight / 2); });
   $$("[data-tax]", box).forEach((b) => (b.onclick = () => { lsSet("secTax", b.dataset.tax); redraw(); }));
   $$("[data-par]", box).forEach((b) => (b.onclick = () => { const o = new Set(lsGet("secOpen", [])), P = b.dataset.par; o.has(P) ? o.delete(P) : o.add(P); lsSet("secOpen", [...o]); redraw(); }));
 }
@@ -1244,6 +1264,7 @@ async function viewSector(name, lvArg) {
   const tax = level === "group" ? lsGet("secTax", "peer") : level === "peer" ? "peer" : "icb";
   const members = isGroup ? groupMembers(group, rows) : rows.filter((r) => r[level === "peer" ? "peer_label" : level] === name);
   const rec = isGroup ? aggRec(members) : level === "sector" ? byName2[name] : level === "peer" ? byNameP[name] : byName3[name];
+  if (rec?.idx_f && !rec.index) Object.assign(rec, (await tryLoad("data/" + rec.idx_f)) || {});   // chuỗi chỉ số ngành tách file riêng cho nhẹ
   const parent = isGroup ? null : level === "sector" ? name : level === "peer" ? rec?.parent : (rows.find((r) => r.industry === name) || {}).sector;
   const subInd = [...new Set(rows.filter((r) => r.sector === parent).map((r) => r.industry).filter(Boolean))]
     .map((n) => ({ name: n, n: rows.filter((r) => r.industry === n).length, rec: byName3[n] })).sort((a, b) => b.n - a.n);
@@ -1261,7 +1282,7 @@ async function viewSector(name, lvArg) {
   <div class="g g-side">
     ${sectorAside(secs, rows, GROUPS, asideCtx)}
     <div class="stack">
-      <nav class="crumbs"><a href="#/sector">← Toàn cảnh các ngành</a><span>›</span>${isGroup ? "<span>Nhóm của tôi</span>" : level === "peer" ? `<span>Mâm so sánh</span><span>›</span><span>${esc(parent || "")}</span>` : level === "industry" ? `<span>Ngành ICB</span><span>›</span><a href="${link(parent, "sector")}">${esc(parent || "")}</a>` : "<span>Ngành ICB</span>"}<span>›</span><b>${esc(isGroup ? group.name || "Nhóm mới" : name)}</b></nav>
+      <nav class="crumbs stk"><a href="#/sector">← Toàn cảnh các ngành</a><span>›</span>${isGroup ? "<span>Nhóm của tôi</span>" : level === "peer" ? `<span>Mâm so sánh</span><span>›</span><span>${esc(parent || "")}</span>` : level === "industry" ? `<span>Ngành ICB</span><span>›</span><a href="${link(parent, "sector")}">${esc(parent || "")}</a>` : "<span>Ngành ICB</span>"}<span>›</span><b>${esc(isGroup ? group.name || "Nhóm mới" : name)}</b><span class="cx">${rec && isNum(rec.r1m) ? `1 tháng <b class="${cls(rec.r1m)}">${pct(rec.r1m)}</b> · ` : ""}${members.length} mã</span></nav>
       <div class="ph" style="margin:0"><h1>${esc(isGroup ? group.name || "Nhóm mới" : name)}</h1>
         ${outChip(rec?.outlook, "m3")}${outChip(rec?.outlook, "m12")}
         ${rec?.quadrant ? `<span class="pill" style="color:${qcol(rec.quadrant)}"><span class="quad" style="background:${qcol(rec.quadrant)}"></span>${esc(rec.quadrant)}</span>` : ""}
@@ -1270,10 +1291,9 @@ async function viewSector(name, lvArg) {
         ${isGroup && group.id !== "new" ? `<button class="chip" id="gEditBtn">Sửa nhóm</button>` : ""}
         <span class="meta">${members.length} mã · ${members.filter((r) => r.liquid_ok).length} mã thanh khoản</span></div>
       ${isGroup ? groupEditor(group, rows) : ""}
-      ${!isGroup ? outlookBox(rec) : ""}
-      ${!isGroup && rec?.mtf ? mtfPanel(rec.mtf, "Chỉ số ngành – đa khung thời gian") : ""}
-      ${!isGroup && rec?.season ? seasonPanel(rec.season, rec.season_support, { oos: secs.season?.oos?.[level] }) : ""}
-      <section class="panel hero"><div class="ph"><h2>Mã đáng đầu tư nhất ${isGroup ? "trong nhóm" : "trong ngành"}</h2><span class="meta">chọn phương án – xếp hạng so với chính các mã cùng ngành</span></div>
+      <div class="sec3">
+        <div class="stack s3m">
+          <div class="o" style="--o:4"><section class="panel hero"><div class="ph"><h2>Mã đáng đầu tư nhất ${isGroup ? "trong nhóm" : "trong ngành"}</h2><span class="meta">chọn phương án – xếp hạng so với chính các mã cùng ngành</span></div>
         <div class="views" id="presets">${Object.entries(PRESETS).map(([k, p]) => `<button data-p="${k}" class="${k === st.preset ? "on" : ""}">${esc(p.name)}${p.tag ? ` <small>✓</small>` : ""}</button>`).join("")}</div>
         <p id="pDesc" class="muted" style="font-size:.8rem"></p>
         <div class="filters" style="margin-top:6px">
@@ -1284,11 +1304,20 @@ async function viewSector(name, lvArg) {
           ${isGroup ? `<label style="display:flex;gap:5px;align-items:center;font-size:.8rem" title="Bật: ngân hàng so với ngân hàng, thép so với thép rồi mới gộp lại. Tắt: so tất cả mã trong nhóm với nhau."><input type="checkbox" id="sR" ${st.relative !== false ? "checked" : ""}> So với ngành gốc của từng mã</label>` : ""}
         </div>
         <div id="custom" class="sec" hidden></div>
-      <div class="podium sec" id="podium"></div></section>
-      ${rec && members.length ? secValStrip(rec, secs.market || {}, isGroup) : ""}
-      <section class="panel flush"><div class="ph"><h2>Bảng xếp hạng</h2><span class="pill brand">P/E ngành TV ${nf(rec?.pe_med, 1)} · TT ${nf((secs.market || {}).pe_med, 1)}</span><span class="meta" id="rkMeta"></span></div><div class="tw tall"><table id="rk"></table></div>
-        <p class="faint" style="font-size:.72rem;padding:6px 12px">Màu nền mỗi ô = thứ hạng trong ngành (xanh đậm = tốt nhất ngành, đỏ = kém nhất). Thiếu số liệu bị tính như hạng 30/100.</p></section>
-      ${isGroup ? (members.length ? kpis([["Số ngành", rec.n_sec], ["Vốn hoá", mcapFmt(rec.mcap_bn)], ["GTGD/ngày", bn(rec.value_bn)], ["1 tuần", pct(rec.r1w), cls(rec.r1w)], ["1 tháng", pct(rec.r1m), cls(rec.r1m)],
+      <div class="podium sec" id="podium"></div></section></div>
+          <div class="o" style="--o:5">${rec && members.length ? secValStrip(rec, secs.market || {}, isGroup) : ""}</div>
+          <div class="o" style="--o:6"><section class="panel flush"><div class="ph"><h2>Bảng xếp hạng</h2><span class="pill brand">P/E ngành TV ${nf(rec?.pe_med, 1)} · TT ${nf((secs.market || {}).pe_med, 1)}</span><span class="meta" id="rkMeta"></span></div><div class="tw tall"><table id="rk"></table></div>
+        <p class="faint" style="font-size:.72rem;padding:6px 12px">Màu nền mỗi ô = thứ hạng trong ngành (xanh đậm = tốt nhất ngành, đỏ = kém nhất). Thiếu số liệu bị tính như hạng 30/100.</p></section></div>
+          <div class="o" style="--o:8">${isGroup && members.length ? `<section class="panel flush"><div class="ph"><h2>Thành phần nhóm</h2><span class="meta">theo ngành gốc · alpha = kết quả backtest chọn mã trong ngành đó</span></div><div class="tw"><table id="gComp"></table></div></section>` : ""}</div>
+          <div class="o" style="--o:10"><section class="panel"><div class="ph"><h2>Bản đồ trong ngành</h2><span class="meta">
+          <select id="sx" aria-label="Trục ngang">${factOpts(st.x)}</select> × <select id="sy" aria-label="Trục dọc">${factOpts(st.y)}</select></span></div>
+          <div id="scatter"></div><p class="faint" style="font-size:.72rem">Bóng to = vốn hoá lớn · màu = điểm phương án · viền đậm = top 3.</p></section></div>
+        </div>
+        <div class="stack s3r">
+          <div class="o" style="--o:1">${!isGroup ? outlookBox(rec) : ""}</div>
+          <div class="o" style="--o:2">${!isGroup && rec?.mtf ? mtfPanel(rec.mtf, "Chỉ số ngành – đa khung thời gian") : ""}</div>
+          <div class="o" style="--o:3">${!isGroup && rec?.season ? seasonPanel(rec.season, rec.season_support, { oos: secs.season?.oos?.[level] }) : ""}</div>
+          <div class="o" style="--o:7">${isGroup ? (members.length ? kpis([["Số ngành", rec.n_sec], ["Vốn hoá", mcapFmt(rec.mcap_bn)], ["GTGD/ngày", bn(rec.value_bn)], ["1 tuần", pct(rec.r1w), cls(rec.r1w)], ["1 tháng", pct(rec.r1m), cls(rec.r1m)],
           ["3 tháng", pct(rec.r3m), cls(rec.r3m)], ["1 năm", pct(rec.r1y), cls(rec.r1y)], ["% xu hướng tăng", nf(rec.up_pct, 0) + "%"], ["ROE", pct(rec.roe_med, 1, false)],
           ["LN 12T", pct(rec.ni_yoy_med), cls(rec.ni_yoy_med)], ["DT 12T", pct(rec.rev_yoy_med), cls(rec.rev_yoy_med)], ["Cổ tức", pct(rec.div_med, 1, false)], ["F-Score", nf(rec.fscore_med, 1)], ["Vay/Vốn", nf(rec.de_med)],
           ["Tiềm năng TV", pct(rec.upside_med), cls(rec.upside_med)], ["Điểm TV", scoreCell(rec.composite_med)]]) : `<div class="empty">Nhóm chưa có mã nào – chọn ngành hoặc nhập mã ở khung trên.</div>`)
@@ -1297,9 +1326,8 @@ async function viewSector(name, lvArg) {
         ["RS-Ratio / Mom", `${nf(rec.rs_ratio, 1)} / ${nf(rec.rs_mom, 1)}`], ["ROE", nf(rec.roe_med, 1) + "%"], ["LN 12T", pct(rec.ni_yoy_med), cls(rec.ni_yoy_med)], ["DT 12T", pct(rec.rev_yoy_med), cls(rec.rev_yoy_med)],
         ["Cổ tức", nf(rec.div_med, 1) + "%"], ["F-Score", nf(rec.fscore_med, 1)], ["Vay/Vốn", nf(rec.de_med)], ["Tiềm năng TV", pct(rec.upside_med), cls(rec.upside_med)],
         ["Điểm TV", scoreCell(rec.composite_med)], ["SMC TB", isNum(rec.smc_bias) ? `<span class="${rec.smc_bias >= 0.25 ? "up" : rec.smc_bias <= -0.25 ? "down" : ""}">${nf(rec.smc_bias, 2)}</span>` : "—"]])
-        : `<p class="note">Nhóm ngành nhỏ (dưới 3 mã thanh khoản) nên chưa có chỉ số ngành – vẫn xếp hạng được các mã bên dưới.</p>`}
-      ${isGroup && members.length ? `<section class="panel flush"><div class="ph"><h2>Thành phần nhóm</h2><span class="meta">theo ngành gốc · alpha = kết quả backtest chọn mã trong ngành đó</span></div><div class="tw"><table id="gComp"></table></div></section>` : ""}
-      ${rec && !isGroup ? `<div class="g g2">
+        : `<p class="note">Nhóm ngành nhỏ (dưới 3 mã thanh khoản) nên chưa có chỉ số ngành – vẫn xếp hạng được các mã bên dưới.</p>`}</div>
+          <div class="o" style="--o:9">${rec && !isGroup ? `<div class="g g2">
         <section class="panel"><div class="ph"><h2>Chỉ số ngành so với VN-Index</h2>${rec.index_w ? tfSeg("secTf", lsGet("tfSec", "D"), ["D", "W", "M", "Q", "Y"]) : ""}<span class="meta">cùng gốc 100</span></div><div class="chart sm" id="secIdx"></div>
           <div class="leg"><span><i style="background:${css("--brand")}"></i>${esc(name)}</span><span><i style="background:${css("--ink-3")}"></i>VN-Index</span></div></section>
         <section class="panel hlp"><div class="ph"><h2>P/E ngành theo quý – so với thị trường</h2><span class="meta">cuối mỗi quý</span></div>
@@ -1308,12 +1336,8 @@ async function viewSector(name, lvArg) {
               { name: "Ngành – gia quyền", color: css("--floor"), pts: rec.val_hist.map((x) => ({ x: x.p, y: x.pe_w })) },
               { name: "Thị trường – trung vị", color: css("--ink-3"), dash: "4 3", pts: rec.val_hist.map((x) => ({ x: x.p, y: mm[x.p] })) }],
             { h: 200, hlines: [{ y: rec.pe_hist_med, label: "TB ngành " + nf(rec.pe_hist_med, 1), color: css("--ref") }], label: "P/E ngành" }); })()
-            + `<p class="faint" style="font-size:.74rem">P/E trung vị hiện tại cao hơn ${nf(rec.pe_pctl_hist, 0)}% số quý trong lịch sử (dưới 25 = ngành đang rẻ so với chính nó, trên 75 = đắt). <a href="#/sector">So với các ngành khác →</a></p>` : `<p class="muted">Chưa đủ lịch sử P/E.</p>`}</section></div>` : ""}
-      <div class="g g2">
-        <section class="panel"><div class="ph"><h2>Bản đồ trong ngành</h2><span class="meta">
-          <select id="sx" aria-label="Trục ngang">${factOpts(st.x)}</select> × <select id="sy" aria-label="Trục dọc">${factOpts(st.y)}</select></span></div>
-          <div id="scatter"></div><p class="faint" style="font-size:.72rem">Bóng to = vốn hoá lớn · màu = điểm phương án · viền đậm = top 3.</p></section>
-        <section class="panel"><div class="ph"><h2>Kiểm chứng chọn mã trong ngành</h2><span class="meta">${bt ? `${esc(secs.backtest_range?.[0] || "")} → ${esc(secs.backtest_range?.[1] || "")}` : ""}</span></div>
+            + `<p class="faint" style="font-size:.74rem">P/E trung vị hiện tại cao hơn ${nf(rec.pe_pctl_hist, 0)}% số quý trong lịch sử (dưới 25 = ngành đang rẻ so với chính nó, trên 75 = đắt). <a href="#/sector">So với các ngành khác →</a></p>` : `<p class="muted">Chưa đủ lịch sử P/E.</p>`}</section></div>` : ""}</div>
+          <div class="o" style="--o:11"><section class="panel"><div class="ph"><h2>Kiểm chứng chọn mã trong ngành</h2><span class="meta">${bt ? `${esc(secs.backtest_range?.[0] || "")} → ${esc(secs.backtest_range?.[1] || "")}` : ""}</span></div>
           ${bt ? `${kpis([["Top 3 / năm", pct(bt.top.cagr), cls(bt.top.cagr)], ["Cả ngành / năm", pct(bt.all.cagr), cls(bt.all.cagr)], ["Vượt trội (alpha)", pct(bt.alpha), cls(bt.alpha)],
             ["Sụt tối đa top 3", pct(bt.top.max_dd), "down"], ["Sụt tối đa ngành", pct(bt.all.max_dd), "down"], ["Sharpe top / ngành", `${nf(bt.top.sharpe)} / ${nf(bt.all.sharpe)}`], ["Số mã TB trong ngành", nf(bt.avg_n, 0)], ["Số tháng", bt.months]])}
             <div class="chart sm sec" id="secBt"></div><div class="leg"><span><i style="background:${css("--up")}"></i>Top 3 "Tốt nhất ngành"</span><span><i style="background:${css("--ink-3")}"></i>Mua đều cả ngành</span></div>
@@ -1324,7 +1348,8 @@ async function viewSector(name, lvArg) {
               : `Ở ngành này, chọn mã theo công thức <b>chưa thắng</b> mua đều cả ngành (${pct(bt.alpha)}/năm) – đừng kỳ vọng nhiều vào việc chọn mã; ưu tiên thời điểm vào ngành và cắt lỗ.`}
               Lần chọn gần nhất: ${(bt.last_picks || []).map((s) => `<a href="#/s/${s}">${s}</a>`).join(", ") || "không có mã đạt (xu hướng giảm)"}.</p>`
             : isGroup ? `<p class="muted">Nhóm tự tạo chưa có backtest riêng. Xem cột <b>Alpha chọn mã</b> ở bảng Thành phần nhóm: ngành nào alpha dương thì xếp hạng trong ngành đó đáng tin hơn.</p>`
-            : `<p class="muted">Backtest chọn mã chạy theo mâm so sánh có ≥ 5 mã đủ thanh khoản và BCTC${level === "peer" ? " – mâm này chưa đủ" : level !== "group" ? ` – xem ở trang mâm của các mã (đầu trang mỗi mã có dòng "mâm …")` : ""}.</p>`}</section>
+            : `<p class="muted">Backtest chọn mã chạy theo mâm so sánh có ≥ 5 mã đủ thanh khoản và BCTC${level === "peer" ? " – mâm này chưa đủ" : level !== "group" ? ` – xem ở trang mâm của các mã (đầu trang mỗi mã có dòng "mâm …")` : ""}.</p>`}</section></div>
+        </div>
       </div>
     </div>
   </div>`;
@@ -2346,7 +2371,7 @@ async function viewStock(sym, tabArg) {
       ${isNum(last) && last < 5 ? '<span class="pill" title="Giá dưới 5.000đ">Penny</span>' : ""}</div>
     <div style="flex-basis:100%">${actBar(sym, { label: true, held })}</div>
   </div>
-  <div class="subtabs stick" role="tablist" id="stabs">${[["ov", "Tổng quan"], ["vl", "Dự phóng & định giá"], ["rp", "Báo cáo phân tích"], ["fa", "Cơ bản"], ["ta", "Kỹ thuật"], ["wv", "Sóng & mô hình"], ["sm", "Tạo lập & dòng tiền"], ["pe", "Cùng ngành"]]
+  <div class="subtabs stick" role="tablist" id="stabs"><span class="stk-id" aria-hidden="true"><a href="#/s/${sym}" onclick="scrollTo({top:0});return false">${sym}</a><b>${nf(last)}</b><b class="${cls(chg)}">${pct(chg, 1)}</b><small>${esc(d.row?.peer_label || d.industry || "")}</small></span>${[["ov", "Tổng quan"], ["vl", "Dự phóng & định giá"], ["rp", "Báo cáo phân tích"], ["fa", "Cơ bản"], ["ta", "Kỹ thuật"], ["wv", "Sóng & mô hình"], ["sm", "Tạo lập & dòng tiền"], ["pe", "Cùng ngành"]]
     .map(([k, n]) => `<button role="tab" data-t="${k}">${n}</button>`).join("")}</div>
   ${(() => { const C = ctxRecs(secs || {}, d.sector, d.industry), pm = d.peers?.median, M = C.mkt || {}, pe0 = fa.pe ?? r.pe, pb0 = fa.pb ?? r.pb;
     const b = pm && (isNum(pm.pe) || isNum(pm.pb)) ? { pe_med: pm.pe, pb_med: pm.pb } : C.ind || C.sec || {};
@@ -2539,6 +2564,7 @@ async function viewStock(sym, tabArg) {
   };
   $$(".subtabs button").forEach((b) => (b.onclick = () => { history.replaceState(null, "", `#/s/${sym}/${b.dataset.t}`); show(b.dataset.t, true); }));
   $("#stabs").style.top = stickTop() + "px";
+  stuckWatch($("#stabs"));
   show(tabs[tabArg] ? tabArg : "ov");
   if (/^ev/.test(tabArg || "")) setTimeout(() => {      // mở từ thông báo sự kiện → phóng biểu đồ tới đợt đó
     const H = d.ev_hist || [], e = H.find((x) => x.start === tabArg.slice(3)) || H[H.length - 1];
@@ -5707,7 +5733,7 @@ async function bellOpen() {
   box.innerHTML = `<div class="ph"><h3>Thông báo</h3><button class="chip" id="bellAll">Đánh dấu đã đọc</button></div><div class="ntfs"><p class="muted">Đang tải…</p></div><a class="more" href="#/notifications">Xem tất cả</a>`;
   document.body.appendChild(box);
   const j = await api("notifications?limit=15").catch(() => ({ items: [] }));
-  box.querySelector(".ntfs").innerHTML = (j.items || []).map(ntfRow).join("") || `<p class="muted" style="padding:10px">Chưa có thông báo nào. Hệ thống báo khi mã của anh/chị chạm mức thoát, cảnh báo giá, có tín hiệu mới…</p>`;
+  box.querySelector(".ntfs").innerHTML = (j.items || []).map(ntfRow).join("") || `<p class="muted">Chưa có thông báo nào. Hệ thống báo khi mã của anh/chị chạm mức thoát, cảnh báo giá, có tín hiệu mới…</p>`;
   bindNtf(box);
   $("#bellAll").onclick = async () => { await api("notifications/read", "POST", { all: true }); box.remove(); bellCount(); };
   setTimeout(() => document.addEventListener("click", function off(e) { if (!box.contains(e.target) && e.target.closest("#bell") == null) { box.remove(); document.removeEventListener("click", off); } }), 0);
@@ -5979,7 +6005,7 @@ function initHelpBtn() {
   WL.load().catch(() => {});
   try {
     const meta = await load("data/meta.json");
-    window.__ver = meta.generated;
+    window.__ver = meta.generated ? meta.generated + "." + (ME?.eff_plan || "") : "";
     if (meta.demo) $("#demo").innerHTML = `<div class="demo-banner">DỮ LIỆU GIẢ LẬP để xem thử giao diện – không dùng để đầu tư</div>`;
     const [t, m, meth] = await Promise.all([loadToday(), tryLoad("data/market.json"), tryLoad("data/methods.json"), secsData()]);
     PSTATS = meth?.pattern_stats?.stats || {};

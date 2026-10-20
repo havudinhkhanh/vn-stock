@@ -807,6 +807,15 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
                                          "map": {k: v for k, v in peermap.items() if v in pr_.GROUPS}})
     if "peer_grp" in outlook:
         outlook["peer"] = outlook.pop("peer_grp")
+    # chuỗi chỉ số ngành (ngày/tuần/tháng) chiếm ~90% dung lượng sectors.json mà chỉ trang chi tiết ngành dùng
+    # → tách ra từng file nhỏ, trang ngành tải riêng khi mở (sectors.json nhẹ đi nhiều, mọi trang nhanh hơn)
+    shutil.rmtree(out_dir / "secidx", ignore_errors=True)
+    for lv, recs in (("s", sec_l2), ("i", sec_l3), ("p", sec_pm)):
+        for i, rec in enumerate(recs):
+            ser = {k: rec.pop(k) for k in ("index", "index_w", "index_m") if k in rec}
+            if ser:
+                rec["idx_f"] = f"secidx/{lv}{i}.json"
+                dump(out_dir / rec["idx_f"], ser)
     dump(out_dir / "sectors.json", {"sector": sec_l2, "industry": sec_l3, "peer": sec_pm, "peer_parents": list(pr_.PARENT), "market": mkt_val, "outlook": outlook, "season": season,
                                     "backtest": (backtest or {}).get("sectors", {}),
                                     "backtest_range": [backtest.get("start"), backtest.get("end")] if backtest.get("ok") else None})

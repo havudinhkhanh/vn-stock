@@ -42,7 +42,12 @@ export async function onRequest(ctx) {
     } catch (e) { /* không phải JSON: trả nguyên */ }
   } else if (p.startsWith("/data/")) {
     res = new Response(res.body, res);
-    res.headers.set("cache-control", "private, no-cache");
+    // ?v=<giờ tạo dữ liệu>.<gói> do app.js gắn: đổi dữ liệu hoặc đổi gói = đổi địa chỉ → giữ đệm 1 ngày an toàn
+    res.headers.set("cache-control", url.searchParams.get("v") ? "private, max-age=86400" : "private, no-cache");
+  } else if (res.ok && /\.(js|css)$/.test(p) && url.searchParams.has("v")) {
+    // app.js có gắn phiên bản (?v=<băm>) → lưu đệm lâu dài trên trình duyệt (đổi mã = đổi băm = tải bản mới)
+    res = new Response(res.body, res);
+    res.headers.set("cache-control", "private, max-age=31536000, immutable");
   }
   return withCookie(res, s.setCookie);
 }

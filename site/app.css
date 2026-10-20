@@ -1241,10 +1241,6 @@ main{padding:16px 22px 48px}
 .subtabs button{padding:10px 14px;font-size:.86rem}
 
 /* chuyển trang & khung chờ */
-@media (prefers-reduced-motion:no-preference){
-  #app.enter{animation:appIn .22s ease-out both}
-  @keyframes appIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
-}
 .skel{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
 .skel i{height:150px;border-radius:var(--r);background:linear-gradient(90deg,var(--surface) 0,var(--sunk) 50%,var(--surface) 100%);background-size:200% 100%;animation:skel 1.3s linear infinite}
 .skel i.w{grid-column:span 3;height:260px}
@@ -1391,3 +1387,45 @@ main{padding:16px 22px 48px}
 .pb-row{cursor:pointer}.pb-row:hover .nm{color:var(--brass,var(--brand));text-decoration:underline}
 #cmp td.sym a,#secTbl td.sym a{font-weight:600;text-decoration:underline;text-decoration-color:color-mix(in srgb,currentColor 35%,transparent);text-underline-offset:3px}
 .secov > .ph:first-child{margin-top:0}
+/* ---------- trang ngành 3 cột + cột dính khi cuộn ---------- */
+.sec3{display:grid;gap:10px;grid-template-columns:minmax(0,1fr);align-items:start}
+.sec3 .o:empty{display:none}
+.sec3 .o{order:var(--o);min-width:0}
+.g-side>.stack{container:secmain/inline-size}
+@container secmain (max-width:1139px){.sec3>.stack{display:contents}}
+@container secmain (min-width:1140px){
+  .sec3{grid-template-columns:minmax(0,1fr) minmax(360px,30%)}
+  .s3r .g2{grid-template-columns:minmax(0,1fr)}
+  .s3r .kpis{grid-template-columns:repeat(auto-fill,minmax(110px,1fr))}
+}
+.crumbs.stk{position:sticky;top:var(--stick,84px);z-index:16;background:var(--bg);padding:6px 0;margin:-6px 0 0;border-bottom:1px solid transparent}
+.crumbs .cx{margin-left:auto;font-size:.76rem;color:var(--ink-3);white-space:nowrap}
+.crumbs .cx b{color:inherit}.crumbs .cx b.up{color:var(--up)}.crumbs .cx b.down{color:var(--down)}
+@media (min-width:860px){
+  .g-side>.secaside{position:sticky;top:calc(var(--stick,84px) + 8px);max-height:calc(100vh - var(--stick,84px) - 16px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+  .g-side>.secaside .sec-list{max-height:none;overflow:visible}
+  .g-side>.secaside>.ph{position:sticky;top:0;z-index:2;background:var(--surface);padding-bottom:6px;margin-bottom:0}
+  .stack.sticky{top:calc(var(--stick,84px) + 8px);max-height:calc(100vh - var(--stick,84px) - 16px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+}
+@media (max-width:859px){.crumbs .cx{display:none}
+  .crumbs.stk{flex-wrap:nowrap;min-width:0}
+  .crumbs.stk>*:not(a:first-child):not(b){display:none}
+  .crumbs.stk>b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .crumbs.stk>b::before{content:"› ";color:var(--ink-3);font-weight:400}}
+/* trang mã: khi cuộn, thanh mục dính hiện luôn tên mã + giá */
+.subtabs .stk-id{display:none;align-items:baseline;gap:6px;padding:0 12px 0 2px;margin-right:4px;border-right:1px solid var(--line);white-space:nowrap;font-size:.84rem;flex:none}
+.subtabs .stk-id a{font-weight:700;color:var(--ink)}
+.subtabs .stk-id small{color:var(--ink-3);max-width:180px;overflow:hidden;text-overflow:ellipsis}
+.subtabs.stuck .stk-id{display:inline-flex;align-self:center}
+@media (min-width:860px){.subtabs.stuck button{padding-left:10px;padding-right:10px}}
+@media (max-width:640px){.subtabs .stk-id small{display:none}}
+/* chuông thông báo: chữ "Đang tải…" / trống có lề */
+.bellbox .ntfs>p{margin:0;padding:14px 14px 16px}
+/* nhẹ hơn khi cuộn: bỏ hiệu ứng làm mờ nền (blur) trên các thanh dính – vẽ lại mỗi khung hình rất tốn */
+.top{background:var(--surface)!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+.subtabs.stick{background:var(--bg)!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+.bd-light.red i{animation:lampBlink 2.4s ease-in-out infinite}
+@keyframes lampBlink{50%{opacity:.55}}
+/* không cho cả trang bị kéo ngang vì 1 phần tử tràn */
+main{overflow-x:clip}
+.multi>*{min-width:0}.mcell .mh b{min-width:0}.mcell svg{max-width:100%}
