@@ -74,9 +74,10 @@ RULES = [
     (r"khởi tố|bắt tạm giam|bị bắt|truy tố|truy nã|xét xử|arrest|indict|prosecut", "Pháp lý – lãnh đạo/DN bị khởi tố, bắt", -1, 2),
     (r"khởi kiện|bị kiện|kiện tụng|tranh chấp|phán quyết|bản án|thua kiện|lawsuit|\bsued\b|\bsues\b|court|judg(e)?ment|arbitration|trọng tài", "Pháp lý – kiện tụng/phán quyết", -1, 2),
     (r"vỡ nợ|mất khả năng thanh toán|chậm trả|chậm thanh toán|nợ quá hạn|default|insolven|phá sản|bankrupt", "Nợ – chậm trả/vỡ nợ", -1, 2),
-    (r"h[uủ]y niêm yết|đình chỉ giao dịch|tạm (ngừng|dừng) giao dịch|kiểm soát đặc biệt|diện cảnh báo|diện kiểm soát|delist", "Niêm yết – hủy/đình chỉ/cảnh báo", -1, 2),
-    (r"thanh tra|điều tra|kiểm tra đột xuất|thao túng|lừa đảo|gian lận|investigat|probe|fraud|manipulat", "Điều tra – thanh tra/gian lận", -1, 2),
-    (r"giải chấp|bán giải chấp|call margin|bị bán|cưỡng chế thuế|cưỡng chế", "Cổ đông lớn bị giải chấp/cưỡng chế", -1, 2),
+    (r"h[uủ]y niêm yết|đình chỉ giao dịch|hạn chế giao dịch|tạm (ngừng|dừng) giao dịch|kiểm soát đặc biệt|diện cảnh báo|diện kiểm soát|delist", "Niêm yết – hủy/đình chỉ/cảnh báo", -1, 2),
+    (r"bị điều tra|điều tra (?:sai phạm|vụ|hành vi)|thao túng|lừa đảo|gian lận|investigat|probe|fraud|manipulat", "Điều tra – gian lận/thao túng", -1, 2),
+    (r"bị thanh tra|kết luận thanh tra|thanh tra (?:chỉ ra|phát hiện|kiến nghị)|kiểm tra đột xuất", "Thanh tra – chỉ ra sai phạm/tồn tại", -1, 1),
+    (r"bị giải chấp|bán giải chấp|giải chấp cổ phiếu|cưỡng chế thuế|bị cưỡng chế", "Cổ đông lớn bị giải chấp/cưỡng chế", -1, 2),
     (r"xử phạt|bị phạt|phạt hành chính|\bfine[ds]?\b", "Bị xử phạt", -1, 1),
     (r"ý kiến ngoại trừ|từ chối đưa ra ý kiến|kiểm toán ngoại trừ|lưu ý kiểm toán|nghi ngờ khả năng hoạt động liên tục", "BCTC – kiểm toán ngoại trừ", -1, 2),
     (r"lỗ (kỷ lục|nặng|lớn)|thua lỗ|lãi giảm mạnh|lợi nhuận giảm mạnh|giảm \d+% lợi nhuận", "Kết quả kinh doanh xấu", -1, 1),
@@ -92,8 +93,21 @@ def classify(text: str) -> tuple[str | None, int, int]:
     best = (None, 0, 0)
     for rx, tag, sign, sev in _RULES:
         if rx.search(text) and sev > best[2]:
+            if tag.startswith("Niêm yết") and re.search(r"trái phiếu|chứng quyền|bond", text, re.I):
+                continue      # hủy niêm yết trái phiếu / chứng quyền đáo hạn: chuyện thường
             best = (tag, sign, sev)
     return best
+
+
+def classify_for(symbol: str, title: str) -> tuple[str | None, int, int]:
+    """Phân loại theo TIÊU ĐỀ (mô tả của Google News chứa tên báo, vd "Báo Thanh tra"). Tin chỉ ở mức nghiêm trọng khi
+    mã/thương hiệu nằm ngay trong tiêu đề và tiêu đề không phải tin tổng hợp nhiều mã (≥ 3 mã → chỉ còn mức 1)."""
+    tag, sign, sev = classify(title)
+    if sev >= 2:
+        ts = tag_symbols(title, set(ALIASES) | {symbol})
+        if symbol not in ts or len(ts) >= 3:
+            sev = 1
+    return tag, sign, sev
 
 
 def _alias_rx() -> list[tuple[re.Pattern, str]]:
@@ -180,8 +194,8 @@ def fetch(symbols: set[str], focus: list[str], max_focus: int = 60, workers: int
         syms = tag_symbols(text, symbols)
         if not syms:
             continue
-        tag, sign, sev = classify(x["title"] + " " + x["desc"][:200])
         for s in syms:
+            tag, sign, sev = classify_for(s, x["title"])
             rows.append({"symbol": s, "time": x["time"], "title": x["title"][:240], "link": x["link"], "src": x["src"], "tag": tag, "sign": sign, "sev": sev})
     df = pd.DataFrame(rows)
     if not df.empty:
@@ -199,12 +213,10 @@ def save(df: pd.DataFrame) -> pd.DataFrame:
     for c in ("tag", "sign", "sev"):
         if c not in df:
             df[c] = None
-    miss = df["sev"].isna()
-    if miss.any():
-        cl = df.loc[miss, "title"].fillna("").map(classify)
-        df.loc[miss, "tag"] = [x[0] for x in cl]
-        df.loc[miss, "sign"] = [x[1] for x in cl]
-        df.loc[miss, "sev"] = [x[2] for x in cl]
+    cl = [classify_for(str(sy), str(t or "")) for sy, t in zip(df["symbol"], df["title"])]   # phân loại lại theo quy tắc hiện hành
+    df["tag"] = [x[0] for x in cl]
+    df["sign"] = [x[1] for x in cl]
+    df["sev"] = [x[2] for x in cl]
     df["sev"] = pd.to_numeric(df["sev"], errors="coerce").fillna(0).astype(int)
     df["sign"] = pd.to_numeric(df["sign"], errors="coerce").fillna(0).astype(int)
     df["k"] = df["title"].fillna("").str.lower().str.replace(r"\W+", " ", regex=True).str.strip()

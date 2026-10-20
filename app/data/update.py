@@ -518,7 +518,7 @@ def update_news(symbols: list[str], focus: list[str] | None = None) -> None:
             break
         try:
             for x in nh.fetch(s, d1 - pd.Timedelta(days=4), d1, max_pages=1):
-                tag, sign, sev = nfd.classify(x["title"])
+                tag, sign, sev = nfd.classify_for(s, x["title"])
                 cb.append({**x, "src": "Công bố thông tin", "tag": tag, "sign": sign, "sev": sev})
         except Exception:  # noqa: BLE001
             continue
