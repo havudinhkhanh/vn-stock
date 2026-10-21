@@ -420,7 +420,7 @@ async function route() {
     const gate = ROUTE_FEATURE[r] && ROUTE_FEATURE[r](arg[0]);
     if (gate && !can(gate)) { setTab(r); await lockView(gate); }
     else if (!r) { setTab("today"); if (can("today")) await viewToday(); else await viewDigest(null, true); }
-    else if (r === "digest") { setTab(""); await viewDigest(arg[0]); }
+    else if (r === "digest") { setTab("digest"); await viewDigest(arg[0]); }
     else if (r === "account") { setTab(""); await viewAccount(); }
     else if (r === "admin") { setTab(""); await viewAdmin(arg[0]); }
     else if (r === "notifications") { setTab(""); await viewNotifications(); }

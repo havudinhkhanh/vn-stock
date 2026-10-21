@@ -1453,3 +1453,5 @@ tr.bk-row{cursor:pointer}tr.bk-row:hover td{background:var(--sunk)}
 table.dgsec tr.gap td{padding:4px 8px;background:var(--sunk);text-align:center}table.dgsec tr.mid{display:none}table.dgsec.open tr.mid{display:table-row}
 table.dgpull tr.sp td{height:6px;padding:0;border:0}
 .dgw{display:grid;gap:2px;padding:6px 0;border-top:1px solid var(--line-2);font-size:.82rem}.dgw:first-of-type{border-top:0}
+/* thanh điều hướng điện thoại: thêm "Bản tin" */
+@media (max-width:979px){.tabs{grid-template-columns:repeat(9,1fr)}.tabs a{font-size:.6rem;padding-left:0;padding-right:0;text-align:center;line-height:1.15}}
