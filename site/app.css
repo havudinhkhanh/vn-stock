@@ -1467,3 +1467,14 @@ table.dgpull tr.sp td{height:6px;padding:0;border:0}
   .tabs a{padding:8px 12px!important}
   body.rail-min .tabs .nav-g{font-size:0;padding:0 8px;margin:8px 0 4px}body.rail-min .tabs .nav-g i{display:none}
 }
+/* nhóm điều hướng: tiêu đề sát với mục của nhóm, các nhóm cách xa nhau + vạch ngăn */
+@media (min-width:1180px){
+  .tabs{gap:0}
+  .tabs .nav-g{margin:14px 0 3px;padding:12px 12px 0;border-top:1px solid var(--line-2);color:var(--ink-2);font-size:.64rem}
+  .tabs .nav-g::after{content:none}
+  .tabs .rail-brand+.nav-g,.tabs .nav-g:first-child{margin-top:2px;padding-top:0;border-top:0}
+  .tabs a{padding:7px 12px!important;margin:1px 0}
+  .tabs .nav-g+a{margin-top:0}
+  .tabs a.nav-sub{padding:5px 10px!important}
+  body.rail-min .tabs .nav-g{margin:10px 6px 4px;padding:0}
+}
