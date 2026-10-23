@@ -155,6 +155,11 @@ def basket_members(u: pd.DataFrame, sc: pd.DataFrame, light: str) -> dict[str, p
 
 
 # ------------------------------------------------------------------ tín hiệu
+def _vn(x: float, d: int) -> str:
+    """Số kiểu Việt Nam: 1.100 · 10,1."""
+    return f"{x:,.{d}f}".replace(",", "§").replace(".", ",").replace("§", ".")
+
+
 def trade_levels(row: pd.Series, risk_cfg: dict) -> dict:
     """Vùng mua, cắt lỗ, mục tiêu cho 1 mã."""
     def v(k):
@@ -187,6 +192,28 @@ def trade_levels(row: pd.Series, risk_cfg: dict) -> dict:
     stop_atr = entry - 2.5 * atr
     stop_sup = sup * 0.97 if sup and sup < entry else stop_atr
     stop = max(min(stop_atr, stop_sup), entry * (1 - max_sl))
+    # Mã cổ tức (lợi suất ≥ 5%, trả tiền ≥ 3 năm liền – đúng chuẩn rổ Cổ tức): KHÔNG đặt dừng lỗ sát theo kỹ thuật.
+    # Lý do: ngày GDKHQ giá tự giảm đúng bằng cổ tức (VD VTO 1.100 đ/cp ≈ 10% giá) → một mức dừng −5…−9% sẽ bị "chạm" máy móc
+    # dù nhà đầu tư nhận đủ tiền; bán theo dao động thường ngày cũng phá đúng luận điểm "nắm để nhận cổ tức".
+    # Thay bằng mức XEM LẠI xa hơn = lợi suất + 2×ATR (12–20%), chỉ bán khi cổ tức bị cắt / lợi nhuận suy yếu.
+    y, cy = v("div_yield"), v("cash_years")
+    income = bool(y and y >= 5 and (cy or 0) >= 3)
+    note = None
+    if income:
+        atrp = 100 * atr / entry
+        dd = min(20.0, max(12.0, y + 2 * atrp))
+        stop = entry * (1 - dd / 100)
+        note = (f"Mã cổ tức (~{_vn(y, 1)}%/năm, trả tiền mặt {int(cy)} năm liền): không đặt lệnh dừng lỗ sát – ngày GDKHQ giá tự giảm đúng phần cổ tức "
+                f"(tiền về tài khoản, không phải lỗ) và dao động thường ngày ±{_vn(atrp, 1)}%. Mức {_vn(stop, 2)} (−{dd:.0f}%) là điểm XEM LẠI: "
+                "chỉ bán khi cổ tức bị cắt/giảm hoặc lợi nhuận suy yếu rõ.")
+    dps_n, xd = v("dps_next"), row.get("xd_next")
+    xdi = None
+    if dps_n and isinstance(xd, str) and xd:
+        dk = dps_n / 1000
+        xdi = {"date": xd, "dps": round(dps_n), "pct": round(100 * dk / price, 1), "stop_after": round(stop - dk, 2)}
+        if xdi["pct"] >= 1:
+            note = (note + " " if note else "") + (f"Sắp GDKHQ {xd[8:10]}/{xd[5:7]}: cổ tức {_vn(dps_n, 0)} đ/cp (≈ {_vn(xdi['pct'], 1)}% giá) – hôm đó giá tham chiếu giảm tương ứng, "
+                                                  f"mức {'xem lại' if income else 'cắt lỗ'} hạ theo còn {_vn(xdi['stop_after'], 2)}; giảm đúng bằng cổ tức không phải tín hiệu bán.")
     t1 = v("fair") or entry * 1.15
     t2 = v("fair_hi") or t1 * 1.15
     if t1 <= entry * 1.03:
@@ -206,6 +233,12 @@ def trade_levels(row: pd.Series, risk_cfg: dict) -> dict:
            "t1_pct": round(100 * (t1 / entry - 1), 1), "rr": round(rr, 2) if rr else None, "state": state,
            "no_val": no_val, "ext": ext, "ext_atr": round(ext_atr, 2) if ext_atr is not None else None,
            "rsi": round(v("rsi"), 1) if v("rsi") is not None else None, "ret1m": round(ret1m, 1) if ret1m is not None else None}
+    if income:
+        out.update({"stop_kind": "review", "stop_label": "xem lại"})
+    if note:
+        out["stop_note"] = note
+    if xdi:
+        out["xd"] = xdi
     if state == "now" and ext:
         out["split"] = {"now": 0.5, "lo": round(price - atr, 2), "days": 10}
     return out

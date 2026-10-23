@@ -38,7 +38,7 @@ def advise(holdings: list[dict], u: pd.DataFrame, closes: dict[str, pd.Series], 
         peak = float(since.max()) if since is not None and len(since) else price
         held = int(len(since) - 1) if since is not None and r.get("date") and len(since) else None
         src = info if info is not None else (extra or {}).get(sym)   # ETF: chỉ số kỹ thuật tính riêng (không có trong bảng cổ phiếu)
-        inf = {k: (src.get(k) if src is not None else None) for k in ("atr", "e20", "e20_below2", "fair", "fair_hi", "div_yield", "etf", "ma200", "wk_below200")}
+        inf = {k: (src.get(k) if src is not None else None) for k in ("atr", "e20", "e20_below2", "fair", "fair_hi", "div_yield", "cash_years", "etf", "ma200", "wk_below200")}
         ep = ex.plan(hmap.get(sym, {}), price, peak, held, inf, max_sl * 100)
         pnl = (price / cost - 1) * 100 if cost else None
         actions, reasons = [], []

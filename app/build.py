@@ -390,6 +390,9 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         r["div_yield"] = dvp.get("yield")
         r["cash_years"] = dvp.get("cash_years")
         r["payout"] = dvp.get("payout")
+        up_ = ca_.upcoming(dv_by.get(s), df.index[-1], 60)          # cổ tức tiền sắp GDKHQ (giá hiện tại còn gồm quyền)
+        r["xd_next"] = up_["cash"][0]["ex_date"] if up_["cash"] else None
+        r["dps_next"] = float(sum(x["dps"] for x in up_["cash"])) if up_["cash"] else None
         r["has_fin"] = bool(fa.get("ok"))
         r["liquid_ok"] = bool(avg_val.get(s, 0) >= min_val and price >= float(ucfg.get("min_price", 5))
                               and len(df) >= int(ucfg.get("min_history_days", 120)))

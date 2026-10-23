@@ -433,7 +433,7 @@ async function route() {
     else if (r === "watch") { setTab("watch"); await viewWatch(arg[0]); }
     else if (r === "compare") { setTab(""); await viewCompare(arg[0]); }
     else if (r === "s" && arg[0]) { const sy = arg[0].toUpperCase(); if (sy.length > 3 && (await etfRows()).some((e) => e.symbol === sy)) { setTab("etf"); await viewEtf(sy); } else { setTab(""); await viewStock(sy, arg[1]); } }
-    else if (r === "guide") { setTab(""); await viewGuide(); }
+    else if (r === "guide") { setTab("guide"); await viewGuide(); }
     else if (r === "help" || r === "faq") { setTab(""); await viewHelp(); }
     else if (r === "report") { setTab("portfolio"); await viewReport(); }
     else if (r === "desk") { setTab("desk"); await viewDesk(); }
@@ -780,7 +780,7 @@ function decisionPlan(t, pf) {
     if (q < 100) { orders.push({ side: "skip", s: p.symbol, why: "số tiền còn lại không đủ 100 cp", px: entry }); return; }
     const half = p.ext && p.split;
     const v = q * entry * 1000; if (gap !== null) gap -= v;
-    orders.push({ side: "buy", s: p.symbol, qty: q, px: entry, zone: p.zone, stop: p.stop, t1: p.t1, v, risk: isNum(p.stop) ? q * (entry - p.stop) * 1000 : null,
+    orders.push({ side: "buy", s: p.symbol, qty: q, px: entry, zone: p.zone, stop: p.stop, stopLbl: p.stop_label, t1: p.t1, v, risk: isNum(p.stop) ? q * (entry - p.stop) * 1000 : null,
       why: `${BASKET_SHORT[p.basket] || p.basket || ""}${half ? " · kéo giãn: 1/2 ngay, 1/2 đặt LO " + nf(p.split.lo) : ""}`, half });
   });
   // 4) cơ hội sau sự kiện (DN có lãi, nợ thấp) – tỷ trọng nhỏ, tuỳ chọn
@@ -811,7 +811,7 @@ function decisionCard(t, pf, opts = {}) {
   const ords = D.orders.filter((o) => opts.noBuy ? ["sell", "trim"].includes(o.side) : true);
   const bar = (v, c) => `<i style="width:${Math.max(0, Math.min(100, v || 0))}%;background:${c}"></i>`;
   const after = D.total && D.known ? (D.stockMV - ords.filter((o) => o.side === "sell" || o.side === "trim").reduce((s, o) => s + o.v, 0) + ords.filter((o) => o.side === "buy" || o.side === "event").reduce((s, o) => s + o.v, 0)) / D.total * 100 : null;
-  const txt = ords.filter((o) => o.qty >= 100 && o.side !== "skip").map((o) => `${sideTxt[o.side][0]} ${o.s} ${nf(o.qty, 0)} cp giá LO ${nf(o.px)}${o.stop ? ` · cắt lỗ ${nf(o.stop)}` : ""}${o.t1 ? ` · mục tiêu ${nf(o.t1)}` : ""}`).join("\n");
+  const txt = ords.filter((o) => o.qty >= 100 && o.side !== "skip").map((o) => `${sideTxt[o.side][0]} ${o.s} ${nf(o.qty, 0)} cp giá LO ${nf(o.px)}${o.stop ? ` · ${o.stopLbl || "cắt lỗ"} ${nf(o.stop)}` : ""}${o.t1 ? ` · mục tiêu ${nf(o.t1)}` : ""}`).join("\n");
   return `<section class="panel sec decide t-${D.tone}"><div class="ph"><h2>🧭 Hôm nay nên làm gì</h2><span class="meta">phong cách ${esc(D.styleName || "")} · tính từ giá đóng cửa ${esc(t.date)}</span></div>
     <div class="dhead"><b class="${D.tone}">${esc(D.head)}</b></div>
     <div class="dgrid">
@@ -869,10 +869,12 @@ async function viewToday() {
       p.ext && p.split
         ? `<b>Đang kéo giãn</b> (giá cách EMA20 ${nf(p.ext_atr, 1)} ATR, 1 tháng ${pct(p.ret1m)}) – <b>chia 2 lệnh</b>: ${q ? `${nf(q1, 0)} cp mua ngay trong vùng ${nf(z[0])}–${nf(z[1])}, ${nf(q - q1, 0)} cp đặt LO ở ${nf(p.split.lo)} (−1 ATR), giữ lệnh 10 phiên` : `1/2 mua ngay, 1/2 đặt LO ở ${nf(p.split.lo)} trong 10 phiên`}. Kiểm chứng 2016–2026: mua lúc kéo giãn không làm lợi nhuận 20 phiên kém đi, nhưng ~2/3 số lần giá lùi về được mức −1 ATR và sụt sau khi mua sâu hơn – chia lệnh để giá vốn tốt hơn.`
         : `<b>Đặt lệnh mua LO</b> trong vùng ${nf(z[0])}–${nf(z[1])}${q ? `: tổng ${nf(q, 0)} cp (${nf(p.weight, 1)}% vốn) – lệnh 1 ${nf(q1, 0)} cp ở ${nf(z[1])}, lệnh 2 ${nf(q - q1, 0)} cp ở ${nf(z[0])}` : ` – <a href="#/portfolio">nhập vốn</a> để biết số cổ phiếu`}. Không mua đuổi trên ${nf(z[1] * 1.02)}.`,
-      `<b>Dừng lỗ ${nf(p.stop)}</b>${isNum(p.stop_pct) ? ` (${pct(p.stop_pct, 1)})` : ""}${risk ? ` – nếu chạm mất ≈ ${big(risk)} đ` : ""}. Đặt lệnh dừng trên app CTCK ngay khi khớp.`,
+      p.stop_kind === "review"
+        ? `<b>Mức xem lại ${nf(p.stop)}</b>${isNum(p.stop_pct) ? ` (${pct(p.stop_pct, 1)})` : ""}${risk ? ` – nếu tới đây đang lỗ ≈ ${big(risk)} đ chưa tính cổ tức` : ""}. Mã cổ tức: <b>không đặt lệnh dừng tự động</b> – tới mức này thì kiểm tra cổ tức/lợi nhuận, chỉ bán khi luận điểm gãy.${p.stop_note ? ` <small class="faint">${esc(p.stop_note)}</small>` : ""}`
+        : `<b>Dừng lỗ ${nf(p.stop)}</b>${isNum(p.stop_pct) ? ` (${pct(p.stop_pct, 1)})` : ""}${risk ? ` – nếu chạm mất ≈ ${big(risk)} đ` : ""}. Đặt lệnh dừng trên app CTCK ngay khi khớp.${p.xd ? ` <small class="faint">${esc(p.stop_note || "")}</small>` : ""}`,
       `<b>Chốt lời</b> ${nf(p.t1)}${isNum(p.t2) ? ` (1/2) rồi ${nf(p.t2)}` : ""}.`,
       `<b>Hàng về</b> ${addTradingDays(today, 2)} (T+2) – trước ngày này chưa bán được.`,
-      `<b>Xem lại</b> ngày ${addTradingDays(today, 20)} hoặc khi có BCTC quý mới; bỏ kế hoạch nếu đóng cửa dưới ${nf(p.stop)} hoặc mã rời danh sách MUA.`,
+      `<b>Xem lại</b> ngày ${addTradingDays(today, 20)} hoặc khi có BCTC quý mới; ${p.stop_kind === "review" ? `xem lại luận điểm nếu đóng cửa dưới ${nf(p.stop)} (sau khi trừ phần giảm do GDKHQ)` : `bỏ kế hoạch nếu đóng cửa dưới ${nf(p.stop)}`} hoặc mã rời danh sách MUA.`,
       `<b>Ghi lại</b>: sau khi khớp bấm "Mua" bên dưới để danh mục và nhật ký tự cập nhật.`,
     ];
     return `<details class="psteps"><summary>Từng bước cho ${p.symbol}</summary><ol>${L.map((x) => `<li>${x}</li>`).join("")}</ol></details>`;
@@ -1612,16 +1614,21 @@ function viewEtfOne(B, r, etfSym) {
 const FEE_BUY = 0.15, FEE_SELL = 0.25; // % (bán gồm 0,1% thuế TNCN)
 const lot = (q) => Math.max(0, Math.floor(q / 100) * 100);
 // ---- kế hoạch thoát hàng theo phong cách (cùng công thức với app/analysis/exits.py)
-const STYLE_OF_BASKET = { swing: "swing", long: "long", income: "income" };
-const styleOf = (h) => (["swing", "position", "long", "income"].includes(h.style) ? h.style : STYLE_OF_BASKET[h.basket] || "position");
+const STYLE_OF_BASKET = { swing: "swing", long: "long", income: "income", dividend: "income" };
+// mã cổ tức (lợi suất ≥ 5%, trả tiền ≥ 3 năm liền): chưa chọn phong cách thì mặc định Cổ tức – không cắt lỗ sát theo giá
+const isIncome = (i) => isNum(i?.div_yield) && i.div_yield >= 5 && (i.cash_years || 0) >= 3;
+const styleOf = (h, i) => (["swing", "position", "long", "income"].includes(h.style) ? h.style : STYLE_OF_BASKET[h.basket] || (isIncome(i) ? "income" : "position"));
+// cổ tức tiền đã nhận (nghìn đ/cp, sau thuế 5%) – tính vào mức lỗ tối đa: ngưỡng = giá vốn × (1 − x%) − cổ tức đã nhận (giống exits.py)
+const divRcv = (h) => (h.divs || []).reduce((s, d) => s + (Number(d.dps) || 0), 0) * 0.95 / 1000;
 const lotPart = (rem, f) => { if (rem <= 0 || f <= 0) return 0; if (f >= 0.999) return rem; const q = Math.floor((rem * f) / 100 + 1e-6) * 100; return q > 0 ? q : rem >= 100 ? Math.min(100, rem) : rem; };
 function exitPlan(h, price, peak, held, info, maxSlPct = 20) {
-  const style = styleOf(h), cost = Number(h.cost) || price, pos = (x) => (isNum(x) && x > 0 ? x : null);
+  const style = styleOf(h, info), cost = Number(h.cost) || price, pos = (x) => (isNum(x) && x > 0 ? x : null);
+  const dr = divRcv(h), floor = (f) => cost * (1 - f) - dr, dtxt = dr > 0 ? ` – đã tính ${nf(dr * 1000, 0)} đ/cp cổ tức đã nhận` : "";
   const atr = pos(info.atr) || price * 0.025, fair = pos(info.fair), fairHi = pos(info.fair_hi), y = pos(info.div_yield);
   const be = cost / (1 - FEE_SELL / 100), L = [];
   const add = (key, kind, label, px, sell, trig, why, hit) => { if (px != null || trig === "time" || trig === "cond") L.push({ key, kind, label, price: px != null ? Math.round(px * 100) / 100 : null, sell, trig, why, hit }); };
   if (info.etf) {   // quỹ ETF = cả rổ: thoát theo quy tắc đánh rổ đã kiểm chứng + mức lỗ tối đa
-    add("stop", "stop", "Dừng lỗ tối đa", cost * (1 - maxSlPct / 100), 1, "below", `Lỗ tối đa ${nf(maxSlPct, 0)}% so với giá vốn (mức anh đặt)`);
+    add("stop", "stop", "Dừng lỗ tối đa", floor(maxSlPct / 100), 1, "below", `Lỗ tối đa ${nf(maxSlPct, 0)}% so với giá vốn (mức anh đặt)${dtxt}`);
     if (pos(info.ma200)) add("ma200w", "cond", "Đóng cửa tuần dưới MA200", info.ma200, 1, "cond", "Quy tắc đánh rổ đã kiểm chứng: tuần nào đóng cửa dưới MA200 thì bán, chờ một tuần đóng cửa lại trên MA200 mới mua lại", info.wk_below200 === true);
   } else if (style === "swing") {
     const r0 = Math.min(Math.max(cost - 2.5 * atr, cost * 0.9), cost * 0.95), risk = cost - r0;
@@ -1632,14 +1639,14 @@ function exitPlan(h, price, peak, held, info, maxSlPct = 20) {
     add("time", "time", "Hết 20 phiên", null, 1, "time", "Lướt sóng quá 20 phiên mà chưa tới mục tiêu 1 – bán hết, giải phóng vốn", held != null && held >= 20);
     if (pos(info.e20)) add("ema", "cond", "Đóng cửa dưới EMA20 2 phiên", info.e20, 1, "cond", "Nhịp tăng đã gãy", info.e20_below2 === true);
   } else if (style === "long") {
-    add("review", "review", "Xem lại luận điểm (−25%)", cost * 0.75, 0, "below", "Dài hạn không tự cắt lỗ theo giá – đọc lại BCTC, nếu luận điểm còn nguyên có thể mua thêm");
+    add("review", "review", "Xem lại luận điểm (−25%)", floor(0.25), 0, "below", "Dài hạn không tự cắt lỗ theo giá – đọc lại BCTC, nếu luận điểm còn nguyên có thể mua thêm" + dtxt);
     if (fair) { add("tp1", "tp", "Vượt giá trị hợp lý 20%", fair * 1.2, 1 / 3, "above", "Đã đắt – chốt 1/3"); add("tp2", "tp", "Vượt giá trị hợp lý 40%", fair * 1.4, 1 / 2, "above", "Rất đắt – chốt thêm một nửa phần còn lại, giữ 1/3 tích sản"); }
   } else if (style === "income") {
-    add("review", "review", "Xem lại (−20%)", cost * 0.8, 0, "below", "Kiểm tra cổ tức có bị cắt không – nếu vẫn trả đều thì không bán");
+    add("review", "review", "Xem lại (−20%)", floor(0.2), 0, "below", "Kiểm tra cổ tức có bị cắt không – nếu vẫn trả đều thì không bán. Giá giảm đúng bằng cổ tức ngày GDKHQ không phải lỗ" + dtxt);
     if (y) { const dps = (price * y) / 100; add("tp1", "tp", "Lợi suất còn 3,5%", dps / 0.035, 1 / 2, "above", `Cổ tức ${nf(dps * 1000, 0)} đ/cp – giá đã cao, bán một nửa`); add("tp2", "tp", "Lợi suất còn 3%", dps / 0.03, 1, "above", "Bán hết, chuyển sang mã lợi suất cao hơn"); }
   } else {
-    const hard = cost * (1 - maxSlPct / 100), trail = peak - 3 * atr, stop = Math.max(hard, trail);
-    add("stop", "stop", stop < be ? "Dừng lỗ" : "Dừng – khoá lãi", stop, 1, "below", stop === hard ? `Lỗ tối đa ${nf(maxSlPct, 0)}% so với giá vốn` : "Đỉnh sau mua − 3×ATR (dời lên theo giá)");
+    const hard = floor(maxSlPct / 100), trail = peak - 3 * atr, stop = Math.max(hard, trail);
+    add("stop", "stop", stop < be ? "Dừng lỗ" : "Dừng – khoá lãi", stop, 1, "below", stop === hard ? `Lỗ tối đa ${nf(maxSlPct, 0)}% so với giá vốn${dtxt}` : "Đỉnh sau mua − 3×ATR (dời lên theo giá; đỉnh đã điều chỉnh theo cổ tức)");
     if (fair) { const t1 = fair * 1.1; add("tp1", "tp", "Vượt giá trị hợp lý 10%", t1, 1 / 2, "above", "Định giá đã đắt – chốt một nửa"); add("tp2", "tp", "Vùng giá trị cao", Math.max(fairHi || fair * 1.25, t1 * 1.08), 1, "above", "Chốt nốt phần còn lại"); }
     add("time", "review", "Xem lại sau 60 phiên", null, 0, "time", "Nắm 60 phiên mà lãi < 5% – vốn đang đứng yên", held != null && held >= 60 && price < cost * 1.05);
   }
@@ -1760,7 +1767,7 @@ function preTradeCheck(c) {
     if (total) {
       caps.push([`rủi ro ${nf(rp, 1)}%/lệnh`, lot(rp / 100 * total / ((px - stop) * 1000))]);
       add(loss / total * 100 > rp * 1.5 ? "bad" : loss / total * 100 > rp + 0.05 ? "warn" : "ok", "risk", `Nếu chạm cắt lỗ ${nf(stop)} (${pct((stop / px - 1) * 100, 1)}): mất ${big(loss)} đ = ${nf(loss / total * 100, 2)}% tài sản`, `Giới hạn ${nf(rp, 1)}%/lệnh.`);
-    } else add("warn", "risk", `Cắt lỗ ${nf(stop)}: lệnh này có thể mất ${big(loss)} đ`, "");
+    } else add("warn", "risk", `${(pk?.stop_kind || lv.stop_kind) === "review" ? "Mức xem lại (mã cổ tức, không đặt dừng tự động)" : "Cắt lỗ"} ${nf(stop)}: lệnh này có thể mất ${big(loss)} đ`, "");
   } else add("warn", "risk", "Chưa có mức cắt lỗ", "Hệ thống chưa có mức dừng lỗ cho mã này – tự đặt trước khi mua (thường −7 … −10%).");
   // 6) điểm vào / kế hoạch
   const flag = d?.valuation?.flag, evA = (t.event_active || []).some((x) => (x.symbol || x) === sym), pe = (t.post_event || []).find((x) => x.symbol === sym);
@@ -1946,7 +1953,7 @@ async function viewPortfolio() {
       let peak = px;
       if (d?.ohlc && h.date) { const o = d.ohlc; for (let i = 0; i < o.t.length; i++) if (o.t[i] >= h.date) peak = Math.max(peak, o.c[i]); }
       const held = h.date ? tradingDaysBetween(h.date, today) : null;
-      const ep = exitPlan(h, px, peak, held, { atr: r.atr, e20: r.e20, e20_below2: r.e20_below2, fair: r.fair, fair_hi: r.fair_hi, div_yield: r.div_yield, etf: r.kind === "etf", ma200: r.ma200, wk_below200: r.wk_below200 }, maxSL * 100);
+      const ep = exitPlan(h, px, peak, held, { atr: r.atr, e20: r.e20, e20_below2: r.e20_below2, fair: r.fair, fair_hi: r.fair_hi, div_yield: r.div_yield, cash_years: r.cash_years, etf: r.kind === "etf", ma200: r.ma200, wk_below200: r.wk_below200 }, maxSL * 100);
       const stop = ep.stop ?? h.cost * (1 - maxSL);
       const th = (a?.actions || []).map((k, i) => [k, a.reasons?.[i]]).filter(([k]) => k === "BÁN – LUẬN ĐIỂM GÃY" || (k === "CÂN NHẮC GIẢM TỶ TRỌNG" && ep.style === "position"));
       const hits = ep.levels.filter((l) => l.status === "hit"), fullH = hits.find((l) => l.sell >= 0.999), partH = hits.filter((l) => l.sell > 0 && l.sell < 0.999).sort((p, q) => q.price - p.price)[0];
@@ -2506,7 +2513,7 @@ async function viewStock(sym, tabArg) {
     <div class="stack">
       ${styleLevels(d)}
       <section class="panel" id="planPos" hidden><div class="ph"><h2>Kế hoạch giao dịch</h2><span class="meta">${d.timing?.ok ? '<b class="up">đủ điều kiện kỹ thuật</b>' : '<b class="ref">chưa đến lúc</b>'}</span></div>
-        ${lv ? kpis([["Vùng mua", `${nf(lv.zone[0])}–${nf(lv.zone[1])}`], ["Cắt lỗ", `${nf(lv.stop)} <small>${pct(lv.stop_pct, 0)}</small>`, "down"], ["Mục tiêu 1", `${nf(lv.t1)} <small>${pct(lv.t1_pct, 0)}</small>`, "up"], ["Mục tiêu 2", nf(lv.t2), "up"], ["Lời / lỗ", nf(lv.rr, 1) + "x"], ["Trạng thái", entryState(d, lv).t]], false, "c2")
+        ${lv ? kpis([["Vùng mua", `${nf(lv.zone[0])}–${nf(lv.zone[1])}`], [lv.stop_kind === "review" ? "Mức xem lại" : "Cắt lỗ", `${nf(lv.stop)} <small>${pct(lv.stop_pct, 0)}</small>`, "down", lv.stop_note], ["Mục tiêu 1", `${nf(lv.t1)} <small>${pct(lv.t1_pct, 0)}</small>`, "up"], ["Mục tiêu 2", nf(lv.t2), "up"], ["Lời / lỗ", nf(lv.rr, 1) + "x"], ["Trạng thái", entryState(d, lv).t]], false, "c2")
           : `<p class="muted">Chưa có kế hoạch (thiếu định giá hoặc kỹ thuật).</p>`}
         ${d.timing && !d.timing.ok ? `<p class="note" style="margin-top:6px">${esc(d.timing.reason)}</p>` : ""}</section>
       <section class="panel"><div class="ph"><h2>Định giá: ${esc(v.verdict || "chưa định giá được")}</h2><span class="meta">điểm ${scoreCell(r.composite)}</span></div>
@@ -2723,8 +2730,8 @@ function styleLevels(d) {
   if (d._locked) return lockBox("stock_full", "Kế hoạch giao dịch theo phong cách", true);
   const L = d.style_levels || {}, lv = d.levels, sel0 = lsGet("stockStyle", "position");
   const body = (k) => {
-    if (k === "position") { const es = entryState(d, lv); return lv ? `${sizeLine(lv.zone[1], lv.stop)}${kpis([["Vùng mua", `${nf(lv.zone[0])}–${nf(lv.zone[1])}`], ["Cắt lỗ", `${nf(lv.stop)} <small>${pct(lv.stop_pct, 0)}</small>`, "down"], ["Mục tiêu 1", `${nf(lv.t1)} <small>${pct(lv.t1_pct, 0)}</small>`, "up"], ["Mục tiêu 2", nf(lv.t2), "up"], ["Lời / lỗ", nf(lv.rr, 1) + "x"], ["Trạng thái", es.t, es.c]], false, "c2")}
-      ${es.why ? `<p class="note" style="margin-top:6px">${esc(es.why)}</p>` : `<p class="faint" style="font-size:.74rem;margin-top:4px">Đủ điều kiện xu hướng, giá và nằm trong danh sách MUA. Nắm 1–6 tháng, cắt lỗ tối đa 20%.</p>`}` : `<p class="muted">Chưa có kế hoạch (thiếu định giá hoặc kỹ thuật).</p>`; }
+    if (k === "position") { const es = entryState(d, lv); return lv ? `${sizeLine(lv.zone[1], lv.stop)}${kpis([["Vùng mua", `${nf(lv.zone[0])}–${nf(lv.zone[1])}`], [lv.stop_kind === "review" ? "Mức xem lại" : "Cắt lỗ", `${nf(lv.stop)} <small>${pct(lv.stop_pct, 0)}</small>`, "down", lv.stop_note], ["Mục tiêu 1", `${nf(lv.t1)} <small>${pct(lv.t1_pct, 0)}</small>`, "up"], ["Mục tiêu 2", nf(lv.t2), "up"], ["Lời / lỗ", nf(lv.rr, 1) + "x"], ["Trạng thái", es.t, es.c]], false, "c2")}
+      ${lv.stop_note ? `<p class="note" style="margin-top:6px">💰 ${esc(lv.stop_note)}</p>` : ""}${es.why ? `<p class="note" style="margin-top:6px">${esc(es.why)}</p>` : `<p class="faint" style="font-size:.74rem;margin-top:4px">Đủ điều kiện xu hướng, giá và nằm trong danh sách MUA. Nắm 1–6 tháng, cắt lỗ tối đa 20%.</p>`}` : `<p class="muted">Chưa có kế hoạch (thiếu định giá hoặc kỹ thuật).</p>`; }
     const x = L[k] || {};
     if (x.none) return `<p class="muted">${esc(x.reason)}</p>`;
     if (k === "swing") return `${kpis([["Điểm vào", `${nf(x.zone[0])}–${nf(x.zone[1])}`], ["Cắt lỗ", `${nf(x.stop)} <small>${pct(x.stop_pct, 1)}</small>`, "down"], ["Mục tiêu 1", `${nf(x.t1)} <small>${pct(x.t1_pct, 0)}</small>`, "up"], ["Mục tiêu 2", nf(x.t2), "up"]], false, "c2")}
@@ -3697,7 +3704,7 @@ function stepsFor(d, ctx) {
   const maxW = (t.risk?.max_weight_per_stock ?? 20), expo = reg.exposure ?? 100;
   if (h) {
     let peak = px; if (h.date) d.ohlc.t.forEach((dt, i) => { if (dt >= h.date) peak = Math.max(peak, d.ohlc.c[i]); });
-    const ep = exitPlan(h, px, peak, h.date ? tradingDaysBetween(h.date, today) : null, { atr: r.atr, e20: r.e20, e20_below2: r.e20_below2, fair: r.fair, fair_hi: r.fair_hi, div_yield: r.div_yield }, (t.risk?.max_stop_loss_pct ?? 20));
+    const ep = exitPlan(h, px, peak, h.date ? tradingDaysBetween(h.date, today) : null, { atr: r.atr, e20: r.e20, e20_below2: r.e20_below2, fair: r.fair, fair_hi: r.fair_hi, div_yield: r.div_yield, cash_years: r.cash_years }, (t.risk?.max_stop_loss_pct ?? 20));
     const pnl = (px * (1 - FEE_SELL / 100) / h.cost - 1) * 100;
     const hit = ep.levels.filter((l) => l.status === "hit"), near = ep.levels.filter((l) => l.status === "near");
     st.push({ t: `Anh đang nắm ${nf(h.qty, 0)} cp, giá vốn ${nf(h.cost)} – lãi/lỗ ${pct(pnl, 1)} sau phí`, d: `Theo luật thoát của phong cách ${STYLE_SHORT[ep.style]}. Hoà vốn sau phí: ${nf(ep.breakeven)}.` });

@@ -1455,3 +1455,15 @@ table.dgpull tr.sp td{height:6px;padding:0;border:0}
 .dgw{display:grid;gap:2px;padding:6px 0;border-top:1px solid var(--line-2);font-size:.82rem}.dgw:first-of-type{border-top:0}
 /* thanh điều hướng điện thoại: thêm "Bản tin" */
 @media (max-width:979px){.tabs{grid-template-columns:repeat(9,1fr)}.tabs a{font-size:.6rem;padding-left:0;padding-right:0;text-align:center;line-height:1.15}}
+
+/* Điều hướng theo tầng: 4 nhóm việc trên thanh dọc (mỗi ngày → thị trường → chọn mã → của tôi) */
+.tabs .nav-g{display:none}
+@media (min-width:1180px){
+  .tabs{gap:1px}
+  .tabs .nav-g{display:flex;align-items:center;gap:7px;margin:12px 0 3px;padding:0 12px;font:700 .62rem/1 "Be Vietnam Pro",system-ui,sans-serif;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);white-space:nowrap}
+  .tabs .rail-brand+.nav-g{margin-top:2px}
+  .tabs .nav-g i{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:4px;background:var(--sunk);color:var(--ink-2);font-style:normal;font-size:.58rem;letter-spacing:0}
+  .tabs .nav-g::after{content:"";flex:1;height:1px;background:var(--line-2)}
+  .tabs a{padding:8px 12px!important}
+  body.rail-min .tabs .nav-g{font-size:0;padding:0 8px;margin:8px 0 4px}body.rail-min .tabs .nav-g i{display:none}
+}

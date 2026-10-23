@@ -9,6 +9,10 @@ Cùng công thức với hàm exitPlan() trong site/app.js (web tính lại ngay
             chốt 2/3 ở 3R, phần còn lại ở 4R; bán hết sau 20 phiên chưa đạt 3R hoặc đóng cửa dưới EMA20 2 phiên.
   long      Dài hạn: không cắt lỗ theo giá (xem lại khi −25%); chốt 1/3 ở giá trị hợp lý × 1,2, thêm 1/3 ở × 1,4.
   income    Cổ tức: xem lại khi −20%; bán 1/2 khi lợi suất còn 3,5%, bán hết khi còn 3%.
+
+Cổ tức tiền đã nhận được tính vào mức lỗ tối đa (lỗ trên TỔNG lợi nhuận = chênh giá + cổ tức):
+  ngưỡng giá = giá vốn × (1 − x%) − cổ tức/cp đã nhận (sau thuế 5%). Ngày GDKHQ giá giảm đúng phần cổ tức nên không bị "chạm" máy móc.
+Mã chưa chọn phong cách mà đạt chuẩn cổ tức (lợi suất ≥ 5%, trả tiền ≥ 3 năm) → mặc định phong cách Cổ tức.
 """
 from __future__ import annotations
 
@@ -16,14 +20,28 @@ import math
 
 FEE_SELL = 0.25  # % (gồm 0,1% thuế)
 NEAR_PCT = 3.0
-STYLE_OF_BASKET = {"swing": "swing", "long": "long", "income": "income"}
+STYLE_OF_BASKET = {"swing": "swing", "long": "long", "income": "income", "dividend": "income"}
+PIT = 0.05
 
 
-def style_of(h: dict) -> str:
+def is_income(info: dict | None) -> bool:
+    y, cy = _ok((info or {}).get("div_yield")), _ok((info or {}).get("cash_years"))
+    return bool(y and y >= 5 and (cy or 0) >= 3)
+
+
+def style_of(h: dict, info: dict | None = None) -> str:
     s = h.get("style")
     if s in ("swing", "position", "long", "income"):
         return s
-    return STYLE_OF_BASKET.get(h.get("basket") or "", "position")
+    b = STYLE_OF_BASKET.get(h.get("basket") or "")
+    return b or ("income" if is_income(info) else "position")
+
+
+def div_received(h: dict) -> float:
+    """Cổ tức tiền đã nhận (nghìn đồng / cổ phiếu, sau thuế TNCN) – đã ghi (h.divs) + chưa ghi (ca_pending)."""
+    t = sum(float(d.get("dps") or 0) for d in (h.get("divs") or []))
+    t += sum(float(e.get("v") or 0) for e in (h.get("ca_pending") or []) if e.get("k") == "c")
+    return t * (1 - PIT) / 1000
 
 
 def _ok(x) -> float | None:
@@ -36,8 +54,11 @@ def _ok(x) -> float | None:
 
 def plan(h: dict, price: float, peak: float, held: int | None, info: dict, max_sl_pct: float = 20.0) -> dict:
     """h: holding (cost, qty, style/basket, exit_custom, exits_done). info: atr, e20, e20_below2, fair, fair_hi, div_yield."""
-    style = style_of(h)
+    style = style_of(h, info)
     cost = float(h.get("cost") or price)
+    dr = div_received(h)
+    floor = lambda f: cost * (1 - f) - dr  # noqa: E731  (ngưỡng lỗ f% trên tổng lợi nhuận, đã tính cổ tức đã nhận)
+    dtxt = f" – đã tính {dr * 1000:,.0f} đ/cp cổ tức đã nhận".replace(",", ".") if dr > 0 else ""
     atr = _ok(info.get("atr")) or price * 0.025
     fair, fair_hi, y = _ok(info.get("fair")), _ok(info.get("fair_hi")), _ok(info.get("div_yield"))
     be = cost / (1 - FEE_SELL / 100)
@@ -50,7 +71,7 @@ def plan(h: dict, price: float, peak: float, held: int | None, info: dict, max_s
 
     if info.get("etf"):
         # quỹ ETF = cả rổ: thoát theo quy tắc đánh rổ đã kiểm chứng (đóng cửa TUẦN dưới MA200), cộng mức lỗ tối đa anh đặt
-        add("stop", "stop", "Dừng lỗ tối đa", cost * (1 - max_sl_pct / 100), 1, "below", f"Lỗ tối đa {max_sl_pct:.0f}% so với giá vốn (mức anh đặt)")
+        add("stop", "stop", "Dừng lỗ tối đa", floor(max_sl_pct / 100), 1, "below", f"Lỗ tối đa {max_sl_pct:.0f}% so với giá vốn (mức anh đặt){dtxt}")
         ma = _ok(info.get("ma200"))
         if ma:
             add("ma200w", "cond", "Đóng cửa tuần dưới MA200", ma, 1, "cond",
@@ -72,21 +93,21 @@ def plan(h: dict, price: float, peak: float, held: int | None, info: dict, max_s
             add("ema", "cond", "Đóng cửa dưới EMA20 2 phiên", float(info["e20"]), 1, "cond", "Nhịp tăng đã gãy")
             L[-1]["hit"] = bool(info.get("e20_below2") == True)  # noqa: E712 (NaN → False)
     elif style == "long":
-        add("review", "review", "Xem lại luận điểm (−25%)", cost * 0.75, 0, "below", "Dài hạn không tự cắt lỗ theo giá – đọc lại BCTC, nếu luận điểm còn nguyên có thể mua thêm")
+        add("review", "review", "Xem lại luận điểm (−25%)", floor(0.25), 0, "below", "Dài hạn không tự cắt lỗ theo giá – đọc lại BCTC, nếu luận điểm còn nguyên có thể mua thêm" + dtxt)
         if fair:
             add("tp1", "tp", "Vượt giá trị hợp lý 20%", fair * 1.2, 1 / 3, "above", "Đã đắt – chốt 1/3")
             add("tp2", "tp", "Vượt giá trị hợp lý 40%", fair * 1.4, 1 / 2, "above", "Rất đắt – chốt thêm một nửa phần còn lại, giữ 1/3 tích sản")
     elif style == "income":
-        add("review", "review", "Xem lại (−20%)", cost * 0.8, 0, "below", "Kiểm tra cổ tức có bị cắt không – nếu vẫn trả đều thì không bán")
+        add("review", "review", "Xem lại (−20%)", floor(0.20), 0, "below", "Kiểm tra cổ tức có bị cắt không – nếu vẫn trả đều thì không bán. Giá giảm đúng bằng cổ tức ngày GDKHQ không phải lỗ" + dtxt)
         if y:
             dps = price * y / 100
             add("tp1", "tp", "Lợi suất còn 3,5%", dps / 0.035, 1 / 2, "above", f"Cổ tức {dps * 1000:,.0f} đ/cp – giá đã cao, bán một nửa".replace(",", "."))
             add("tp2", "tp", "Lợi suất còn 3%", dps / 0.03, 1, "above", "Bán hết, chuyển sang mã lợi suất cao hơn")
     else:
-        hard, trail = cost * (1 - max_sl_pct / 100), peak - 3 * atr
+        hard, trail = floor(max_sl_pct / 100), peak - 3 * atr
         stop = max(hard, trail)
         add("stop", "stop", "Dừng lỗ" if stop < be else "Dừng – khoá lãi", stop, 1, "below",
-            f"Lỗ tối đa {max_sl_pct:.0f}% so với giá vốn" if stop == hard else "Đỉnh sau mua − 3×ATR (dời lên theo giá)")
+            f"Lỗ tối đa {max_sl_pct:.0f}% so với giá vốn{dtxt}" if stop == hard else "Đỉnh sau mua − 3×ATR (dời lên theo giá; đỉnh đã điều chỉnh theo cổ tức)")
         if fair:
             t1 = fair * 1.10
             add("tp1", "tp", "Vượt giá trị hợp lý 10%", t1, 1 / 2, "above", "Định giá đã đắt – chốt một nửa")
@@ -133,7 +154,7 @@ def plan(h: dict, price: float, peak: float, held: int | None, info: dict, max_s
     stop_lv = next((x for x in L if x["key"] == "stop"), None) or next((x for x in L if x["kind"] == "review" and x.get("price")), None)
     for x in L:
         x["sell"] = round(x["sell"], 4)
-    return {"style": style, "levels": L, "stop": stop_lv["price"] if stop_lv else None, "breakeven": round(be, 2)}
+    return {"style": style, "levels": L, "stop": stop_lv["price"] if stop_lv else None, "breakeven": round(be, 2), "div_rcv": round(dr, 4)}
 
 
 def _lot_part(rem: float, frac: float) -> float:
