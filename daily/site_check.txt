@@ -1,0 +1,10 @@
+302 https://vn-stock.pages.dev/login?next=%2F
+data 401
+blog 200
+sitemap 200
+thu gọn app.js: 731 KB → 614 KB
+thu gọn glossary.js: 83 KB → 78 KB
+thu gọn app.css: 112 KB → 104 KB
+gắn phiên bản index.html: app.css?v=2777877c6a, vendor/lightweight-charts.standalone.production.js?v=7c9b722eb4, glossary.js?v=09da987f12, app.js?v=b619bb19d7
+gắn phiên bản login.html: app.css?v=2777877c6a
+app.css cache-control: public, max-age=31536000, immutable
