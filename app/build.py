@@ -92,6 +92,26 @@ def _val_hist(q, n: int = 24) -> list:
     return out
 
 
+def _qhist(q, n: int = 24) -> list:
+    """Số quý thật gần nhất (tỷ đồng) để ghép năm dương lịch (quý đã có + quý dự phóng) và tính tỷ trọng mùa vụ."""
+    if q is None or q.empty:
+        return []
+    d = q.dropna(subset=["revenue", "ni_parent", "net_income", "total_assets"], how="all").sort_values(["year", "quarter"]).tail(n)
+    g = lambda r, k: (float(r[k]) if k in r and r[k] == r[k] and r[k] is not None else None)  # noqa: E731
+    out = []
+    for _, r in d.iterrows():
+        op, ie = g(r, "operating_profit"), g(r, "interest_exp")
+        sga = (g(r, "selling_exp") or 0) + (g(r, "admin_exp") or 0) if (g(r, "selling_exp") is not None or g(r, "admin_exp") is not None) else None
+        x = {"y": int(r["year"]), "q": int(r["quarter"]), "revenue": g(r, "revenue"), "toi": g(r, "toi"), "cogs": abs(g(r, "cogs")) if g(r, "cogs") is not None else None,
+             "gp": g(r, "gross_profit"), "sga": sga, "ebit": (op + (ie or 0)) if op is not None else None, "interest": abs(ie) if ie is not None else None,
+             "pbt": g(r, "pbt"), "tax": abs(g(r, "tax")) if g(r, "tax") is not None else None, "ni_all": g(r, "net_income"), "ni": g(r, "ni_parent"),
+             "cfo": g(r, "cfo"), "capex": g(r, "capex"), "cfi": g(r, "cfi"), "cff": g(r, "cff"), "div": g(r, "dividends_paid"),
+             "cash": ((g(r, "cash") or 0) + (g(r, "st_invest") or 0)) if g(r, "cash") is not None else None,
+             "ta": g(r, "total_assets"), "eq": g(r, "equity"), "debt": ((g(r, "st_debt") or 0) + (g(r, "lt_debt") or 0)) if (g(r, "st_debt") is not None or g(r, "lt_debt") is not None) else None}
+        out.append({k: (round(v, 1) if isinstance(v, float) else v) for k, v in x.items() if v is not None})
+    return out
+
+
 def _f(x):
     try:
         x = float(x)
@@ -512,6 +532,8 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             sg = sector_growth[_gk].get(r["industry"])
         fa["norm"] = va.norm_earnings(qs)
         model = fc.build_base(fa, fy_by.get(s), ttm_row, sg, vcfg)
+        if model is not None:
+            model["base"]["qhist"] = _qhist(qs)
         if model is not None and s in overrides:
             ov = {k: float(v) for k, v in overrides[s].items()
                   if k in model["assumptions"] and v is not None}

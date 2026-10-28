@@ -252,6 +252,138 @@ const FC = {
     out.forEach((x, i) => { const taP = i ? out[i - 1].bs.ta : B.ta; x.bs.roa = x.is.ni / ((taP + x.bs.ta) / 2); });
     return out;
   },
+  // ---- NĂM DƯƠNG LỊCH & QUÝ: mô hình dự phóng theo từng 12 tháng kể từ quý BCTC gần nhất (đúng cho chiết khấu DCF);
+  //      để trình bày, tách mỗi kỳ 12 tháng thành 4 quý theo tỷ trọng mùa vụ, rồi ghép năm dương lịch = quý đã có số thật + quý dự phóng.
+  qctx(base) {
+    const H = (base.qhist || []).filter((h) => isNum(h.y) && isNum(h.q));
+    if (!H.length) return null;
+    const idx = (y, q) => y * 4 + q - 1, L = H[H.length - 1], I0 = idx(L.y, L.q), M = new Map(H.map((h) => [idx(h.y, h.q), h]));
+    const cache = {};
+    // tỷ trọng mùa vụ: ½ trung vị các năm đủ 4 quý (tối đa 5 năm) + ½ cơ cấu 4 quý gần nhất; chỉ dùng khi cả 4 quý cùng dương
+    const wts = (key) => {
+      if (key in cache) return cache[key];
+      const sh = [], yrs = [...new Set(H.map((h) => h.y))].sort((a, b) => a - b);
+      yrs.forEach((y) => { const v = [1, 2, 3, 4].map((q) => M.get(idx(y, q))?.[key]); if (v.every((x) => isNum(x) && x > 0)) { const s = v.reduce((a, b) => a + b, 0); sh.push(v.map((x) => x / s)); } });
+      const lv = [0, 1, 2, 3].map((j) => M.get(I0 - j)), last = lv.every((h) => isNum(h?.[key]) && h[key] > 0) ? (() => { const w = [0, 0, 0, 0]; lv.forEach((h) => (w[h.q - 1] = h[key])); const s = w.reduce((a, b) => a + b, 0); return w.map((x) => x / s); })() : null;
+      if (!sh.length && !last) return (cache[key] = null);
+      const rc = sh.slice(-5), med = rc.length ? [0, 1, 2, 3].map((i) => { const a = rc.map((s) => s[i]).sort((x, y) => x - y), m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; }) : last;
+      const w = med.map((m, i) => 0.5 * m + 0.5 * (last || med)[i]), s = w.reduce((a, b) => a + b, 0);
+      return (cache[key] = w.map((x) => x / s));
+    };
+    return { H, M, L, I0, idx, wts, U: [0.25, 0.25, 0.25, 0.25] };
+  },
+  fwdLabel(base, t) {
+    const C = FC.qctx(base); if (!C) return `Năm ${t}`;
+    const e = C.I0 + 4 * t, y = Math.floor(e / 4), q = (e % 4) + 1;
+    return `12T→Q${q}/${String(y % 100).padStart(2, "0")}`;
+  },
+  // dự phóng từng quý (4 quý mỗi kỳ 12 tháng): dòng tiền/lợi nhuận × tỷ trọng mùa vụ; số dư (nợ, vốn chủ, tài sản) nội suy tuyến tính trong kỳ
+  quarters(base, rows) {
+    const C = FC.qctx(base); if (!C || !rows?.length) return [];
+    const ct = base.model === "CT", sh = base.shares, rev = C.wts(ct ? "revenue" : "ni") || C.U;
+    const W = { revenue: rev, gross_profit: C.wts("gp") || rev, sga: C.wts("sga") || rev, ebit: C.wts("ebit") || rev, pbt: C.wts("pbt") || C.wts("ni") || rev,
+      ni: C.wts("ni") || C.wts("pbt") || rev, ni_all: C.wts("ni_all") || C.wts("ni") || rev };
+    const FK = ["revenue", "gross_profit", "sga", "ebit", "interest", "pbt", "ni", "ni_all", "da", "capex", "dnwc", "borrow", "fcff", "fcfe", "int_at"];
+    const SK = ["debt", "equity", "ta", "fa"], start = { debt: base.debt || 0, equity: base.equity, ta: base.ta, fa: base.fa0 };
+    const out = [];
+    for (let k = 1; k <= rows.length * 4; k++) {
+      const I = C.I0 + k, y = Math.floor(I / 4), q = (I % 4) + 1, p = Math.floor((k - 1) / 4), r = rows[p], pv = p ? rows[p - 1] : start, fr = ((k - 1) % 4 + 1) / 4;
+      const o = { y, q, I, f: 1, period: p + 1, p: `Q${q}/${String(y % 100).padStart(2, "0")}` };
+      FK.forEach((key) => { if (isNum(r[key])) o[key] = r[key] * (W[key] || C.U)[q - 1]; });
+      SK.forEach((key) => { if (isNum(r[key])) o[key] = isNum(pv[key]) ? pv[key] + fr * (r[key] - pv[key]) : r[key]; });
+      o.div = isNum(r.dps) ? r.dps * sh / 1000 / 4 : null;
+      o.eps = isNum(o.ni) ? o.ni * 1000 / sh : null;
+      o.bvps = isNum(o.equity) ? o.equity * 1000 / sh : null;
+      out.push(o);
+    }
+    return out;
+  },
+  // năm dương lịch: quý đã có BCTC (số thật) + quý dự phóng; các chỉ tiêu không có số quý thật (khấu hao, VLĐ, FCFF…) của quý đã qua = ước theo kỳ 12 tháng đầu
+  calendar(base, rows) {
+    const C = FC.qctx(base), Q = FC.quarters(base, rows); if (!C || !Q.length) return null;
+    const sh = base.shares, ct = base.model === "CT", QI = new Map(Q.map((x) => [x.I, x])), lastI = Q[Q.length - 1].I;
+    const ACT = { revenue: (h) => (ct ? h.revenue : h.toi ?? h.revenue), gross_profit: (h) => h.gp, sga: (h) => h.sga, ebit: (h) => h.ebit, interest: (h) => h.interest, pbt: (h) => h.pbt,
+      ni: (h) => h.ni, ni_all: (h) => h.ni_all, capex: (h) => (isNum(h.capex) ? -h.capex : null), div: (h) => (isNum(h.div) ? -h.div : null) };
+    const EST = ["da", "dnwc", "borrow", "fcff", "fcfe", "int_at"];
+    const FK = [...Object.keys(ACT), ...EST];
+    const out = []; let y = C.L.q < 4 ? C.L.y : C.L.y + 1;
+    const annual = (Y) => { const v = [1, 2, 3, 4].map((q) => C.M.get(C.idx(Y, q))); return v.every(Boolean) ? v : null; };
+    for (; C.idx(y, 4) <= lastI; y++) {
+      const o = { y, p: `${y}F`, f: 1, n_act: 0 }; FK.forEach((k) => (o[k] = 0)); const has = {};
+      for (let q = 1; q <= 4; q++) {
+        const I = C.idx(y, q), h = C.M.get(I);
+        if (I <= C.I0) {
+          o.n_act += 1;
+          Object.entries(ACT).forEach(([k, f]) => { const v = h ? f(h) : null; if (isNum(v)) { o[k] += v; has[k] = 1; } });
+          EST.forEach((k) => { if (isNum(rows[0][k])) { o[k] += rows[0][k] / 4; has[k] = 1; } });
+        } else {
+          const x = QI.get(I); if (!x) continue;
+          FK.forEach((k) => { if (isNum(x[k])) { o[k] += x[k]; has[k] = 1; } });
+        }
+      }
+      FK.forEach((k) => { if (!has[k]) o[k] = null; });
+      const e = QI.get(C.idx(y, 4)) || {};
+      ["debt", "equity", "ta", "fa"].forEach((k) => (o[k] = e[k] ?? null));
+      o.eps = isNum(o.ni) ? o.ni * 1000 / sh : null;
+      o.dps = isNum(o.div) ? o.div * 1000 / sh : null;
+      o.bvps = isNum(o.equity) ? o.equity * 1000 / sh : null;
+      const pv = out[out.length - 1], pa = annual(y - 1);
+      const prevRev = pv ? pv.revenue : pa ? pa.reduce((s, h) => s + ((ct ? h.revenue : h.toi ?? h.revenue) || 0), 0) : null;
+      const prevNi = pv ? pv.ni : pa ? pa.reduce((s, h) => s + (h.ni || 0), 0) : null;
+      o.g = ct ? (isNum(o.revenue) && prevRev > 0 ? o.revenue / prevRev - 1 : null) : (isNum(o.ni) && prevNi > 0 ? o.ni / prevNi - 1 : null);
+      o.g_ni = isNum(o.ni) && prevNi > 0 ? o.ni / prevNi - 1 : null;
+      const eq0 = pv ? pv.equity : base.equity, ta0 = pv ? pv.ta : base.ta;
+      o.roe = isNum(o.ni) && eq0 > 0 && o.equity > 0 ? o.ni / ((eq0 + o.equity) / 2) : null;
+      o.roa = isNum(o.ni) && ta0 > 0 && o.ta > 0 ? o.ni / ((ta0 + o.ta) / 2) : null;
+      o.year_offset = out.length + 1;
+      out.push(o);
+    }
+    return out.length ? out : null;
+  },
+  // 3 báo cáo theo năm dương lịch (ghép từ báo cáo dự phóng từng kỳ 12 tháng)
+  calS(base, a, rows) {
+    const S = FC.statements(base, a, rows), C = FC.qctx(base), Q = FC.quarters(base, rows);
+    if (!S || !C || !Q.length) return null;
+    const sh = base.shares, B = base.bs0, rev = C.wts("revenue") || C.U, ni_w = C.wts("ni") || C.wts("pbt") || rev, U = C.U;
+    const WI = { revenue: rev, cogs: rev, gp: C.wts("gp") || rev, sga: C.wts("sga") || rev, ebit: C.wts("ebit") || rev, ebitda: C.wts("ebit") || rev, other: U, interest: U, pbt: C.wts("pbt") || ni_w, tax: C.wts("pbt") || ni_w, ni_all: ni_w, nci: ni_w, ni: ni_w };
+    const AIS = { revenue: (h) => h.revenue, cogs: (h) => (isNum(h.cogs) ? -h.cogs : null), gp: (h) => h.gp, sga: (h) => (isNum(h.sga) ? -h.sga : null), ebit: (h) => h.ebit,
+      other: (h) => (isNum(h.pbt) && isNum(h.ebit) ? h.pbt - h.ebit + (h.interest || 0) : null), interest: (h) => (isNum(h.interest) ? -h.interest : null), pbt: (h) => h.pbt,
+      tax: (h) => (isNum(h.tax) ? -h.tax : null), ni_all: (h) => h.ni_all, nci: (h) => (isNum(h.ni_all) && isNum(h.ni) ? -(h.ni_all - h.ni) : null), ni: (h) => h.ni };
+    const ACF = { ni_all: (h) => h.ni_all, cfo: (h) => h.cfo, capex: (h) => h.capex, cfi: (h) => h.cfi, div_p: (h) => h.div, cff: (h) => h.cff, net: (h) => (isNum(h.cfo) && isNum(h.cfi) && isNum(h.cff) ? h.cfo + h.cfi + h.cff : null) };
+    const ISK = Object.keys(WI), CFK = ["ni_all", "da", "dnwc", "cfo", "capex", "cfi", "borrow", "div_p", "div_n", "cff", "net", "fcff", "fcfe"];
+    const BSK = ["cash", "cash_raw", "gap", "rec", "inv", "oca", "fa", "olta", "opl", "sd", "ld", "ol", "nci", "eq_p"];
+    const b0 = { ...B, cash_raw: B.cash, gap: 0, eq_p: base.equity };
+    const bsAt = (k) => { const p = Math.floor((k - 1) / 4), fr = ((k - 1) % 4 + 1) / 4, e = S[p].bs, s = p ? S[p - 1].bs : b0, o = {}; BSK.forEach((x) => (o[x] = isNum(e[x]) ? (isNum(s[x]) ? s[x] + fr * (e[x] - s[x]) : e[x]) : null)); return o; };
+    const lastI = C.I0 + S.length * 4, out = []; let y = C.L.q < 4 ? C.L.y : C.L.y + 1, cashPrev = C.M.get(C.idx(y - 1, 4))?.cash ?? null;
+    for (; C.idx(y, 4) <= lastI; y++) {
+      const o = { label: `${y}F`, y, n_act: 0, is: {}, cf: {}, bs: {} }; const hi = {}, hc = {};
+      for (let q = 1; q <= 4; q++) {
+        const I = C.idx(y, q), k = I - C.I0;
+        if (k <= 0) {
+          o.n_act += 1; const h = C.M.get(I) || {};
+          ISK.forEach((x) => { const v = AIS[x] ? AIS[x](h) : x === "ebitda" ? (isNum(h.ebit) ? h.ebit + S[0].cf.da / 4 : null) : null; if (isNum(v)) { o.is[x] = (o.is[x] || 0) + v; hi[x] = 1; } });
+          CFK.forEach((x) => { const v = ACF[x] ? ACF[x](h) : isNum(S[0].cf[x]) ? S[0].cf[x] / 4 : null; if (isNum(v)) { o.cf[x] = (o.cf[x] || 0) + v; hc[x] = 1; } });
+        } else {
+          const p = Math.floor((k - 1) / 4), sIs = S[p].is, sCf = S[p].cf;
+          ISK.forEach((x) => { if (isNum(sIs[x])) { o.is[x] = (o.is[x] || 0) + sIs[x] * WI[x][q - 1]; hi[x] = 1; } });
+          CFK.forEach((x) => { if (isNum(sCf[x])) { o.cf[x] = (o.cf[x] || 0) + sCf[x] / 4; hc[x] = 1; } });
+        }
+      }
+      o.is.eps = isNum(o.is.ni) ? o.is.ni * 1000 / sh : null;
+      o.is.dps = isNum(o.cf.div_p) ? -o.cf.div_p * 1000 / sh : null;
+      o.is.gm = o.is.revenue ? o.is.gp / o.is.revenue : null; o.is.nm = o.is.revenue ? o.is.ni / o.is.revenue : null;
+      const bs = bsAt(C.idx(y, 4) - C.I0);
+      bs.ca = bs.cash + bs.rec + bs.inv + bs.oca; bs.ta = bs.ca + bs.fa + bs.olta; bs.eq = bs.eq_p + bs.nci; bs.liab = bs.opl + bs.sd + bs.ld + bs.gap + bs.ol; bs.le = bs.liab + bs.eq;
+      bs.chk = bs.ta - bs.le; bs.net_debt = bs.sd + bs.ld + bs.gap - bs.cash; bs.de = bs.eq_p > 0 ? (bs.sd + bs.ld + bs.gap) / bs.eq_p : null;
+      bs.cur = bs.opl + bs.sd + bs.gap > 0 ? bs.ca / (bs.opl + bs.sd + bs.gap) : null; bs.bvps = bs.eq_p * 1000 / sh;
+      const pv = out[out.length - 1], eq0 = pv ? pv.bs.eq_p : base.equity, ta0 = pv ? pv.bs.ta : B.ta;
+      bs.roe = isNum(o.is.ni) && eq0 > 0 ? o.is.ni / ((eq0 + bs.eq_p) / 2) : null; bs.roa = isNum(o.is.ni) && ta0 > 0 ? o.is.ni / ((ta0 + bs.ta) / 2) : null;
+      o.bs = bs;
+      o.cf.cash1 = bs.cash_raw; o.cf.cash0 = cashPrev ?? (pv ? pv.cf.cash1 : null); cashPrev = bs.cash_raw;
+      out.push(o);
+    }
+    return out.length ? out : null;
+  },
 };
 
 // ================================================================ BỐ CỤC CÁ NHÂN: kéo – thả, đổi độ rộng, thu gọn, ẩn từng thẻ (lưu theo tài khoản)
@@ -2995,7 +3127,7 @@ function fcBind(root) {
       const i = +h.dataset.i, c = C(), r = c.rows[i], svg = box.querySelector("svg"), cur = svg.querySelector(".fc-cur"), bb = svg.getBoundingClientRect(), vb = svg.viewBox.baseVal;
       const cx = +h.getAttribute("x") + +h.getAttribute("width") / 2; cur.setAttribute("x1", cx); cur.setAttribute("x2", cx); cur.style.opacity = 1;
       const items = [...c.bars, ...c.lines].filter((x) => !c.hidden.has(x.k) && isNum(r[x.k]));
-      tip.innerHTML = `<b>${esc(r.p)}${r.f ? ` <small>dự phóng ${esc(c.scen || "")}</small>` : ""}</b>${items.map((x) => `<span><i style="background:${x.c}"></i>${esc(x.n)}<em>${fcFull(r[x.k], x.u)}</em></span>`).join("")}`;
+      tip.innerHTML = `<b>${esc(r.p)}${r.f ? ` <small>${r.n_act ? `${r.n_act} quý thật + ${4 - r.n_act} quý ` : ""}dự phóng ${esc(c.scen || "")}</small>` : ""}</b>${items.map((x) => `<span><i style="background:${x.c}"></i>${esc(x.n)}<em>${fcFull(r[x.k], x.u)}</em></span>`).join("")}`;
       tip.style.display = "block";
       const px = (cx / vb.width) * bb.width, w = tip.offsetWidth;
       tip.style.left = Math.max(0, Math.min(bb.width - w, px + (px > bb.width / 2 ? -w - 12 : 12))) + "px";
@@ -3011,23 +3143,39 @@ function fcBind(root) {
     card.querySelector('[data-fca="tbl"]').onclick = (e) => { const c = C(); c.tbl = !c.tbl; const tw = card.querySelector(".fc-tw"); tw.hidden = !c.tbl; e.currentTarget.classList.toggle("on", c.tbl); if (c.tbl) tw.innerHTML = fcTable(id); };
   });
 }
-// năm dự phóng từ kịch bản của tab Dự phóng & định giá → cùng khoá với số liệu thực tế
-function fcForecast(d, sc, last) {
-  const v = d.valuation || {}, S = v.scenarios?.[sc]; if (!S?.rows?.length) return [];
-  const yr0 = new Date().getFullYear(), px = d.fa?.price, out = [];
-  let prev = last || {};
-  S.rows.forEach((r) => {
-    const rev = r.revenue, g = (a, b) => (isNum(a) && isNum(b) && b > 0 ? (a / b - 1) * 100 : null), pc = (a, b) => (isNum(a) && isNum(b) && b > 0 ? (a / b) * 100 : null);
-    const debtAvg = isNum(r.debt) ? (isNum(prev.debt) ? (r.debt + prev.debt) / 2 : r.debt) : null;
-    const o = { p: `${yr0 + r.year_offset - 1}F`, f: 1, rev, ni: r.ni, rev_g: g(rev, prev.rev), ni_g: g(r.ni, prev.ni),
-      gp: r.gross_profit, gm: pc(r.gross_profit, rev), gm_q: pc(r.gross_profit, rev), om: pc(r.ebit, rev), ebm: isNum(r.da) ? pc(r.ebit + r.da, rev) : null, nm: pc(r.ni, rev), sga_r: pc(r.sga, rev),
-      capex: r.capex, da: r.da, capex_r: pc(r.capex, rev), int: r.interest, debt: r.debt, kd: pc(r.interest, debtAvg), icov: isNum(r.interest) && r.interest > 0 ? r.ebit / r.interest : null,
-      eps: r.eps, eps_a: r.eps, dps: r.dps, payout: isNum(r.eps) && r.eps > 0 ? (r.dps / r.eps) * 100 : null, dy: isNum(px) && px > 0 ? (r.dps / (px * 1000)) * 100 : null,
-      bvps: r.bvps, bvps_a: r.bvps, eq: r.equity, ta: r.ta, roe: isNum(r.roe) ? r.roe * 100 : null, roa: isNum(r.roa) ? r.roa * 100 : null,
-      lev: isNum(r.ta) && r.equity > 0 ? r.ta / r.equity : null, d_a: pc(r.debt, r.ta) };
-    out.push(o); prev = o;
+// dự phóng từ kịch bản của tab Dự phóng & định giá → cùng khoá với số liệu thực tế.
+// Năm: năm dương lịch = quý đã có số thật + quý dự phóng (FC.calendar). Quý: 8 quý tới, tách theo tỷ trọng mùa vụ (FC.quarters).
+function fcForecast(d, sc, act, per) {
+  const v = d.valuation || {}, S = v.scenarios?.[sc], base = v.model?.base; if (!S?.rows?.length || !base) return [];
+  const px = d.fa?.price, sh = base.shares, ct = base.model === "CT";
+  const g = (a, b) => (isNum(a) && isNum(b) && b > 0 ? (a / b - 1) * 100 : null), pc = (a, b) => (isNum(a) && isNum(b) && b > 0 ? (a / b) * 100 : null);
+  if (per === "y") {
+    const cal = FC.calendar(base, S.rows); if (!cal) return [];
+    let prev = act[act.length - 1] || {};
+    return cal.map((r) => {
+      const rev = ct ? r.revenue : null, debtAvg = isNum(r.debt) ? (isNum(prev.debt) ? (r.debt + prev.debt) / 2 : r.debt) : null;
+      const o = { p: r.p, f: 1, n_act: r.n_act, rev, ni: r.ni, rev_g: ct ? g(rev, prev.rev) : null, ni_g: g(r.ni, prev.ni),
+        gp: r.gross_profit, gm: pc(r.gross_profit, rev), gm_q: pc(r.gross_profit, rev), om: pc(r.ebit, rev), ebm: isNum(r.da) ? pc(r.ebit + r.da, rev) : null, nm: pc(r.ni, rev), sga_r: pc(r.sga, rev),
+        capex: r.capex, da: r.da, capex_r: pc(r.capex, rev), int: r.interest, debt: r.debt, kd: pc(r.interest, debtAvg), icov: isNum(r.interest) && r.interest > 0 ? r.ebit / r.interest : null,
+        eps: r.eps, eps_a: r.eps, dps: r.dps, payout: isNum(r.eps) && r.eps > 0 && isNum(r.dps) ? (r.dps / r.eps) * 100 : null, dy: isNum(px) && px > 0 && isNum(r.dps) ? (r.dps / (px * 1000)) * 100 : null,
+        bvps: r.bvps, bvps_a: r.bvps, eq: r.equity, ta: r.ta, roe: isNum(r.roe) ? r.roe * 100 : null, roa: isNum(r.roa) ? r.roa * 100 : null,
+        lev: isNum(r.ta) && r.equity > 0 ? r.ta / r.equity : null, d_a: pc(r.debt, r.ta), fcf: isNum(r.fcff) ? r.fcff : null };
+      prev = o; return o;
+    });
+  }
+  const Q = FC.quarters(base, S.rows).slice(0, 8); if (!Q.length) return [];
+  const seq = [...act.map((a) => ({ rev: a.rev, ni: a.ni, gp: a.gp })), ...Q.map((q) => ({ rev: ct ? q.revenue : null, ni: q.ni, gp: q.gross_profit }))];
+  const sum = (i, k) => { let t = 0; for (let j = i - 3; j <= i; j++) { if (j < 0 || !isNum(seq[j]?.[k])) return null; t += seq[j][k]; } return t; };
+  return Q.map((q, j) => {
+    const i = act.length + j, r = S.rows[q.period - 1], rev = ct ? q.revenue : null, rt = sum(i, "rev"), nt = sum(i, "ni"), gt = sum(i, "gp");
+    return { p: q.p, f: 1, rev, ni: q.ni, gp: q.gross_profit, gm_q: pc(q.gross_profit, rev), rev_g: ct ? g(rev, seq[i - 4]?.rev) : null, ni_g: g(q.ni, seq[i - 4]?.ni),
+      gm: pc(gt, rt), nm: pc(nt, rt), om: pc(r.ebit, r.revenue), ebm: isNum(r.da) ? pc(r.ebit + r.da, r.revenue) : null, sga_r: pc(r.sga, r.revenue),
+      eps: isNum(nt) ? nt * 1000 / sh : null, eps_a: isNum(nt) ? nt * 1000 / sh : null, bvps: q.bvps, bvps_a: q.bvps, eq: q.equity, ta: q.ta, debt: q.debt,
+      roe: isNum(nt) && q.equity > 0 ? (nt / q.equity) * 100 : null, roa: isNum(nt) && q.ta > 0 ? (nt / q.ta) * 100 : null, lev: q.ta && q.equity > 0 ? q.ta / q.equity : null,
+      capex: r.capex, da: r.da, capex_r: pc(r.capex, r.revenue), int: isNum(r.interest) ? r.interest : null, kd: isNum(r.interest) && isNum(q.debt) && q.debt > 0 ? (r.interest / q.debt) * 100 : null,
+      icov: isNum(r.interest) && r.interest > 0 ? r.ebit / r.interest : null, d_a: pc(q.debt, q.ta), dps: r.dps, dy: isNum(px) && px > 0 && isNum(r.dps) ? (r.dps / (px * 1000)) * 100 : null,
+      payout: isNum(r.eps) && r.eps > 0 ? (r.dps / r.eps) * 100 : null };
   });
-  return out;
 }
 const FC_GROUPS = [["all", "Tất cả"], ["g", "Tăng trưởng & biên"], ["c", "Đầu tư & dòng tiền"], ["b", "Bảng cân đối & nợ"], ["e", "Hiệu quả & định giá"], ["d", "Cổ tức & cổ phiếu"]];
 function finCharts(d, o) {
@@ -3035,8 +3183,12 @@ function finCharts(d, o) {
   const bank = P.bank, q = o.per === "q", t = q ? " · 12 tháng" : "";
   let rows = (P[o.per] || []).slice();
   if (o.n !== "all") rows = rows.slice(-Number(o.n));
-  const sc = !q && o.fc !== "off" ? o.fc : null;
-  if (sc) rows = rows.concat(fcForecast(d, sc, rows[rows.length - 1]));
+  const sc = o.fc !== "off" ? o.fc : null;
+  if (sc) {
+    const Cq = d.valuation?.model?.base ? FC.qctx(d.valuation.model.base) : null;
+    if (!q && Cq) { const y0 = Cq.L.q < 4 ? Cq.L.y : Cq.L.y + 1; rows = rows.filter((r) => !(parseInt(r.p, 10) >= y0)); }   // năm đang dở: đã gộp quý thật vào cột F
+    rows = rows.concat(fcForecast(d, sc, rows, o.per));
+  }
   // dải P/E, P/B: giá cuối kỳ so với EPS (BVPS) × P/E (P/B) thấp – trung vị – cao trong lịch sử của mã
   const qtl = (a, p) => { const s = a.filter(isNum).sort((x, y) => x - y); if (s.length < 4) return null; const i = (s.length - 1) * p, lo = Math.floor(i); return s[lo] + (s[Math.min(lo + 1, s.length - 1)] - s[lo]) * (i - lo); };
   const peL = [0.1, 0.5, 0.9].map((p) => qtl(rows.filter((r) => !r.f).map((r) => r.pe), p)), pbL = [0.1, 0.5, 0.9].map((p) => qtl(rows.filter((r) => !r.f).map((r) => r.pb), p));
@@ -3101,6 +3253,9 @@ function finCharts(d, o) {
   return html || `<div class="empty">Nhóm này chưa có số liệu.</div>`;
 }
 const SC_NAME = { base: "Cơ sở", bull: "Tốt", bear: "Xấu" };
+const fcHint = (o) => (o.fc === "off" ? "" : o.per === "q"
+  ? "Nét đứt / cột nhạt: 8 quý tới, tách từ dự phóng 12 tháng theo tỷ trọng mùa vụ của chính DN (½ trung vị các năm + ½ cơ cấu 4 quý gần nhất)."
+  : "Nét đứt / cột nhạt: năm dương lịch dự phóng – năm nay = các quý đã có BCTC (số thật) + các quý còn lại dự phóng. Sửa giả định ở tab Dự phóng & định giá.");
 function fcOpts(d) {
   const o = { per: "q", n: "16", fc: "off", g: "all", ...(lsGet("fcOpt", {}) || {}) };
   if (!(d.charts?.q || []).length) o.per = "y";
@@ -3119,7 +3274,7 @@ function finChartsPanel(d) {
       <label>Dự phóng</label>${seg("fc", o.fc, [["off", "Không"], ["base", "Cơ sở", hasF ? "" : "Mã này chưa có mô hình dự phóng"], ["bull", "Tốt", hasF ? "" : "Mã này chưa có mô hình dự phóng"], ["bear", "Xấu", hasF ? "" : "Mã này chưa có mô hình dự phóng"]])}
       <label>Nhóm</label>${seg("g", o.g, FC_GROUPS)}
     </div>
-    <p class="fc-hint" id="fcHint">${o.fc !== "off" && o.per === "q" ? "Dự phóng chỉ có theo năm – chọn Kỳ: Năm để xem." : o.fc !== "off" ? "Phần nét đứt / cột nhạt là 5 năm dự phóng theo giả định ở tab Dự phóng & định giá (sửa giả định ở đó, bấm Lưu, lượt cập nhật sau sẽ dùng)." : ""}</p>
+    <p class="fc-hint" id="fcHint">${fcHint(o)}</p>
     <div class="fc-grid" id="fcGrid">${finCharts(d, o)}</div></section>`;
 }
 function fcRows(g) {     // dải vuốt ngang: đếm "2/6" theo thẻ đang xem
@@ -3135,10 +3290,9 @@ function finChartsBind(d) {
   $$(".fc-bar [data-fco] button").forEach((b) => (b.onclick = () => {
     const k = b.closest("[data-fco]").dataset.fco, o = fcOpts(d);
     o[k] = b.dataset.v;
-    if (k === "fc" && o.fc !== "off") o.per = "y";          // dự phóng là theo năm
     lsSet("fcOpt", o);
     $$(".fc-bar [data-fco]").forEach((sg) => sg.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x.dataset.v === String(o[sg.dataset.fco]))));
-    $("#fcHint").textContent = o.fc !== "off" && o.per === "q" ? "Dự phóng chỉ có theo năm – chọn Kỳ: Năm để xem." : o.fc !== "off" ? "Phần nét đứt / cột nhạt là 5 năm dự phóng theo giả định ở tab Dự phóng & định giá (sửa giả định ở đó, bấm Lưu, lượt cập nhật sau sẽ dùng)." : "";
+    $("#fcHint").textContent = fcHint(o);
     g.innerHTML = finCharts(d, o); fcBind(g); fcRows(g);
   }));
 }
@@ -3207,6 +3361,14 @@ function dcfCheck(r, base) {
   return `<p class="faint" style="margin-top:6px;font-size:.76rem">FCFF: WACC ${nf(ff.wacc * 100, 1)}% (ke ${nf(ff.ke * 100, 1)}%, lãi vay sau thuế ${nf(ff.kd_after_tax * 100, 1)}%, nợ chiếm ${nf((ff.d_weight || 0) * 100, 0)}%) → giá trị DN ${nf(ff.ev, 0)} tỷ + tiền ${nf(ff.cash, 0)} − nợ vay ${nf(ff.debt, 0)} − thiểu số ${nf(ff.nci, 0)}
     = ${nf(ff.equity_value, 0)} tỷ = <b>${ff.per_share ? nf(ff.per_share) : "âm"}</b>/cp. FCFE: ${r.dcf ? nf(r.dcf) : "—"}/cp, tổng FCFE 5 năm ${nf(f5, 0)} tỷ, giá trị cuối kỳ chiếm ${nf((r.tvs || 0) * 100, 0)}%. Chi tiết dạng báo cáo ở tab <b>Báo cáo phân tích</b>.</p>`;
 }
+// tiêu đề cột năm dự phóng: năm dương lịch (ghi rõ số quý đã có số thật) hoặc kỳ 12 tháng nếu chưa ghép được
+function fyHead(x, base, i) {
+  if (x && (x.label || x.p) && isNum(x.n_act)) {
+    const lb = x.label || x.p, n = x.n_act;
+    return `<th class="${n ? "fy-mix" : ""}" title="${n ? `${n} quý đầu năm là số thật (BCTC đã công bố), ${4 - n} quý còn lại dự phóng` : "Dự phóng cả năm"}">${esc(lb)}${n ? `<sup>${n}Q thật</sup>` : ""}</th>`;
+  }
+  return `<th title="Kỳ 12 tháng dự phóng tính từ quý BCTC gần nhất">${esc(FC.fwdLabel(base, (x && x.year_offset) || i + 1))}</th>`;
+}
 // ---- hiển thị 3 báo cáo dự phóng (cạnh 3 năm thực tế gần nhất)
 const FS_UI = { tab: lsGet("fsTab", "is"), sc: "base" };
 function fsFin(base, rows, opt = {}) {
@@ -3214,7 +3376,9 @@ function fsFin(base, rows, opt = {}) {
   // thu nhập, chi phí, dự phòng ước theo CƠ CẤU năm gần nhất. Không lập lưu chuyển tiền tệ (không có ý nghĩa với ngân hàng).
   const H = (base.hs || []).filter((h) => isNum(h.net_income) || isNum(h.total_assets)), last = H[H.length - 1] || {}, B = base.bs0f || {};
   if (!H.length || !rows.length) return "";
-  const sh = base.shares, yr0 = new Date().getFullYear(), FY = rows.map((r) => `${yr0 + r.year_offset - 1}F`);
+  rows = FC.calendar(base, rows) || rows;
+  const sh = base.shares, FY = rows.map((r, i) => fyHead(r, base, i));
+  if (rows[0]?.y) H.splice(0, H.length, ...H.filter((h) => h.year < rows[0].y));
   const nn = (x) => (!isNum(x) ? "—" : Math.abs(x) < 0.5 ? "0" : x < 0 ? `(${nf(-x, 0)})` : nf(x, 0)), pp = (x) => (isNum(x) ? nf(x * 100, 1) + "%" : "—"), xx = (x) => (isNum(x) ? nf(x, 2) : "—");
   const tax = isNum(last.tax) && last.pbt > 0 ? last.tax / last.pbt : base.tax ?? 0.2, nci = isNum(last.net_income) && last.net_income ? last.ni_parent / last.net_income : 1;
   const bank = isNum(last.toi) && last.toi > 0;
@@ -3238,7 +3402,7 @@ function fsFin(base, rows, opt = {}) {
       ["Vốn chủ sở hữu", "eq", (h) => h.equity, "b", null, B.eq], ["Cho vay / tiền gửi (LDR)", "ldr", (h) => (h.loans && h.deposits ? h.loans / h.deposits : null), "", pp, B.loans && B.deposits ? B.loans / B.deposits : null],
       ["Vốn chủ / tổng tài sản", "lev", (h) => (h.total_assets ? h.equity / h.total_assets : null), "", pp, B.ta ? B.eq / B.ta : null], ["BVPS (đồng)", "bvps", () => null, "", null, base.equity * 1000 / sh]];
   const showB = tab === "bs" && B.ta;
-  const head = `<th class="l">Tỷ đồng</th>${H.map((h) => `<th class="ha">${h.year}A</th>`).join("")}${showB ? `<th class="ha">${esc(B.q || "Đầu kỳ")}</th>` : ""}${FY.map((y) => `<th>${y}</th>`).join("")}`;
+  const head = `<th class="l">Tỷ đồng</th>${H.map((h) => `<th class="ha">${h.year}A</th>`).join("")}${showB ? `<th class="ha">${esc(B.q || "Đầu kỳ")}</th>` : ""}${FY.join("")}`;
   const body = L.filter(([, kk, hf]) => F.some((x) => isNum(x[kk]) && x[kk] !== 0) || H.some((h) => isNum(hf(h)) && hf(h) !== 0)).map(([n, kk, hf, st, fmt, bv]) => { const f = fmt || nn;
     return `<tr class="${st === "b" ? "b" : st === "i" ? "fi" : ""}"><td class="l">${esc(n.trim())}</td>${H.map((h) => `<td class="ha">${f(hf(h))}</td>`).join("")}${showB ? `<td class="ha">${f(bv)}</td>` : ""}${F.map((x) => `<td>${f(x[kk])}</td>`).join("")}</tr>`; }).join("");
   const note = tab === "is" ? `Ngân hàng / CTCK / bảo hiểm: hệ thống dự phóng thẳng lợi nhuận (tăng trưởng theo giả định, ROE hội tụ về mức bình thường). ${bank ? "Thu nhập hoạt động, chi phí và dự phòng năm F ước theo cơ cấu năm gần nhất (chi phí/thu nhập, thuế giữ nguyên)" : "Doanh thu năm F ước theo tỷ lệ lợi nhuận/doanh thu năm gần nhất"} – để thấy quy mô, không phải dự phóng từng dòng.`
@@ -3251,10 +3415,11 @@ function fsFin(base, rows, opt = {}) {
 }
 function fsView(base, rows, a, opt = {}) {
   if (base.model !== "CT") return fsFin(base, rows, { ...opt, tab: opt.tab || FS_UI.tab });
-  const S = FC.statements(base, a, rows);
+  const S = FC.calS(base, a, rows) || FC.statements(base, a, rows);
   if (!S) return "";
-  const H = (base.hs || []).filter((h) => isNum(h.revenue) || isNum(h.total_assets)), sh = base.shares, B = base.bs0;
-  const yr0 = new Date().getFullYear(), FY = rows.map((r) => `${yr0 + r.year_offset - 1}F`);
+  const y0F = S[0]?.y || 9999;   // năm đang dở (đã gộp quý thật vào cột F) không lặp lại ở cột A
+  const H = (base.hs || []).filter((h) => (isNum(h.revenue) || isNum(h.total_assets)) && h.year < y0F), sh = base.shares, B = base.bs0;
+  const FY = S.map((x, i) => fyHead(x, base, i));
   const nn = (x) => (!isNum(x) ? "—" : Math.abs(x) < 0.5 ? "0" : x < 0 ? `(${nf(-x, 0)})` : nf(x, 0));
   const pp = (x) => (isNum(x) ? nf(x * 100, 1) + "%" : "—"), xx = (x) => (isNum(x) ? nf(x, 2) : "—");
   const sub = (x, y) => (isNum(x) && isNum(y) ? x - y : null), add = (...v) => (v.every(isNum) ? v.reduce((p, q) => p + q, 0) : null);
@@ -3295,7 +3460,7 @@ function fsView(base, rows, a, opt = {}) {
   const sec = { is: "is", cf: "cf", bs: "bs" }[tab];
   const val = (i, k) => (k === "fcf" ? S[i].cf.cfo + S[i].cf.capex : S[i][sec][k]);
   const showB = tab === "bs" && B;
-  const head = `<th class="l">Tỷ đồng</th>${H.map((h) => `<th class="ha">${h.year}A</th>`).join("")}${showB ? `<th class="ha" title="Số dư quý gần nhất – điểm xuất phát của dự phóng">${esc(B.q || "Đầu kỳ")}</th>` : ""}${FY.map((y) => `<th>${y}</th>`).join("")}`;
+  const head = `<th class="l">Tỷ đồng</th>${H.map((h) => `<th class="ha">${h.year}A</th>`).join("")}${showB ? `<th class="ha" title="Số dư quý gần nhất – điểm xuất phát của dự phóng">${esc(B.q || "Đầu kỳ")}</th>` : ""}${FY.join("")}`;
   const body = L.filter(([, k]) => k !== "gap" || S.some((x) => x.bs.gap > 0.5)).map(([n, k, hf, st, fmt, bf]) => {
     if (st === "sec") return `<tr class="fsec"><td class="l" colspan="${1 + H.length + (showB ? 1 : 0) + FY.length}">${n}</td></tr>`;
     const f = fmt || nn;
@@ -3411,8 +3576,8 @@ function tabReport(d) {
   const base = v.model.base, a = v.model.assumptions, ke = v.ke / 100, ct = base.model === "CT", fa = d.fa || {};
   const rows = FC.project(base, a), D = FC.dcfD(base, a, rows, ke), ff = FC.fcff(base, a, rows, ke);
   const res0 = { rows, dcf: D.v, tvs: D.tvs, ff };
-  const yr0 = new Date().getFullYear(), Y = rows.map((r) => `${yr0 + r.year_offset - 1}F`);
-  const H = (v.model.hist || []).filter((h) => isNum(h.ni)).slice(-3);
+  const CAL = FC.calendar(base, rows), KR = CAL || rows, YK = KR.map((r, i) => fyHead(r, base, i)), Y = rows.map((r) => FC.fwdLabel(base, r.year_offset));
+  const H = (v.model.hist || []).filter((h) => isNum(h.ni) && !(CAL && h.year >= CAL[0].y)).slice(-3);
   const n0 = (x) => (isNum(x) ? nf(x, 0) : "—"), neg = (x) => (isNum(x) ? (x < 0 ? `(${nf(-x, 0)})` : nf(x, 0)) : "—");
   const p1 = (x) => (isNum(x) ? nf(x * 100, 1) + "%" : "—");
   const sh = base.shares, price = d.row?.price;
@@ -3423,14 +3588,14 @@ function tabReport(d) {
   let fig = 0; const F = (t) => `Hình ${++fig}: ${t}`;
   // 1) KQKD lịch sử + dự phóng
   const hy = H.map((h) => `${h.year}A`);
-  const kq = tbl(F("Kết quả kinh doanh & dự phóng (tỷ đồng)"), `<th class="l"></th>${hy.map((x) => `<th class="ha">${x}</th>`).join("")}${Y.map((x) => `<th>${x}</th>`).join("")}`,
-    (ct ? [tr("Doanh thu thuần", [...H.map((h) => n0(h.rev)), ...rows.map((r) => n0(r.revenue))]), tr("Tăng trưởng", [...H.map((h) => p1(h.rev_g)), ...rows.map((r) => p1(r.g))]),
-      tr("Lợi nhuận gộp", [...H.map((h) => n0(isNum(h.gm) && isNum(h.rev) ? h.gm * h.rev : null)), ...rows.map((r) => n0(r.gross_profit))]),
-      tr("Biên gộp", [...H.map((h) => p1(h.gm)), ...rows.map((r) => p1(r.revenue ? r.gross_profit / r.revenue : null))]),
-      tr("EBIT", [...H.map((h) => n0(h.ebit)), ...rows.map((r) => n0(r.ebit))]), tr("Chi phí lãi vay", [...H.map((h) => n0(h.int)), ...rows.map((r) => n0(r.interest))])] : []).join("")
-    + [tr("LNST cổ đông mẹ", [...H.map((h) => n0(h.ni)), ...rows.map((r) => n0(r.ni))], "b"), tr("Tăng trưởng LN", [...H.map((h) => p1(h.ni_g)), ...rows.map((r, i) => p1(i ? r.ni / rows[i - 1].ni - 1 : base.ni ? r.ni / base.ni - 1 : null))]),
-      tr("EPS (đồng)", [...H.map((h) => n0(h.ni * 1000 / sh)), ...rows.map((r) => n0(r.eps))]), tr("ROE", [...H.map((h) => p1(h.roe)), ...rows.map((r) => p1(r.roe))]),
-      tr("ROA", [...H.map((h) => p1(isNum(h.ta) && h.ta ? h.ni / h.ta : null)), ...rows.map((r) => p1(r.roa))]), tr("P/E theo giá hiện tại", [...H.map((h) => (h.ni > 0 ? nf(price * sh / h.ni, 1) : "—")), ...rows.map((r) => (r.eps > 0 ? nf(price * 1000 / r.eps, 1) : "—"))])].join(""),
+  const kq = tbl(F("Kết quả kinh doanh & dự phóng (tỷ đồng)"), `<th class="l"></th>${hy.map((x) => `<th class="ha">${x}</th>`).join("")}${YK.join("")}`,
+    (ct ? [tr("Doanh thu thuần", [...H.map((h) => n0(h.rev)), ...KR.map((r) => n0(r.revenue))]), tr("Tăng trưởng", [...H.map((h) => p1(h.rev_g)), ...KR.map((r) => p1(r.g))]),
+      tr("Lợi nhuận gộp", [...H.map((h) => n0(isNum(h.gm) && isNum(h.rev) ? h.gm * h.rev : null)), ...KR.map((r) => n0(r.gross_profit))]),
+      tr("Biên gộp", [...H.map((h) => p1(h.gm)), ...KR.map((r) => p1(r.revenue ? r.gross_profit / r.revenue : null))]),
+      tr("EBIT", [...H.map((h) => n0(h.ebit)), ...KR.map((r) => n0(r.ebit))]), tr("Chi phí lãi vay", [...H.map((h) => n0(h.int)), ...KR.map((r) => n0(r.interest))])] : []).join("")
+    + [tr("LNST cổ đông mẹ", [...H.map((h) => n0(h.ni)), ...KR.map((r) => n0(r.ni))], "b"), tr("Tăng trưởng LN", [...H.map((h) => p1(h.ni_g)), ...KR.map((r, i) => p1(CAL ? r.g_ni : i ? r.ni / KR[i - 1].ni - 1 : base.ni ? r.ni / base.ni - 1 : null))]),
+      tr("EPS (đồng)", [...H.map((h) => n0(h.ni * 1000 / sh)), ...KR.map((r) => n0(r.eps))]), tr("ROE", [...H.map((h) => p1(h.roe)), ...KR.map((r) => p1(r.roe))]),
+      tr("ROA", [...H.map((h) => p1(isNum(h.ta) && h.ta ? h.ni / h.ta : null)), ...KR.map((r) => p1(r.roa))]), tr("P/E theo giá hiện tại", [...H.map((h) => (h.ni > 0 ? nf(price * sh / h.ni, 1) : "—")), ...KR.map((r) => (r.eps > 0 ? nf(price * 1000 / r.eps, 1) : "—"))])].join(""),
     `Số năm A theo BCTC năm (EPS tính trên số cổ phiếu hiện tại). Năm F: kịch bản cơ sở của hệ thống, theo giả định ở tab Dự phóng & định giá.`);
   const fsRpt = !ct ? `<div class="rgrid"><figure class="rfig"><figcaption>${F("Kết quả kinh doanh & cân đối dự phóng (tỷ đồng)")}</figcaption>${fsFin(base, rows, { tab: "is", bare: true })}${fsFin(base, rows, { tab: "bs", bare: true })}</figure></div>` : ct && base.bs0 ? `<div class="rgrid"><figure class="rfig"><figcaption>${F("Bảng cân đối kế toán dự phóng (tỷ đồng)")}</figcaption>${fsView(base, rows, a, { tab: "bs", bare: true })}</figure></div>
       <div class="rgrid"><figure class="rfig"><figcaption>${F("Lưu chuyển tiền tệ dự phóng (tỷ đồng)")}</figcaption>${fsView(base, rows, a, { tab: "cf", bare: true })}</figure></div>` : "";
@@ -3554,7 +3719,7 @@ function bindVal(d) {
         ["+ Khấu hao", "da", 0], ["− Đầu tư TSCĐ", "capex", 0], ["− Tăng vốn lưu động", "dnwc", 0], ["+ Vay ròng", "borrow", 0], ["Dư nợ vay cuối năm", "debt", 0], ["Dòng tiền cho cổ đông (FCFE)", "fcfe", 0], ["Dòng tiền doanh nghiệp (FCFF)", "fcff", 0], ["Tăng trưởng", "g", "p"], ["ROE", "roe", "p"]]
       : [["LN cổ đông mẹ", "ni", 0], ["EPS (đ)", "eps", 0], ["Cổ tức (đ)", "dps", 0], ["BVPS (đ)", "bvps", 0], ["Tăng trưởng LN", "g", "p"], ["ROE", "roe", "p"]];
     const fsH = fsView(base, res[FS_UI.sc].rows, a, { scen: true });
-    $("#pOut").innerHTML = (fsH ? fsH + `<details class="sec"><summary>Bảng tóm tắt dòng tiền dùng để định giá (kịch bản cơ sở)</summary>` : "") + `<div class="tw"><table><thead><tr><th class="l">Tỷ đồng</th>${rows.map((r) => `<th>${yr0 + r.year_offset - 1}F</th>`).join("")}</tr></thead><tbody>
+    $("#pOut").innerHTML = (fsH ? fsH + `<details class="sec"><summary>Bảng tóm tắt dòng tiền dùng để định giá (kịch bản cơ sở)</summary>` : "") + `<p class="faint" style="font-size:.74rem;margin:4px 0">Định giá chiết khấu từng kỳ 12 tháng tính từ quý BCTC gần nhất (không gồm các quý đã qua).</p><div class="tw"><table><thead><tr><th class="l">Tỷ đồng</th>${rows.map((r) => `<th>${esc(FC.fwdLabel(base, r.year_offset))}</th>`).join("")}</tr></thead><tbody>
       ${lines.map(([n, k, f]) => `<tr><td class="l">${n}</td>${rows.map((r) => `<td>${f === "p" ? pct((r[k] ?? 0) * 100, 1, false) : nf(r[k], 0)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>${fsH ? "</details>" : ""}`;
     $$("#pOut [data-fs]").forEach((b) => (b.onclick = () => { FS_UI.tab = b.dataset.fs; lsSet("fsTab", FS_UI.tab); calc(); }));
     $$("#pOut [data-fsc]").forEach((b) => (b.onclick = () => { FS_UI.sc = b.dataset.fsc; calc(); }));
