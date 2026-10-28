@@ -340,7 +340,7 @@ const LAY = {
     return LAY.cur;
   },
   store(L) {
-    const cards = [...L.grid.children].filter((c) => c.classList.contains("lc"));
+    const cards = [...L.grid.querySelectorAll(":scope > .lc, :scope > .mrow > .lc")];
     const span = {};
     cards.forEach((c) => { const s = [1, 2, 3].find((n) => c.classList.contains("s" + n)); if (s !== L.defSpan[c.dataset.k]) span[c.dataset.k] = s; });
     UIS.layout[L.page] = { order: cards.map((c) => c.dataset.k), span, hide: cards.filter((c) => c.classList.contains("hid")).map((c) => c.dataset.k), col: cards.filter((c) => c.classList.contains("col")).map((c) => c.dataset.k) };
@@ -2977,9 +2977,11 @@ function fcCard(C) {
   FCH.store[id] = { ...C, hidden: new Set(C.hide || []), big: false, tbl: false };
   const all = [...C.bars, ...C.lines].filter((x) => C.rows.some((r) => isNum(r[x.k])));
   if (!all.length) return "";
-  return `<section class="fc-card" data-fc="${id}"><div class="fc-h"><b>${esc(C.title)}</b>${C.tip ? `<span class="fc-i" tabindex="0" title="${esc(C.tip)}">ⓘ</span>` : ""}<small>${esc(C.sub || "")}</small>
+  const act = C.rows.filter((r) => !r.f), lr = act[act.length - 1] || {}, p1 = all[0], p2 = all[1];
+  const last = p1 && isNum(lr[p1.k]) ? `<span class="fc-last"><em>${esc(lr.p)}</em> <b>${fcFull(lr[p1.k], p1.u)}</b>${p2 && isNum(lr[p2.k]) ? ` · <span class="${p2.u === "%" && /_g$/.test(p2.k) ? cls(lr[p2.k]) : ""}">${p2.u === "%" && /_g$/.test(p2.k) ? pct(lr[p2.k], 1) : fcFull(lr[p2.k], p2.u)}</span>` : ""}</span>` : "";
+  return `<section class="fc-card" data-fc="${id}"><div class="fc-h"><b>${esc(C.title)}</b>${C.tip ? `<button type="button" class="fc-i" aria-label="Cách đọc">ⓘ</button>` : ""}<small>${esc(C.sub || "")}</small>
       <span class="fc-act"><button type="button" data-fca="tbl" title="Bảng số">▦</button><button type="button" data-fca="big" title="Phóng to">⤢</button></span></div>
-    ${C.tip ? `<p class="fc-note">${esc(C.tip)}</p>` : ""}
+    ${last}${C.tip ? `<p class="fc-note">${esc(C.tip)}</p>` : ""}
     <div class="fc-box">${fcSvg(id)}<div class="fc-tip"></div></div>
     <div class="fc-leg">${all.map((x) => `<button type="button" data-fcs="${x.k}" class="${FCH.store[id].hidden.has(x.k) ? "off" : ""}"><i class="${C.bars.includes(x) ? "b" : x.thin ? "l t" : "l"}" style="--c:${x.c}"></i>${esc(x.n)}</button>`).join("")}</div>
     <div class="fc-tw" hidden></div></section>`;
@@ -3005,6 +3007,7 @@ function fcBind(root) {
       const c = C(), k = b.dataset.fcs; c.hidden.has(k) ? c.hidden.delete(k) : c.hidden.add(k); b.classList.toggle("off", c.hidden.has(k)); redraw();
     }));
     card.querySelector('[data-fca="big"]').onclick = (e) => { const c = C(); c.big = !c.big; card.classList.toggle("fc-big", c.big); e.currentTarget.classList.toggle("on", c.big); redraw(); if (c.big) card.scrollIntoView({ block: "nearest" }); };
+    const ib = card.querySelector(".fc-i"); if (ib) ib.onclick = () => card.classList.toggle("nt");
     card.querySelector('[data-fca="tbl"]').onclick = (e) => { const c = C(); c.tbl = !c.tbl; const tw = card.querySelector(".fc-tw"); tw.hidden = !c.tbl; e.currentTarget.classList.toggle("on", c.tbl); if (c.tbl) tw.innerHTML = fcTable(id); };
   });
 }
@@ -3090,7 +3093,12 @@ function finCharts(d, o) {
     { g: "d", title: "Giá trị sổ sách & số cổ phiếu", sub, rows, bars: [B("bvps", "Giá trị sổ sách / cp", c.a, "đ")], lines: [Ln("sh", "Số cổ phiếu", c.e, "cp", "r")] },
   ];
   const cards = (bank ? NH : CT).map((x) => ({ sub, ...x, scen: sc ? SC_NAME[sc] : "" })).filter((x) => o.g === "all" || x.g === o.g);
-  return cards.map(fcCard).join("") || `<div class="empty">Nhóm này chưa có số liệu.</div>`;
+  // theo nhóm: máy tính = lưới; điện thoại = mỗi nhóm một dải vuốt ngang (bớt cuộn dọc ~5 lần)
+  const html = FC_GROUPS.filter(([k]) => k !== "all").map(([k, nm]) => {
+    const cs = cards.filter((x) => x.g === k).map(fcCard).filter(Boolean);
+    return cs.length ? `<div class="fc-gr"><div class="fc-grh"><b>${esc(nm)}</b><small data-fcn>${cs.length} biểu đồ</small></div><div class="fc-row">${cs.join("")}</div></div>` : "";
+  }).join("");
+  return html || `<div class="empty">Nhóm này chưa có số liệu.</div>`;
 }
 const SC_NAME = { base: "Cơ sở", bull: "Tốt", bear: "Xấu" };
 function fcOpts(d) {
@@ -3114,9 +3122,16 @@ function finChartsPanel(d) {
     <p class="fc-hint" id="fcHint">${o.fc !== "off" && o.per === "q" ? "Dự phóng chỉ có theo năm – chọn Kỳ: Năm để xem." : o.fc !== "off" ? "Phần nét đứt / cột nhạt là 5 năm dự phóng theo giả định ở tab Dự phóng & định giá (sửa giả định ở đó, bấm Lưu, lượt cập nhật sau sẽ dùng)." : ""}</p>
     <div class="fc-grid" id="fcGrid">${finCharts(d, o)}</div></section>`;
 }
+function fcRows(g) {     // dải vuốt ngang: đếm "2/6" theo thẻ đang xem
+  g.querySelectorAll(".fc-gr").forEach((gr) => {
+    const row = gr.querySelector(".fc-row"), n = row.children.length, lab = gr.querySelector("[data-fcn]");
+    const upd = () => { if (getComputedStyle(row).overflowX !== "auto") { lab.textContent = `${n} biểu đồ`; return; } const w = row.children[0]?.offsetWidth || 1; lab.textContent = `${Math.min(n, Math.round(row.scrollLeft / (w + 10)) + 1)}/${n} · vuốt ngang`; };
+    row.addEventListener("scroll", () => requestAnimationFrame(upd), { passive: true }); upd();
+  });
+}
 function finChartsBind(d) {
   const g = $("#fcGrid"); if (!g) return;
-  fcBind(g);
+  fcBind(g); fcRows(g);
   $$(".fc-bar [data-fco] button").forEach((b) => (b.onclick = () => {
     const k = b.closest("[data-fco]").dataset.fco, o = fcOpts(d);
     o[k] = b.dataset.v;
@@ -3124,7 +3139,7 @@ function finChartsBind(d) {
     lsSet("fcOpt", o);
     $$(".fc-bar [data-fco]").forEach((sg) => sg.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x.dataset.v === String(o[sg.dataset.fco]))));
     $("#fcHint").textContent = o.fc !== "off" && o.per === "q" ? "Dự phóng chỉ có theo năm – chọn Kỳ: Năm để xem." : o.fc !== "off" ? "Phần nét đứt / cột nhạt là 5 năm dự phóng theo giả định ở tab Dự phóng & định giá (sửa giả định ở đó, bấm Lưu, lượt cập nhật sau sẽ dùng)." : "";
-    g.innerHTML = finCharts(d, o); fcBind(g);
+    g.innerHTML = finCharts(d, o); fcBind(g); fcRows(g);
   }));
 }
 
@@ -6529,4 +6544,83 @@ function initHelpBtn() {
   } catch (e) { /* chưa có dữ liệu */ }
   window.addEventListener("hashchange", route);
   route();
+})();
+
+// ================================================================ ĐIỆN THOẠI (kiểu iOS): thanh tab 5 mục + "Thêm" (bảng trượt từ dưới), khối dài thu gọn "Xem thêm"
+(function mobileShell() {
+  const nav = document.getElementById("tabs"); if (!nav || nav.querySelector(".nav-more")) return;
+  const more = document.createElement("a");
+  more.href = "#"; more.className = "nav-more"; more.dataset.r = "__more";
+  more.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>Thêm`;
+  nav.appendChild(more);
+  const MAIN = new Set(["today", "market", "screener", "watch", "portfolio"]);
+  const close = () => document.querySelector(".msheet")?.remove();
+  more.onclick = (e) => {
+    e.preventDefault();
+    if (document.querySelector(".msheet")) { close(); return; }
+    let html = "", grp = null;
+    [...nav.children].forEach((el) => {
+      if (el.classList.contains("nav-g")) { if (grp !== null) html += "</div>"; html += `<h4>${esc(el.textContent.replace(/^\d/, ""))}</h4><div class="ms-g">`; grp = 1; return; }
+      if (el.tagName !== "A" || el === more || el.classList.contains("rail-brand")) return;
+      html += `<a href="${el.getAttribute("href")}" class="${el.classList.contains("on") ? "on" : ""}">${el.innerHTML}${MAIN.has(el.dataset.r) ? "" : ""}</a>`;
+    });
+    if (grp !== null) html += "</div>";
+    html += `<h4>Tài khoản & dữ liệu</h4><div class="ms-g"><a href="#/account">Tài khoản</a><a href="#/notifications">Thông báo</a><a href="#/health">Sức khoẻ dữ liệu</a></div>`;
+    const sh = document.createElement("div");
+    sh.className = "msheet"; sh.innerHTML = `<div class="ms-in" role="dialog" aria-label="Tất cả mục"><div class="ms-grab"></div>${html}</div>`;
+    sh.addEventListener("click", (ev) => { if (ev.target === sh || ev.target.closest("a")) close(); });
+    let y0 = null; const inr = sh.querySelector(".ms-in");
+    inr.addEventListener("touchstart", (ev) => { if (inr.scrollTop <= 0) y0 = ev.touches[0].clientY; }, { passive: true });
+    inr.addEventListener("touchmove", (ev) => { if (y0 != null) { const dy = Math.max(0, ev.touches[0].clientY - y0); inr.style.transform = `translateY(${dy}px)`; } }, { passive: true });
+    inr.addEventListener("touchend", (ev) => { if (y0 == null) return; const dy = ev.changedTouches[0].clientY - y0; y0 = null; if (dy > 80) close(); else inr.style.transform = ""; });
+    document.body.appendChild(sh);
+  };
+  window.addEventListener("hashchange", close);
+  // mục đang mở không nằm trong 5 tab chính → sáng nút "Thêm"
+  const mark = () => { const on = nav.querySelector("a.on:not(.nav-more)"); more.classList.toggle("on", !!on && !MAIN.has(on.dataset.r)); };
+  new MutationObserver(mark).observe(nav, { subtree: true, attributes: true, attributeFilter: ["class"] });
+
+  // khối dài trên điện thoại: hiện ~420px đầu + nút "Xem thêm" (bỏ qua khối biểu đồ, bảng giá, ô nhập liệu đang mở)
+  const mq = matchMedia("(max-width:700px)"), app_ = document.getElementById("app");
+  let tm = 0;
+  const clamp = () => {
+    if (!mq.matches) return;
+    app_.querySelectorAll(".panel:not([data-mc]),.evh:not([data-mc])").forEach((p) => {
+      const par = p.parentElement?.closest(".panel[data-mc='1']");
+      if (par && par.classList.contains("mclamp")) { p.dataset.mc = "in"; return; }
+      if (p.matches(".fc-wrap,.lay,.no-clamp") || p.querySelector(".fc-grid,canvas,.tv-lightweight-charts,input:focus,textarea:focus")) { p.dataset.mc = "skip"; return; }
+      p.classList.add("mc-host");
+      if (p.offsetHeight === 0) return;           // chưa hiển thị: đo lại lần sau
+      p.dataset.mc = "1";
+      if (p.scrollHeight < 560) return;
+      p.classList.add("mclamp");
+      const b = document.createElement("button"); b.type = "button"; b.className = "mc-btn"; b.textContent = "Xem thêm ▾";
+      b.onclick = () => { const o = p.classList.toggle("mopen"); b.textContent = o ? "Thu gọn ▴" : "Xem thêm ▾"; if (!o) p.scrollIntoView({ block: "nearest" }); };
+      p.appendChild(b);
+    });
+  };
+  // các thẻ ngắn liền nhau của bố cục (trang mã, Hôm nay, Thị trường…) → một dải vuốt ngang kiểu App Store
+  const unwrap = (lay) => lay.querySelectorAll(":scope > .mrow").forEach((r) => { [...r.querySelectorAll(":scope > .lc")].forEach((c) => r.before(c)); r.nextElementSibling?.classList.contains("mrow-n") && r.nextElementSibling.remove(); r.remove(); });
+  const rows = () => {
+    if (!mq.matches) return;
+    app_.querySelectorAll(".lay:not(.editing):not([data-mr])").forEach((lay) => {
+      const kids = [...lay.children].filter((c) => c.classList.contains("lc"));
+      if (!kids.length || !kids.some((c) => c.offsetHeight > 0)) return;      // chưa hiển thị: đo lại lần sau
+      lay.dataset.mr = "1";
+      const ok = (c) => !c.classList.contains("hid") && !c.querySelector(".chartp,canvas,.tv-lightweight-charts,.fc-grid") && c.offsetHeight < 470;
+      let run = [];
+      const flush = () => {
+        if (run.length >= 2) {
+          const r = document.createElement("div"); r.className = "mrow"; run[0].before(r); run.forEach((c) => r.appendChild(c));
+          const n = document.createElement("div"); n.className = "mrow-n"; n.innerHTML = run.map((_, i) => `<i class="${i ? "" : "on"}"></i>`).join(""); r.after(n);
+          r.addEventListener("scroll", () => { const w = r.children[0].offsetWidth + 10, i = Math.round(r.scrollLeft / w); n.querySelectorAll("i").forEach((d, j) => d.classList.toggle("on", j === i)); }, { passive: true });
+        }
+        run = [];
+      };
+      [...lay.children].forEach((c) => { if (c.classList.contains("lc") && c.offsetHeight === 0) return; if (c.classList.contains("lc") && ok(c)) run.push(c); else flush(); });
+      flush();
+    });
+  };
+  document.addEventListener("click", (e) => { if (e.target.closest("[data-ledit]")) { const lay = e.target.closest(".laytool")?.nextElementSibling || app_.querySelector(".lay"); if (lay) { unwrap(lay); delete lay.dataset.mr; } } }, true);
+  new MutationObserver(() => { clearTimeout(tm); tm = setTimeout(() => { rows(); clamp(); }, 160); }).observe(app_, { childList: true, subtree: true });
 })();
