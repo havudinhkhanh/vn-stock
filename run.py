@@ -39,6 +39,10 @@ def main() -> None:
             from app.data import probe_news
             probe_news.run()
             return
+        if a.symbol == "fin":
+            from app.data import probe_fin
+            probe_fin.run()
+            return
         if a.symbol == "val":
             from app.data import probe_val
             probe_val.run()
