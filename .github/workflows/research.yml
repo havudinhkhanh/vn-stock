@@ -1,0 +1,45 @@
+name: Kiểm chứng (research)
+
+on:
+  workflow_dispatch:
+    inputs:
+      script:
+        description: "Mô-đun trong research/, vd scenarios_test"
+        type: string
+        default: "scenarios_test"
+      step:
+        description: "Bước giữa các thời điểm kiểm (phiên)"
+        type: string
+        default: "20"
+
+permissions:
+  contents: write
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      PYTHONUNBUFFERED: "1"
+      RS_STEP: ${{ inputs.step }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Lấy dữ liệu đã lưu (chỉ đọc – không ghi đè bộ nhớ đệm của lượt cập nhật)
+        uses: actions/cache/restore@v4
+        with:
+          path: data
+          key: data-research-${{ github.run_id }}
+          restore-keys: data-
+      - name: Chạy kiểm chứng
+        run: |
+          mkdir -p research_out
+          python -m research.${{ inputs.script }} 2>&1 | tee research_out/run.log
+          exit ${PIPESTATUS[0]}
+      - name: Đẩy kết quả lên nhánh status
+        if: always()
+        run: bash scripts/publish_status.sh research research_out
