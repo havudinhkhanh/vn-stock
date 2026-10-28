@@ -1669,3 +1669,21 @@ main,.top-in{max-width:none!important}
   .stock-head h1 small{display:block;margin-top:4px;line-height:1.45}
 }
 .mrow-n i{cursor:pointer}
+/* bảng tự gọn khi rộng hơn khung (twFit trong app.js) */
+.tw.fit>table th{white-space:normal;line-height:1.2;vertical-align:bottom}
+.tw.fit>table th,.tw.fit>table td{padding-left:6px;padding-right:6px}
+.tw.fit2>table{font-size:.94em}
+.tw.over:not(.end){-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 28px),transparent)}
+.tw-stack{grid-template-columns:minmax(0,1fr)!important}.tw-stack>*{grid-column:auto!important}
+/* nhãn "P/E thị trường" cạnh tiêu đề trang: chữ thường, xuống dòng được trên điện thoại */
+.ph .mktp{font:500 .76rem/1.35 "Be Vietnam Pro",system-ui,sans-serif;white-space:normal;max-width:100%;letter-spacing:0}
+
+/* giao diện sáng: tấm bảng (Đèn thị trường ở Hôm nay…) theo nền sáng thay vì giữ nền tối */
+:root[data-theme="light"] .deck,:root[data-theme="light"] .panel.hero{--surface:inherit;--sunk:inherit;--sunk-2:inherit;--ink:inherit;--ink-2:inherit;--ink-3:inherit;--line:inherit;--line-2:inherit;--brand:inherit;--brand-2:inherit;--brand-ink:inherit;--up:inherit;--down:inherit;--ref:inherit;--ceil:inherit;--floor:inherit;--up-bg:inherit;--down-bg:inherit;--ref-bg:inherit;background:var(--surface);color:var(--ink);border:1px solid var(--line-2)}
+:root[data-theme="light"] .deck .dk.hlb,:root[data-theme="light"] .panel.hero .big.hlb{background:var(--brand-2)}
+/* máy tính bảng ngang (980–1179px): menu trên 1 dòng, cuộn ngang – không gãy chữ 2 dòng */
+@media (min-width:980px) and (max-width:1179px){
+  .tabs{overflow-x:auto;overflow-y:hidden;scrollbar-width:none;flex-wrap:nowrap}
+  .tabs::-webkit-scrollbar{display:none}
+  .tabs a{flex:none;white-space:nowrap}
+}
