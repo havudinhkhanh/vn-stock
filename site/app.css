@@ -1623,8 +1623,9 @@ table.dgpull tr.sp td{height:6px;padding:0;border:0}
   /* thẻ ngắn liền nhau → dải vuốt ngang */
   .mrow{grid-column:1/-1;display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;margin:0 -10px;padding:0 10px;scrollbar-width:none;overscroll-behavior-x:contain;align-items:flex-start}
   .mrow::-webkit-scrollbar{display:none}
-  .mrow>.lc{flex:0 0 calc(100% - 28px);scroll-snap-align:center;min-width:0}
-  .mrow-n{grid-column:1/-1;display:flex;justify-content:center;gap:6px;margin:-4px 0 2px}.mrow-n i{width:6px;height:6px;border-radius:50%;background:var(--line)}.mrow-n i.on{background:var(--ink-2);width:16px;border-radius:3px;transition:width .2s}
+  .mrow{scroll-padding:0 10px}
+  .mrow>.lc{flex:0 0 100%;scroll-snap-align:start;min-width:0}
+  .mrow-n{grid-column:1/-1;display:flex;justify-content:center;gap:6px;margin:-2px 0 4px}.mrow-n i{width:7px;height:7px;border-radius:50%;background:var(--line)}.mrow-n i.on{background:var(--ink-2);width:16px;border-radius:3px;transition:width .2s}
   /* khối dài tự thu gọn */
   .panel.mclamp{max-height:400px;overflow:hidden;position:relative}
   .panel.mclamp::after{content:"";position:absolute;left:0;right:0;bottom:0;height:90px;background:linear-gradient(to bottom,transparent,var(--surface) 72%);pointer-events:none}
@@ -1662,3 +1663,9 @@ main,.top-in{max-width:none!important}
 .sc-box p{margin:4px 0}.sc-box .kpis{margin:6px 0}.sc-stat{font-size:.8rem}.sc-note{font-size:.74rem}
 @media (max-width:700px){.scbar{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:4px -12px 6px;padding:0 12px}.scbar::-webkit-scrollbar{display:none}.scbar .sc-lb{white-space:nowrap}}
 .sc-all{margin-top:8px}.sc-all summary{cursor:pointer;font-size:.78rem;color:var(--brand)}.sc-all table{font-size:.74rem;margin-top:6px}
+
+/* điện thoại: thẻ trượt ngang chiếm trọn bề ngang (không ló mép thẻ kế bên – trông như viền xám bên phải); chấm dưới báo còn thẻ để vuốt */
+@media (max-width:700px){
+  .stock-head h1 small{display:block;margin-top:4px;line-height:1.45}
+}
+.mrow-n i{cursor:pointer}

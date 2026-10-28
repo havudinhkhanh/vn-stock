@@ -6976,6 +6976,7 @@ function initHelpBtn() {
         if (run.length >= 2) {
           const r = document.createElement("div"); r.className = "mrow"; run[0].before(r); run.forEach((c) => r.appendChild(c));
           const n = document.createElement("div"); n.className = "mrow-n"; n.innerHTML = run.map((_, i) => `<i class="${i ? "" : "on"}"></i>`).join(""); r.after(n);
+          n.querySelectorAll("i").forEach((d, j) => d.onclick = () => r.scrollTo({ left: j * (r.children[0].offsetWidth + 10), behavior: "smooth" }));
           r.addEventListener("scroll", () => { const w = r.children[0].offsetWidth + 10, i = Math.round(r.scrollLeft / w); n.querySelectorAll("i").forEach((d, j) => d.classList.toggle("on", j === i)); }, { passive: true });
         }
         run = [];
