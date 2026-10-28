@@ -422,20 +422,22 @@ def peer_stats(snap: pd.DataFrame, group_col: str = "industry", ref: pd.Series |
 
 
 # ------------------------------------------------------------------ bộ biểu đồ tài chính (kiểu Vietstock "Tài chính › Biểu đồ")
-def chart_pack(qs: pd.DataFrame | None, ys: pd.DataFrame | None, ctype: str = "CT", close: pd.Series | None = None,
-               divs: pd.DataFrame | None = None, shares_now: float | None = None, n_q: int = 16, n_y: int = 12) -> dict:
-    """Chuỗi số cho 12 biểu đồ: tăng trưởng DT/LN, biên LN, định giá, dòng tiền, hiệu quả vốn, tài sản, nguồn vốn,
-    cấu trúc nợ, ROE Dupont, EPS & cổ tức, cơ cấu LNTT. Quý: số trong quý + chỉ số 12 tháng (TTM); năm: số cả năm."""
-    bank = ctype != "CT"
+_CH_FLOW = ("revenue", "toi", "nii", "ni_parent", "net_income", "gross_profit", "operating_profit", "cogs", "selling_exp", "admin_exp",
+            "fin_exp", "interest_exp", "cfo", "capex", "tax", "pbt", "dividends_paid", "provision")
 
-    def num(r, k):
-        return _num(r.get(k)) if k in r else None
+
+def chart_pack(qs: pd.DataFrame | None, ys: pd.DataFrame | None, ctype: str = "CT", close: pd.Series | None = None,
+               divs: pd.DataFrame | None = None, shares_now: float | None = None, n_q: int = 32, n_y: int = 15) -> dict:
+    """Chuỗi số cho bộ biểu đồ tài chính. Quý: số trong quý + chỉ số 12 tháng (TTM, hậu tố _t); năm: số cả năm.
+    Mọi tiền tệ: tỷ đồng; EPS/DPS/BVPS: đồng; giá: nghìn đồng (giá đã điều chỉnh, cuối kỳ)."""
+    bank = ctype != "CT"
+    has_div = divs is not None and not divs.empty
 
     def dps_in(t0, t1):
-        if divs is None or divs.empty:
+        if not has_div:
             return 0.0
-        d = divs[(pd.to_datetime(divs["ex_date"]) > t0) & (pd.to_datetime(divs["ex_date"]) <= t1)]
-        d = d[d["method"].astype(str).str.contains("cash")]
+        ex = pd.to_datetime(divs["ex_date"])
+        d = divs[(ex > t0) & (ex <= t1) & divs["method"].astype(str).str.contains("cash")]
         col = "cash_raw" if "cash_raw" in d else "cash_pct"
         return float(pd.to_numeric(d[col], errors="coerce").fillna(0).sum() * 10000)
 
@@ -449,88 +451,134 @@ def chart_pack(qs: pd.DataFrame | None, ys: pd.DataFrame | None, ctype: str = "C
         if df is None or df.empty:
             return []
         d = df.sort_values(["year", "quarter"]).drop_duplicates(["year", "quarter"], keep="last").copy()
-        if label == "q":     # TTM theo chuỗi quý liên tiếp
+        Q = label == "q"
+        if Q:     # chuỗi quý liên tiếp để cộng 12 tháng
             d["pidx"] = d["year"] * 4 + d["quarter"] - 1
             d = d.set_index("pidx").reindex(range(int(d["pidx"].min()), int(d["pidx"].max()) + 1))
             d["year"], d["quarter"] = (d.index // 4).astype(int), (d.index % 4 + 1).astype(int)
-            for c in ("revenue", "toi", "ni_parent", "net_income", "gross_profit", "operating_profit"):
+            for c in _CH_FLOW:
                 if c in d:
                     d[c + "_t"] = d[c].rolling(4, min_periods=4).sum()
-            d = d.reset_index(drop=True)
         d = d.reset_index(drop=True)
+        key = {(int(r.year), int(r.quarter)): i for i, r in enumerate(d.itertuples())}
         out = []
         for i, r in d.iterrows():
-            q = int(r["quarter"]) if label == "q" else 0
-            y = int(r["year"])
-            rev = num(r, "toi") if bank else num(r, "revenue")
-            if bank and rev is None:
-                rev = num(r, "revenue")
-            ni = num(r, "ni_parent") or num(r, "net_income")
-            prev = d[(d["year"] == y - 1) & ((d["quarter"] == q) if label == "q" else True)]
-            pr = prev.iloc[-1] if len(prev) else None
-            prv = (num(pr, "toi") if bank else num(pr, "revenue")) if pr is not None else None
-            pni = (num(pr, "ni_parent") or num(pr, "net_income")) if pr is not None else None
+            y, q = int(r["year"]), (int(r["quarter"]) if Q else 0)
+
+            def v(k, row=r):
+                return _num(row.get(k)) if row is not None and k in row else None
+
+            def T(k, row=r):          # 12 tháng (quý) / cả năm (năm)
+                return v(k + "_t", row) if Q else v(k, row)
+            j = key.get((y - 1, q))
+            pr = d.iloc[j] if j is not None else None          # cùng kỳ năm trước / năm trước
+            r4 = pr                                              # 4 quý trước = cùng kỳ năm trước
+            avg = lambda k: ((v(k) + v(k, r4)) / 2 if v(k) is not None and v(k, r4) is not None else v(k))  # noqa: E731
             g = lambda a, b: _r(100 * (a / b - 1), 1) if a is not None and b and b > 0 else None  # noqa: E731
-            ta, eq, tl = num(r, "total_assets"), num(r, "equity"), num(r, "total_liab")
-            # chỉ số 12 tháng (quý) hoặc cả năm
-            rev_t = (num(r, "toi_t") if bank else num(r, "revenue_t")) if label == "q" else rev
-            ni_t = (num(r, "ni_parent_t") or num(r, "net_income_t")) if label == "q" else ni
-            gp_t = num(r, "gross_profit_t") if label == "q" else num(r, "gross_profit")
-            op_t = num(r, "operating_profit_t") if label == "q" else num(r, "operating_profit")
-            # bình quân đầu & cuối kỳ (4 quý trước / năm trước)
-            if label == "q":
-                b4 = d[(d["year"] * 4 + d["quarter"]) == (y * 4 + q - 4)]
-            else:
-                b4 = d[d["year"] == y - 1]
-            r4 = b4.iloc[-1] if len(b4) else None
-            avg = lambda k: (_num(r.get(k)) + _num(r4.get(k))) / 2 if r4 is not None and _num(r.get(k)) is not None and _num(r4.get(k)) is not None else _num(r.get(k))  # noqa: E731
+            rev = (v("toi") or v("revenue")) if bank else v("revenue")
+            prv = ((v("toi", pr) or v("revenue", pr)) if bank else v("revenue", pr)) if pr is not None else None
+            ni = v("ni_parent") if v("ni_parent") is not None else v("net_income")
+            pni = (v("ni_parent", pr) if v("ni_parent", pr) is not None else v("net_income", pr)) if pr is not None else None
+            rev_t = (T("toi") or T("revenue")) if bank else T("revenue")
+            ni_t = T("ni_parent") if T("ni_parent") is not None else T("net_income")
+            ta, eq, tl = v("total_assets"), v("equity"), v("total_liab")
             eq_a, ta_a = avg("equity"), avg("total_assets")
-            sh = num(r, "shares") or shares_now
-            debt = (num(r, "st_debt") or 0) + (num(r, "lt_debt") or 0) if (num(r, "st_debt") is not None or num(r, "lt_debt") is not None) else None
-            ebd = num(r, "ebitda")
-            row = {"p": f"Q{q}/{y % 100:02d}" if label == "q" else str(y),
+            sh = v("shares") or shares_now
+            std, ltd = v("st_debt"), v("lt_debt")
+            debt = (std or 0) + (ltd or 0) if (std is not None or ltd is not None) else None
+            debt_p = ((v("st_debt", r4) or 0) + (v("lt_debt", r4) or 0)) if r4 is not None and (v("st_debt", r4) is not None or v("lt_debt", r4) is not None) else None
+            cash, sti = v("cash"), v("st_invest")
+            ebitda, ebit_n = v("ebitda"), v("ebit")         # Vietcap: số 12 tháng sẵn
+            int_t = T("interest_exp")
+            ebit = ebit_n if ebit_n else ((T("operating_profit") or 0) + (int_t or 0) if T("operating_profit") is not None else None)
+            da = (ebitda - ebit_n) if ebitda and ebit_n and ebitda >= ebit_n else None
+            capex_t = T("capex")
+            cfo_t = T("cfo")
+            pbt_t, tax_t = T("pbt"), T("tax")
+            trate = min(max(tax_t / pbt_t, 0), 0.5) if tax_t is not None and pbt_t and pbt_t > 0 else 0.2
+            pc = lambda a, b: _r(_pc(a, b), 1) if a is not None and b and b > 0 else None  # noqa: E731
+            row = {"p": f"Q{q}/{y % 100:02d}" if Q else str(y),
                    "rev": _r(rev, 0), "ni": _r(ni, 0), "rev_g": g(rev, prv), "ni_g": g(ni, pni),
-                   "gm": _r(_pc(gp_t, rev_t), 1) if not bank and rev_t and rev_t > 0 else None,
-                   "om": _r(_pc(op_t, rev_t), 1) if rev_t and rev_t > 0 else None,
-                   "nm": _r(_pc(ni_t, rev_t), 1) if rev_t and rev_t > 0 else None,
-                   "ebm": _r(_pc(ebd, rev_t), 1) if not bank and ebd and ebd > 0 and rev_t and rev_t > 0 and ebd < rev_t else None,
-                   "cfo": _r(num(r, "cfo"), 0), "cfi": _r(num(r, "cfi"), 0), "cff": _r(num(r, "cff"), 0),
-                   "op": _r(num(r, "operating_profit"), 0),
-                   "oth": _r(num(r, "pbt") - num(r, "operating_profit"), 0) if num(r, "pbt") is not None and num(r, "operating_profit") is not None else None,
-                   "pbt": _r(num(r, "pbt"), 0),
-                   "roe": _r(_pc(ni_t, eq_a), 1) if eq_a and eq_a > 0 and ni_t is not None else None,
+                   "pbt": _r(v("pbt"), 0), "ta": _r(ta, 0), "eq": _r(eq, 0),
+                   "nm": pc(ni_t, rev_t),
+                   "roe": pc(ni_t, eq_a) if ni_t is not None else None,
                    "roa": _r(_pc(ni_t, ta_a), 2) if ta_a and ta_a > 0 and ni_t is not None else None,
-                   "at": _r(_div(rev_t, ta_a), 3) if ta_a and rev_t else None,
                    "lev": _r(_div(ta_a, eq_a), 2) if eq_a and eq_a > 0 else None,
+                   "at": _r(_div(rev_t, ta_a), 3) if ta_a and rev_t else None,
                    "eps": _r(ni_t * 1000 / sh, 0) if ni_t is not None and sh else None,
-                   "pe": _r(num(r, "pe_src"), 1) if (num(r, "pe_src") or 0) > 0 and num(r, "pe_src") < 200 else None,
-                   "pb": _r(num(r, "pb_src"), 2) if (num(r, "pb_src") or 0) > 0 and num(r, "pb_src") < 30 else None,
-                   "ta": _r(ta, 0), "eq": _r(eq, 0),
-                   "d_a": _r(_pc(debt, ta), 1) if debt is not None and ta else None,
-                   "l_a": _r(_pc(tl, ta), 1) if tl is not None and ta else None}
-            if bank:
-                lo, de = num(r, "loans"), num(r, "deposits")
-                nii, toi = num(r, "nii"), num(r, "toi")
-                row.update(nii=_r(nii, 0), nonii=_r(toi - nii, 0) if toi is not None and nii is not None else None)
-                row.update(loans=_r(lo, 0), oa=_r(ta - (lo or 0), 0) if ta else None,
-                           dep=_r(de, 0), ol=_r(tl - (de or 0), 0) if tl is not None else None)
+                   "bvps": _r(eq * 1000 / sh, 0) if eq is not None and sh else None,
+                   "sh": _r(sh, 1),
+                   # theo số CP hiện tại (khớp với giá đã điều chỉnh) – dùng cho dải P/E, P/B
+                   "eps_a": _r(ni_t * 1000 / shares_now, 0) if ni_t is not None and shares_now else None,
+                   "bvps_a": _r(eq * 1000 / shares_now, 0) if eq is not None and shares_now else None,
+                   "pe": _r(v("pe_src"), 1) if (v("pe_src") or 0) > 0 and v("pe_src") < 200 else None,
+                   "pb": _r(v("pb_src"), 2) if (v("pb_src") or 0) > 0 and v("pb_src") < 30 else None,
+                   "l_a": pc(tl, ta)}
+            if not bank:
+                gp_t, op_t = T("gross_profit"), T("operating_profit")
+                revq, gpq = v("revenue"), v("gross_profit")
+                ca, cl, inv, rec = v("current_assets"), v("current_liab"), v("inventory"), v("receivables")
+                fa_ = v("fixed_assets")
+                nd = debt - (cash or 0) - (sti or 0) if debt is not None else None
+                fcf = (v("cfo") + (v("capex") or 0)) if v("cfo") is not None else None
+                fcf_t = (cfo_t + (capex_t or 0)) if cfo_t is not None else None
+                invested = (eq or 0) + (debt or 0) - (cash or 0)
+                parts = {k: v(c) for k, c in (("cash", "cash"), ("sti", "st_invest"), ("rec", "receivables"), ("inv", "inventory"), ("fa", "fixed_assets"))}
+                row.update({k: _r(x, 0) for k, x in parts.items()})
+                row.update({
+                    "gp": _r(gpq, 0), "gm_q": pc(gpq, revq), "gm": pc(gp_t, rev_t), "om": pc(op_t, rev_t),
+                    "ebm": pc(ebitda, rev_t) if ebitda and rev_t and ebitda < rev_t else None,
+                    "sell_r": pc(T("selling_exp"), rev_t), "adm_r": pc(T("admin_exp"), rev_t), "fe_r": pc(T("fin_exp"), rev_t),
+                    "sga_r": pc((T("selling_exp") or 0) + (T("admin_exp") or 0), rev_t) if T("selling_exp") is not None or T("admin_exp") is not None else None,
+                    "cfo": _r(v("cfo"), 0), "cfi": _r(v("cfi"), 0), "cff": _r(v("cff"), 0),
+                    "op": _r(v("operating_profit"), 0),
+                    "oth": _r(v("pbt") - v("operating_profit"), 0) if v("pbt") is not None and v("operating_profit") is not None else None,
+                    "capex": _r(-capex_t, 0) if capex_t is not None else None, "da": _r(da, 0),
+                    "capex_r": pc(-capex_t, rev_t) if capex_t is not None else None,
+                    "fcf": _r(fcf, 0), "fcf_t": _r(fcf_t, 0), "cfo_t": _r(cfo_t, 0), "ni_t": _r(ni_t, 0),
+                    "cfo_ni": _r(_div(cfo_t, ni_t), 2) if ni_t and ni_t > 0 and cfo_t is not None else None,
+                    "fa_t": _r(_div(rev_t, avg("fixed_assets")), 2) if rev_t and avg("fixed_assets") else None,
+                    "oa": _r(ta - sum(x or 0 for x in parts.values()), 0) if ta else None,
+                    "std": _r(std, 0), "ltd": _r(ltd, 0), "ol": _r(tl - (debt or 0), 0) if tl is not None else None,
+                    "debt": _r(debt, 0), "nd": _r(nd, 0),
+                    "nd_e": _r(_div(nd, ebitda), 2) if ebitda and ebitda > 0 and nd is not None else None,
+                    "icov": _r(_div(ebit, int_t), 1) if int_t and int_t > 0 and ebit is not None else None,
+                    "int": _r(int_t, 0), "kd": pc(int_t, (debt + debt_p) / 2 if debt is not None and debt_p is not None else debt) if int_t else None,
+                    "d_a": pc(debt, ta),
+                    "dso": _r(rec / rev_t * 365, 0) if rec is not None and rev_t and rev_t > 0 else None,
+                    "dio": _r(inv / T("cogs") * 365, 0) if inv is not None and T("cogs") and T("cogs") > 0 else None,
+                    "cur": _r(_div(ca, cl), 2) if cl else None,
+                    "quick": _r(_div((ca or 0) - (inv or 0), cl), 2) if cl and ca is not None else None,
+                    "cash_r": _r(_div((cash or 0) + (sti or 0), cl), 2) if cl else None,
+                    "roic": pc(ebit * (1 - trate), invested) if ebit is not None and invested > 0 else None,
+                })
+                row["gm_q"] = row["gm_q"] if row["gm_q"] is None or -100 < row["gm_q"] < 100 else None
             else:
-                parts = {k: num(r, s) for k, s in (("cash", "cash"), ("sti", "st_invest"), ("rec", "receivables"), ("inv", "inventory"), ("fa", "fixed_assets"))}
-                row.update({k: _r(v, 0) for k, v in parts.items()})
-                row["oa"] = _r(ta - sum(v or 0 for v in parts.values()), 0) if ta else None
-                row.update(std=_r(num(r, "st_debt"), 0), ltd=_r(num(r, "lt_debt"), 0),
-                           ol=_r(tl - (debt or 0), 0) if tl is not None else None)
-            # cổ tức tiền 12 tháng & tỷ suất (theo giá cuối kỳ)
-            if label == "q":
-                t1 = pd.Timestamp(year=y, month=3 * q, day=1) + pd.offsets.MonthEnd(0)
-            else:
-                t1 = pd.Timestamp(year=y, month=12, day=31)
-            dps = dps_in(t1 - pd.DateOffset(years=1), t1)
+                lo, de = v("loans"), v("deposits")
+                lo_p, de_p = (v("loans", pr), v("deposits", pr)) if pr is not None else (None, None)
+                nii, toi = v("nii"), v("toi")
+                prov_t = T("provision")
+                row.update({"loans": _r(lo, 0), "oa": _r(ta - (lo or 0), 0) if ta else None, "dep": _r(de, 0),
+                            "ol": _r(tl - (de or 0), 0) if tl is not None else None,
+                            "nii": _r(nii, 0), "nonii": _r(toi - nii, 0) if toi is not None and nii is not None else None,
+                            "loans_g": g(lo, lo_p), "dep_g": g(de, de_p), "ldr": pc(lo, de),
+                            "nim": _r(v("nim") * (100 if abs(v("nim")) < 1 else 1), 2) if v("nim") is not None else None,
+                            "npl": _r(v("npl") * (100 if abs(v("npl")) < 1 else 1), 2) if v("npl") is not None else None,
+                            "prov": _r(abs(v("provision")), 0) if v("provision") is not None else None,
+                            "prov_r": pc(abs(prov_t), rev_t) if prov_t is not None else None,
+                            "cc": _r(_pc(abs(prov_t), avg("loans")), 2) if prov_t is not None and avg("loans") else None})
+            t1 = (pd.Timestamp(year=y, month=3 * q, day=1) + pd.offsets.MonthEnd(0)) if Q else pd.Timestamp(year=y, month=12, day=31)
             px = px_at(t1)
-            row["dps"] = _r(dps, 0) if divs is not None and not divs.empty else None
-            row["dy"] = _r(100 * dps / (px * 1000), 2) if px and divs is not None and not divs.empty else None
+            row["px"] = _r(px, 2)
+            if has_div:
+                dps = dps_in(t1 - pd.DateOffset(years=1), t1)
+                row["dps"] = _r(dps, 0)
+                row["dy"] = _r(100 * dps / (px * 1000), 2) if px else None
+                row["payout"] = _r(100 * dps / row["eps"], 0) if row.get("eps") and row["eps"] > 0 and dps else None
+            elif v("dividends_paid") is not None and ni_t and ni_t > 0:    # không có lịch cổ tức: tỷ lệ chi trả theo dòng tiền
+                row["payout"] = _r(100 * abs(T("dividends_paid") or 0) / ni_t, 0)
             out.append(row)
-        keep = n_q if label == "q" else n_y
+        keep = n_q if Q else n_y
         out = [x for x in out if x["rev"] is not None or x["ni"] is not None or x["ta"] is not None]
         return out[-keep:]
 

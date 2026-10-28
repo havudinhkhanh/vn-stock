@@ -1547,3 +1547,18 @@ table.dgpull tr.sp td{height:6px;padding:0;border:0}
 .fc-leg button{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:5px;font-size:.7rem;color:var(--ink-2);line-height:1.6}
 .fc-leg button.off{opacity:.4;text-decoration:line-through}
 .fc-leg i.b{width:9px;height:9px;border-radius:2px;background:var(--c)}.fc-leg i.l{width:12px;height:0;border-top:2px solid var(--c);border-radius:2px}
+.fc-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin:2px 0 4px}.fc-bar label{font-size:.72rem;color:var(--ink-3);margin-left:6px}.fc-bar label:first-child{margin-left:0}
+.fc-bar .seg button[disabled]{opacity:.4;cursor:not-allowed}
+.fc-hint{font-size:.74rem;color:var(--ink-3);margin:0 0 4px;min-height:1em}
+.fc-card.fc-big{grid-column:1/-1}.fc-card.fc-big .fc-svg{height:300px}
+.fc-h{position:relative}.fc-h .fc-act{display:inline-flex;gap:2px;margin-left:6px}
+.fc-act button{all:unset;cursor:pointer;width:22px;height:22px;border-radius:6px;display:grid;place-items:center;font-size:.78rem;color:var(--ink-3)}
+.fc-act button:hover,.fc-act button.on{background:var(--line-2);color:var(--ink)}
+.fc-h small{margin-left:auto}.fc-i{display:none}
+.fc-note{margin:0 2px 4px;font-size:.7rem;line-height:1.35;color:var(--ink-3);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.fc-card:hover .fc-note{-webkit-line-clamp:unset}
+.fc-svg .fc-fz{fill:var(--brand);opacity:.06}.fc-svg text.fc-ft{fill:var(--brand);font-weight:600}
+.fc-svg rect.fc-fb{fill-opacity:.38;stroke-dasharray:3 2;stroke-width:1}
+.fc-leg i.l.t{border-top-style:dashed;border-top-width:1.5px}
+.fc-tw{margin-top:6px}.fc-tbl table{font-size:.7rem}.fc-tbl td i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px}.fc-tbl .fc-fth{color:var(--brand)}
+.fc-tip b small{font-weight:500;color:var(--brand)}
