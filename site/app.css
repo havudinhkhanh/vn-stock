@@ -1648,3 +1648,8 @@ table.dgpull tr.sp td{height:6px;padding:0;border:0}
   .fc-tip{min-width:150px;font-size:.7rem}
   .fc-gr{margin-top:10px}
 }
+/* trang chiếm hết chiều ngang màn hình rộng; bỏ viền vàng khi #app nhận focus lúc đổi trang (tabindex=-1); nút "Thêm" chỉ dùng trên điện thoại */
+main,.top-in{max-width:none!important}
+#app:focus,#app:focus-visible{outline:none!important}
+@media (min-width:980px){.tabs a.nav-more{display:none!important}}
+@media (max-width:979px){.top-in{min-width:0}.top-in .search{flex:1 1 auto;min-width:0;width:auto!important}.top-in .search input{width:100%;min-width:0}}
