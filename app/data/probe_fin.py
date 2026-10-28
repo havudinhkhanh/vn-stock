@@ -72,8 +72,29 @@ def vci_one(sym):
             "norm": _latest(normalize.finalize(df.copy())) if not df.empty else {}}
 
 
+def kbs_raw(sym):
+    """Cấu trúc Head/Value gốc của KBS (để ghép đúng kỳ ↔ cột Value)."""
+    from .http import get
+    out = {}
+    for kind, typ in (("IS", "KQKD"), ("BS", "CDKT"), ("CF", "LCTT")):
+        for term in (1, 2):
+            for ps in (4, 8):
+                prm = {"page": 1, "pageSize": ps, "type": typ, "unit": 1000, "termtype": term, "termType": term, "code": sym, "languageid": 1}
+                try:
+                    d = get("KBS", f"{kbs.IIS}/stock/finance-info/{sym}", params=prm)
+                except Exception as e:  # noqa: BLE001
+                    out[f"{kind}:{term}:{ps}"] = str(e)[:200]
+                    continue
+                recs = [x for v in (d.get("Content") or {}).values() if isinstance(v, list) for x in v]
+                out[f"{kind}:{term}:{ps}"] = {"head": d.get("Head"), "top": list(d.keys()),
+                                              "rows": [{k: v for k, v in r.items() if k.startswith("Value") or k in ("Name", "ReportNormID")} for r in recs[:3]]}
+    return out
+
+
 def run() -> dict:
     REPORT["at"] = datetime.now().isoformat()
+    for s in ("PVT", "FPT"):
+        _try(f"kbsraw:{s}", lambda s=s: kbs_raw(s))
     for s in SYMS:
         _try(f"vci:{s}", lambda s=s: vci_one(s))
         _try(f"kbs:{s}", lambda s=s: kbs_one(s))
