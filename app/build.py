@@ -400,51 +400,56 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         if s in deep or (fa.get("ok") and len(df) >= 30 and ucfg.get("detail_all_fin", True)):   # mọi mã có BCTC (kể cả penny / mới niêm yết ≥ 30 phiên): có trang chi tiết + định giá
             try:
                 pat = pt.analyze(df)
-            except Exception as e:  # noqa: BLE001
-                log.debug("Mô hình giá %s lỗi (lịch sử ngắn?): %s", s, e)
-                pat = {"ok": False}
-            for key, fn in (("smc", smc_.analyze), ("vsa", vsa_.analyze), ("wyckoff2", vsa_.wyckoff_events)):
+                for key in ("patterns", "harmonics"):      # mô-đun lỗi (lịch sử ngắn) trả {"error"} → về danh sách rỗng cho các bước sau
+                    if not isinstance(pat.get(key), list):
+                        pat[key] = []
+                for key, fn in (("smc", smc_.analyze), ("vsa", vsa_.analyze), ("wyckoff2", vsa_.wyckoff_events)):
+                    try:
+                        pat[key] = fn(df)
+                    except Exception as e:  # noqa: BLE001
+                        pat[key] = {"ok": False, "error": str(e)}
+                pat["_last"] = price
+                pat["orderflow"] = ofl.analyze(of_by.get(s), fp_by.get(s), df["close"])
+                r["wyckoff"] = (pat.get("wyckoff") or {}).get("code")
+                r["smc_bias"] = (pat["smc"] or {}).get("bias")
+                r["smc_zone"] = ((pat["smc"] or {}).get("range") or {}).get("pos_pct")
+                r["vsa_bias"] = (pat["vsa"] or {}).get("bias")
+                r["wy_phase"] = (pat["wyckoff2"] or {}).get("phase")
+                r["of_bias"] = pat["orderflow"].get("bias") if pat["orderflow"].get("ok") else None
+                r["of_delta5"] = pat["orderflow"].get("delta5_pct")
+                lv = pat.get("levels") or {}
+                r["support1"] = lv["support"][0]["price"] if lv.get("support") else None
+                r["resist1"] = lv["resistance"][0]["price"] if lv.get("resistance") else None
+                boost, used_p = pattern_boost(pat, df.index[-1])
+                if boost and r["ta_score"] is not None:
+                    r["ta_score"] = int(np.clip(r["ta_score"] + boost, 0, 100))
+                    ta["score"] = r["ta_score"]
+                    ov_ = (r["ta_score"] - 50) / 50   # nhãn phải khớp với điểm sau khi cộng/trừ mô hình
+                    ta["label"] = r["ta_label"] = ("Mua mạnh" if ov_ > 0.5 else "Mua" if ov_ > 0.15 else "Bán mạnh" if ov_ < -0.5 else "Bán" if ov_ < -0.15 else "Trung tính")
+                    ta["pattern_boost"] = {"points": boost, "patterns": used_p}
                 try:
-                    pat[key] = fn(df)
+                    mt = mtf_.full(df)
                 except Exception as e:  # noqa: BLE001
-                    pat[key] = {"ok": False, "error": str(e)}
-            pat["_last"] = price
-            pat["orderflow"] = ofl.analyze(of_by.get(s), fp_by.get(s), df["close"])
-            r["wyckoff"] = (pat.get("wyckoff") or {}).get("code")
-            r["smc_bias"] = (pat["smc"] or {}).get("bias")
-            r["smc_zone"] = ((pat["smc"] or {}).get("range") or {}).get("pos_pct")
-            r["vsa_bias"] = (pat["vsa"] or {}).get("bias")
-            r["wy_phase"] = (pat["wyckoff2"] or {}).get("phase")
-            r["of_bias"] = pat["orderflow"].get("bias") if pat["orderflow"].get("ok") else None
-            r["of_delta5"] = pat["orderflow"].get("delta5_pct")
-            lv = pat.get("levels") or {}
-            r["support1"] = lv["support"][0]["price"] if lv.get("support") else None
-            r["resist1"] = lv["resistance"][0]["price"] if lv.get("resistance") else None
-            boost, used_p = pattern_boost(pat, df.index[-1])
-            if boost and r["ta_score"] is not None:
-                r["ta_score"] = int(np.clip(r["ta_score"] + boost, 0, 100))
-                ta["score"] = r["ta_score"]
-                ov_ = (r["ta_score"] - 50) / 50   # nhãn phải khớp với điểm sau khi cộng/trừ mô hình
-                ta["label"] = r["ta_label"] = ("Mua mạnh" if ov_ > 0.5 else "Mua" if ov_ > 0.15 else "Bán mạnh" if ov_ < -0.5 else "Bán" if ov_ < -0.15 else "Trung tính")
-                ta["pattern_boost"] = {"points": boost, "patterns": used_p}
-            try:
-                mt = mtf_.full(df)
-            except Exception as e:  # noqa: BLE001
-                mt = {"tf": {}, "summary": {"text": f"lỗi: {e}"}}
-            for k in ("D", "W", "M", "Q"):
-                x = mt["tf"].get(k) or {}
-                r[f"tf_{k.lower()}"] = x.get("score") if x.get("ok") else None
-            r["mtf_align"] = mt["summary"].get("align")
-            try:
-                sp = seas.profile(df["close"], idx["close"], last_date)
-            except Exception:  # noqa: BLE001
-                sp = None
-            h1 = ((sp or {}).get("same") or {}).get("h1") or {}
-            r["ss1_rel"], r["ss1_hit"], r["ss1_mean"], r["ss_n"] = h1.get("rel"), h1.get("relhit"), h1.get("mean"), h1.get("n")
-            nx = (sp or {}).get("next") or []
-            r["ss_strong"] = bool(nx and nx[0].get("strong")) or bool(h1 and seas.is_strong({"n": h1.get("n"), "rel": h1.get("rel"), "relhit": h1.get("relhit")}))
-            r["mtf_conflict"] = mt["summary"].get("conflict")
-            details[s] = {"df": df, "ti": ti, "ta": ta, "fa": fa, "pat": pat, "mtf": mt, "season": sp}
+                    mt = {"tf": {}, "summary": {"text": f"lỗi: {e}"}}
+                for k in ("D", "W", "M", "Q"):
+                    x = mt["tf"].get(k) or {}
+                    r[f"tf_{k.lower()}"] = x.get("score") if x.get("ok") else None
+                r["mtf_align"] = mt["summary"].get("align")
+                try:
+                    sp = seas.profile(df["close"], idx["close"], last_date)
+                except Exception:  # noqa: BLE001
+                    sp = None
+                h1 = ((sp or {}).get("same") or {}).get("h1") or {}
+                r["ss1_rel"], r["ss1_hit"], r["ss1_mean"], r["ss_n"] = h1.get("rel"), h1.get("relhit"), h1.get("mean"), h1.get("n")
+                nx = (sp or {}).get("next") or []
+                r["ss_strong"] = bool(nx and nx[0].get("strong")) or bool(h1 and seas.is_strong({"n": h1.get("n"), "rel": h1.get("rel"), "relhit": h1.get("relhit")}))
+                r["mtf_conflict"] = mt["summary"].get("conflict")
+                details[s] = {"df": df, "ti": ti, "ta": ta, "fa": fa, "pat": pat, "mtf": mt, "season": sp}
+            except Exception as e:  # noqa: BLE001  — mã ít dữ liệu lỗi ở một bước phân tích không được làm hỏng cả lượt build
+                if s in deep:
+                    raise
+                log.warning("Bỏ trang chi tiết %s (%d phiên): %s: %s", s, len(df), type(e).__name__, e)
+                details.pop(s, None)
         rows[s] = r
         if n % 200 == 0:
             log.info("  %d/%d mã", n, len(symbols))
