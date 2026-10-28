@@ -2616,6 +2616,34 @@ const METHOD_NAMES = { piotroski: "Piotroski", magic_formula: "Magic Formula", v
   canslim: "CANSLIM", low_vol: "Biến động thấp", smc: "SMC", vsa: "VSA", wyckoff_ev: "Wyckoff sự kiện", orderflow: "Order Flow" };
 const VSA_SHORT = { "No Supply": "NS", "No Demand": "ND", "Stopping Volume": "SV", "Selling Climax": "SC", "Buying Climax": "BC", "Upthrust": "UT", "Test": "T", "Effort to Rise": "ER", "Effort to Fall": "EF", "Shakeout": "SO" };
 
+// ---- kịch bản giá tương lai
+const SCN_NAME = { elliott: "Sóng Elliott", fib: "Fibonacci", smc: "SMC – dòng tiền lớn", trend: "Xu hướng (MA)", cone: "Thống kê", value: "Về giá hợp lý" };
+const BDC = new Map();
+const addBDc = (ds, n) => { const k = ds + "|" + n; if (!BDC.has(k)) BDC.set(k, addBD(ds, n)); return BDC.get(k); };
+const addBD = (ds, n) => { const x = new Date(ds + "T00:00:00Z"); let k = 0; while (k < n) { x.setUTCDate(x.getUTCDate() + 1); const w = x.getUTCDay(); if (w !== 0 && w !== 6) k++; } return x.toISOString().slice(0, 10); };
+function scVerdict(st) {
+  if (!st || !st.n) return ["chưa kiểm chứng", "ref"];
+  const halves = Object.values(st.by_half || {}), stable = halves.length && halves.every((h) => (h.edge ?? 0) > 0);
+  if (st.edge >= 3 && st.t >= 2 && (stable || !halves.length)) return ["có lợi thế nhỏ đã kiểm chứng", "up"];
+  if (st.edge <= -3 && st.t <= -2) return ["kém hơn ngẫu nhiên", "down"];
+  return ["không hơn ngẫu nhiên", "ref"];
+}
+function scStatsTable(S) {
+  if (!S?.methods) return "";
+  const nm = { elliott: "Sóng Elliott", fib: "Fibonacci", smc: "SMC", trend: "Xu hướng MA" };
+  const rows = Object.entries(S.methods).flatMap(([k, st]) => { const [m, tf] = k.split("_"); return Object.entries(st.by_dir || {}).map(([dk, x]) => ({ m, tf, dk, ...x, halves: st.by_half })); });
+  return `<details class="sc-all"><summary>Bảng kiểm chứng mọi cách chơi trên dữ liệu VN (${nf(S.n, 0)} kịch bản, ${esc(S.period || "2017–2026")})</summary>
+    <div class="tw"><table><thead><tr><th class="l">Cách chơi</th><th>Khung</th><th>Hướng</th><th>Số lần</th><th title="Chạm mục tiêu trước mức sai">Trúng</th><th title="Cùng khoảng cách mục tiêu / mức sai, đặt vào thời điểm ngẫu nhiên khác của chính mã">Giả dược</th><th>Lợi thế</th><th>t</th><th class="l">Kết luận</th></tr></thead><tbody>
+    ${rows.map((x) => { const vd = scVerdict({ ...x, by_half: x.halves }); return `<tr><td class="l">${nm[x.m] || x.m}</td><td>${x.tf === "W" ? "Tuần" : "Ngày"}</td><td>${x.dk === "tang" ? "Tăng" : "Giảm"}</td><td>${nf(x.n, 0)}</td><td>${nf(x.hit, 1)}%</td><td>${nf(x.placebo, 1)}%</td>
+      <td class="${cls(x.edge)}">${x.edge > 0 ? "+" : ""}${nf(x.edge, 1)}</td><td>${nf(x.t, 1)}</td><td class="l"><span class="pill ${vd[1]}">${esc(vd[0])}</span></td></tr>`; }).join("")}</tbody></table></div>
+    <p class="faint sc-note">Lợi thế = tỷ lệ trúng − giả dược (điểm %); |t| ≥ 2 mới đáng tin về thống kê. "Có lợi thế" chỉ khi lợi thế ≥ 3 điểm, t ≥ 2 và dương ở cả hai giai đoạn 2017–21 và 2021–26.</p></details>`;
+}
+function scenBar(d, m, f) {
+  const S = d.scen || {}, has = (k) => k === "off" || k === "cone" ? (k === "off" || !!S.cone) : k === "value" ? !!d.valuation?.ok : !!(S[k + "_D"] || S[k + "_W"]);
+  const btn = (k) => `<button data-scm="${k}" class="${m === k ? "on" : ""}${has(k) ? "" : " dim"}" title="${has(k) ? "" : "Hiện chưa có kịch bản rõ ràng"}">${k === "off" ? "Tắt" : esc(SCN_NAME[k])}</button>`;
+  return `<span class="sc-lb">Kịch bản giá</span><span class="seg">${["off", "elliott", "fib", "smc", "trend", "cone", "value"].map(btn).join("")}</span>
+    ${["elliott", "fib", "smc", "trend"].includes(m) ? `<span class="seg">${[["D", "Khung ngày"], ["W", "Khung tuần"]].map(([k, n]) => `<button data-scf="${k}" class="${f === k ? "on" : ""}">${n}</button>`).join("")}</span>` : ""}`;
+}
 async function viewStock(sym, tabArg) {
   let d;
   const [rows, secs] = await Promise.all([screenerRows(), secsData()]);
@@ -2698,7 +2726,9 @@ async function viewStock(sym, tabArg) {
   <div class="g g-main sec">
     <section class="panel chartp" data-card="chart" data-title="Biểu đồ giá">
       <div class="toolbar" id="tools"></div>
+      <div class="scbar" id="scBar"></div>
       <div class="chart" id="pChart"></div>
+      <div id="scInfo"></div>
       <div class="chart xs" id="oChart" style="margin-top:4px"></div>
       ${evHistStrip(d)}
     </section>
@@ -2729,6 +2759,7 @@ async function viewStock(sym, tabArg) {
 
   // ---- biểu đồ giá (đổi khung: ngày / tuần / tháng / quý / năm – chỉ báo tính lại trên nến của khung)
   const TFO = tfSeries(d);
+  const SCST = await tryLoad("data/scen_stats.json");
   let redraw = () => {}, curCharts = [];
   const L = { lv: true, smc: false, el: false, vsa: false, wy: false, tr: true, dv: true, ev: true };
   const EVH = d.ev_hist || [], PEV = v?.post_event;
@@ -2806,11 +2837,84 @@ async function viewStock(sym, tabArg) {
     return M.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
   };
   redraw = () => { drawLines(); cs.setMarkers(markers()); };
+  // ---- kịch bản giá tương lai theo cách chơi (đường nét đứt + vào / mục tiêu / sai) – minh hoạ có điều kiện, kèm kết quả kiểm chứng
+  const scS = [], scL = [];
+  const drawScen = () => {
+    scS.splice(0).forEach((x) => { try { c.removeSeries(x); } catch (e) { /* đã huỷ */ } });
+    scL.splice(0).forEach((x) => { try { cs.removePriceLine(x); } catch (e) { /* đã huỷ */ } });
+    const m = lsGet("scM", "off"), f = lsGet("scF", "W"), box = $("#scInfo"), bar = $("#scBar");
+    if (bar) bar.innerHTML = scenBar(d, m, f);
+    $$("#scBar [data-scm]").forEach((b) => (b.onclick = () => { lsSet("scM", b.dataset.scm); drawScen(); }));
+    $$("#scBar [data-scf]").forEach((b) => (b.onclick = () => { lsSet("scF", b.dataset.scf); drawScen(); }));
+    if (!box) return;
+    if (m === "off") { box.innerHTML = ""; c.timeScale().setVisibleLogicalRange({ from: Math.max(0, o.t.length - TF_VIEW[tf]), to: o.t.length + 3 }); return; }
+    const T = d.ohlc.t, lastD = T[T.length - 1], last0 = d.ohlc.c[d.ohlc.c.length - 1];
+    // nối các mốc bằng từng phiên (nội suy) để khoảng cách thời gian trên trục đúng tỷ lệ; gom theo nến của khung đang xem
+    const pts = (path) => {
+      const mp = new Map(), P = [...path].sort((a, b) => a[0] - b[0]);
+      for (let j = 0; j < P.length - 1; j++) {
+        const [n0, p0] = P[j], [n1, p1] = P[j + 1];
+        for (let n = Math.round(n0); n <= Math.round(n1); n++) { const t = n1 > n0 ? (n - n0) / (n1 - n0) : 1; mp.set(kf(addBDc(lastD, n)), p0 + (p1 - p0) * t); }
+      }
+      if (P.length === 1) mp.set(kf(lastD), P[0][1]);
+      return [...mp].map(([time, value]) => ({ time, value })).sort((a, b) => (a.time < b.time ? -1 : 1));
+    };
+    const ln = (data, color, w = 2, style = 2) => { const x = c.addLineSeries({ color, lineWidth: w, lineStyle: style, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: true }); x.setData(data); scS.push(x); return x; };
+    const pl2 = (price, color, title, style = 2) => isNum(price) && scL.push(cs.createPriceLine({ price, color, lineStyle: style, lineWidth: 1, title, axisLabelVisible: true }));
+    let fut = 0, html = "";
+    if (m === "cone") {
+      const cn = d.scen?.cone;
+      if (!cn) html = `<p class="muted">Chưa đủ lịch sử giá (cần ≥ 1 năm) để dựng dải xác suất.</p>`;
+      else {
+        const B = [[0, last0, last0, last0, last0, last0], ...cn.bands];
+        const col = css("--brand");
+        [[1, 1], [2, 1], [3, 2], [4, 1], [5, 1]].forEach(([i, w]) => ln(pts(B.map((b) => [b[0], b[i]])), col, w, i === 3 ? 2 : 3));
+        fut = pts(B.map((b) => [b[0], b[3]])).length;
+        const b60 = cn.bands.find((b) => b[0] === 60), b120 = cn.bands.find((b) => b[0] === 120), cst = SCST?.cone;
+        html = `<b>Dải xác suất từ chính lịch sử biến động của mã</b> (2.000 đường mô phỏng từ các khối 5 phiên của 5 năm gần nhất – không giả định xu hướng nào).
+          ${kpis([["80% · 3 tháng", `${nf(b60?.[1])} – ${nf(b60?.[5])}`, "", "60 phiên tới: 80% số đường nằm trong khoảng này"], ["50% · 3 tháng", `${nf(b60?.[2])} – ${nf(b60?.[4])}`, "", "50% số đường ở giữa"], ["80% · 6 tháng", `${nf(b120?.[1])} – ${nf(b120?.[5])}`, "", "120 phiên tới"],
+            ["P(cao hơn) 1T", `${nf(cn.prob_up?.["20"], 0)}%`, "", "Xác suất giá sau 20 phiên cao hơn hôm nay"], ["P(cao hơn) 3T", `${nf(cn.prob_up?.["60"], 0)}%`], ["P(cao hơn) 6T", `${nf(cn.prob_up?.["120"], 0)}%`]])}
+          <p class="faint sc-note">Cách dùng: đặt cắt lỗ ngoài dải 25% dưới nếu không muốn bị quét bởi dao động bình thường; mục tiêu trên dải 75% trên là kỳ vọng lạc quan.
+          ${cst ? `Kiểm chứng ${nf(cst.n, 0)} lần (2017–2026): giá thật 60 phiên sau nằm trong dải 10–90% <b>${nf(cst.in80, 0)}%</b> số lần (lý tưởng 80%), trong dải 25–75% <b>${nf(cst.in50, 0)}%</b> (lý tưởng 50%)${isNum(cst.above_med) ? `; nằm trên đường giữa ${nf(cst.above_med, 0)}% số lần – đường giữa hơi lạc quan, nên coi đường 25% dưới là kịch bản "bình thường xấu"` : ""}.` : ""}</p>`;
+      }
+    } else if (m === "value") {
+      if (!(v.ok && isNum(v.fair))) html = `<p class="muted">Chưa có giá trị hợp lý cho mã này.</p>`;
+      else {
+        const up = v.fair > last0, col = up ? css("--up") : css("--down");
+        ln(pts([[0, last0], [125, last0 + (v.fair - last0) * 0.5], [250, v.fair]]), col);
+        if (isNum(v.fair_lo)) ln(pts([[0, last0], [250, v.fair_lo]]), col, 1, 3);
+        if (isNum(v.fair_hi)) ln(pts([[0, last0], [250, v.fair_hi]]), col, 1, 3);
+        pl2(v.fair, col, "Hợp lý", 2); fut = pts([[0, 0], [125, 0], [250, 0]]).length;
+        html = `<b>Về giá trị hợp lý trong ~12 tháng</b> (${esc(v.verdict || "")}): ${nf(last0)} → ${nf(v.fair)} (${pct((v.fair / last0 - 1) * 100, 1)}), khoảng ${nf(v.fair_lo)}–${nf(v.fair_hi)}.
+          <p class="faint sc-note">Minh hoạ nếu giá hội tụ dần về giá trị cơ bản. Kiểm chứng trên dữ liệu VN: các phương pháp định giá có dự báo yếu nhưng dương với lợi nhuận 3–12 tháng (IC ≈ 0,02–0,04) – đúng "trung bình nhiều mã", từng mã có thể lệch rất xa. ${v.reliable ? "" : "<b>Định giá mã này đang được đánh dấu chưa đáng tin.</b>"}</p>`;
+      }
+    } else {
+      const k = `${m}_${f}`, k2 = `${m}_${f === "W" ? "D" : "W"}`, sc = d.scen?.[k] || d.scen?.[k2], used = d.scen?.[k] ? f : f === "W" ? "D" : "W";
+      if (!sc) html = `<p class="muted">${esc(SCN_NAME[m])}: hiện không dựng được kịch bản rõ ràng (${m === "smc" ? "cấu trúc chưa nghiêng hẳn về bên nào" : m === "trend" ? "giá không nằm gọn trong xu hướng MA50 – MA200" : "chưa đủ đỉnh/đáy thoả quy tắc"}).</p>`;
+      else {
+        const up = sc.dir > 0, col = up ? css("--up") : css("--down");
+        const P = pts(sc.path); ln(P, col, 2, 2); fut = P.length;
+        pl2(sc.target, col, "Mục tiêu", 2); if (isNum(sc.stop)) pl2(sc.stop, css("--ink-3"), "Sai nếu", 1);
+        if (isNum(sc.wait)) pl2(sc.wait, css("--brass") || css("--brand"), "Chờ vào", 3);
+        const st0 = SCST?.methods?.[`${m}_${used}`], st = st0?.by_dir?.[up ? "tang" : "giam"]?.n >= 200 ? st0.by_dir[up ? "tang" : "giam"] : st0, vd = scVerdict(st);
+        const eta = addBD(lastD, sc.path[sc.path.length - 1][0]);
+        html = `<div class="sc-h"><b>${esc(SCN_NAME[m])} · khung ${used === "W" ? "tuần" : "ngày"}</b>${used !== f ? ` <small class="faint">(khung ${f === "W" ? "tuần" : "ngày"} chưa có kịch bản)</small>` : ""} <span class="pill ${vd[1]}">${esc(vd[0])}</span></div>
+          <p>${esc(sc.why)}</p>
+          ${kpis([["Hướng", up ? "Tăng" : "Giảm", up ? "up" : "down"], ["Mục tiêu", `${nf(sc.target)} <small>${pct((sc.target / sc.entry - 1) * 100, 1)}</small>`], ["Sai nếu", isNum(sc.stop) ? `${nf(sc.stop)} <small>${pct((sc.stop / sc.entry - 1) * 100, 1)}</small>` : "—"],
+            ["Lời / lỗ", isNum(sc.rr) ? nf(sc.rr, 2) + "x" : "—", "", "Khoảng cách tới mục tiêu ÷ khoảng cách tới mức sai"], ["Thời gian", `~${nf(sc.horizon, 0)} phiên`, "", "Hạn kiểm chứng kịch bản"], ["Mốc cuối đường", esc(eta.split("-").reverse().join("/"))]])}
+          <p class="sc-stat">${st ? `<b>Kiểm chứng trên VN ${nf(st.n, 0)} lần (2017–2026):</b> chạm mục tiêu trước mức sai <b>${nf(st.hit, 1)}%</b> · giả dược (cùng khoảng cách, thời điểm ngẫu nhiên của mã) ${nf(st.placebo, 1)}% → lợi thế <b class="${cls(st.edge)}">${st.edge > 0 ? "+" : ""}${nf(st.edge, 1)} điểm %</b>${isNum(st.t) ? ` (t = ${nf(st.t, 1)})` : ""} · lợi nhuận cuối hạn TB ${pct(st.ret, 1)} so với giả dược ${pct(st.pret, 1)}.` : "Chưa có kết quả kiểm chứng cho kịch bản này."}</p>
+          <p class="faint sc-note">Đường nét đứt là "nếu thị trường đi đúng cách đếm này" – không phải dự báo. Dùng để biết trước: vào ở đâu, chốt ở đâu, sai ở mức nào thì bỏ kịch bản.</p>`;
+      }
+    }
+    box.innerHTML = `<div class="sc-box">${html}${scStatsTable(SCST)}</div>`;
+    c.timeScale().setVisibleLogicalRange({ from: Math.max(0, o.t.length - TF_VIEW[tf]), to: o.t.length + Math.max(3, fut + 2) });
+  };
   $("#tools").innerHTML = tfSeg("tfSel", tf) + chartModeSeg() + Object.keys(overlays).map((k) => `<button class="chip ${active.has(k) ? "on" : ""}" data-ov="${k}">${k}</button>`).join("") +
     `<span class="faint">|</span>` + [["lv", "Mức giá"], ["tr", "Lệnh của tôi"], ["dv", "Cổ tức"], ...(EVH.length ? [["ev", "Sự kiện"]] : []), ["smc", "SMC"], ["vsa", "VSA"], ["wy", "Wyckoff"], ["el", "Elliott"]].map(([k, n]) => `<button class="chip ${L[k] ? "on" : ""}" data-l="${k}">${n}</button>`).join("") +
     `<span style="margin-left:auto" class="seg" id="osc"><button class="on" data-o="rsi">RSI</button><button data-o="macd">MACD</button><button data-o="vol">KL</button><button data-o="obv">OBV</button>${of.history?.length && tf === "D" ? '<button data-o="delta">Delta</button>' : ""}</span>`;
   Object.keys(overlays).forEach(drawOv);
   redraw();
+  setTimeout(drawScen, 0);
   $$("[data-ov]").forEach((b) => (b.onclick = () => { const k = b.dataset.ov; active.has(k) ? active.delete(k) : active.add(k); b.classList.toggle("on"); drawOv(k); }));
   $$("[data-l]").forEach((b) => (b.onclick = () => { L[b.dataset.l] = !L[b.dataset.l]; b.classList.toggle("on"); redraw(); }));
   $$("#tools [data-cm]").forEach((b) => (b.onclick = () => { lsSet("chartMode", b.dataset.cm); drawChart(); }));

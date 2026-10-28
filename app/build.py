@@ -92,6 +92,15 @@ def _val_hist(q, n: int = 24) -> list:
     return out
 
 
+def _scen(df) -> dict:
+    try:
+        from .analysis import scenarios as scn
+        return scn.all_for(df)
+    except Exception as e:  # noqa: BLE001
+        log.debug("Kịch bản giá lỗi: %s", e)
+        return {}
+
+
 def _qhist(q, n: int = 24) -> list:
     """Số quý thật gần nhất (tỷ đồng) để ghép năm dương lịch (quý đã có + quý dự phóng) và tính tỷ trọng mùa vụ."""
     if q is None or q.empty:
@@ -1147,10 +1156,17 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             "style_levels": sty.levels_for(r, d["df"], cfg),
             "beta": r.get("beta"),
             "mos": mos,
+            "scen": _scen(d["df"]),
             "charts": fu.chart_pack(fq_s, fy_by.get(s), str(r.get("ctype") or "CT"), d["df"]["close"], dv_by.get(s), (d.get("fa") or {}).get("shares_mn")),
             "bctc": fh.block(s, fq_s, fy_by.get(s), _news_cat(s), last_date.date(), str(r.get("ctype") or "CT")),
         }
         dump(out_dir / "stocks" / f"{s}.json", detail)
+    try:   # kết quả kiểm chứng kịch bản giá (research/scenarios_test.py → app/analysis/scen_stats.json)
+        sp_ = Path(__file__).parent / "analysis" / "scen_stats.json"
+        if sp_.exists():
+            shutil.copyfile(sp_, out_dir / "scen_stats.json")
+    except Exception as e:  # noqa: BLE001
+        log.warning("Chép kết quả kiểm chứng kịch bản lỗi: %s", e)
     try:
         health = fh.report(u, details, fq_by, fy_by, last_date.date())
         dump(out_dir / "health.json", health)

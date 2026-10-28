@@ -80,7 +80,7 @@ def one(args):
                 # giả dược: cùng khoảng cách %, thời điểm ngẫu nhiên khác của chính mã
                 j = int(rng.integers(260, len(df) - H - 1)) if len(df) - H - 1 > 260 else None
                 po = pret = np.nan
-                if j is not None and abs(j - i) > 20:
+                if j is not None and abs(j - i) > 20 and float(df["close"].iloc[j]) > 0:
                     e2 = float(df["close"].iloc[j]); f2 = df.iloc[j + 1: j + 1 + H]
                     po, _ = outcome(f2, e2, e2 * t / e, e2 * st / e, up)
                     pret = (f2["close"].iloc[-1] / e2 - 1) * (1 if up else -1)

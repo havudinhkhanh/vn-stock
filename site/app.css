@@ -1653,3 +1653,12 @@ main,.top-in{max-width:none!important}
 #app:focus,#app:focus-visible{outline:none!important}
 @media (min-width:980px){.tabs a.nav-more{display:none!important}}
 @media (max-width:979px){.top-in{min-width:0}.top-in .search{flex:1 1 auto;min-width:0;width:auto!important}.top-in .search input{width:100%;min-width:0}}
+
+/* kịch bản giá tương lai */
+.scbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin:4px 0 6px}.scbar .sc-lb{font-size:.72rem;color:var(--ink-3)}
+.scbar .seg button.dim{opacity:.45}
+.sc-box{margin:8px 0 4px;padding:10px 12px;border-radius:10px;background:var(--sunk);font-size:.84rem}
+.sc-box .sc-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px}
+.sc-box p{margin:4px 0}.sc-box .kpis{margin:6px 0}.sc-stat{font-size:.8rem}.sc-note{font-size:.74rem}
+@media (max-width:700px){.scbar{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:4px -12px 6px;padding:0 12px}.scbar::-webkit-scrollbar{display:none}.scbar .sc-lb{white-space:nowrap}}
+.sc-all{margin-top:8px}.sc-all summary{cursor:pointer;font-size:.78rem;color:var(--brand)}.sc-all table{font-size:.74rem;margin-top:6px}

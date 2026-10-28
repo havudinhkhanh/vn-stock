@@ -32,6 +32,12 @@ def _mk(kind, tf, last, path, target, stop, horizon, why, extra=None):
     """path: [(số nến tới, giá)] → quy về số PHIÊN; mục tiêu/cắt lỗ theo hướng của mục tiêu."""
     k = TF_DAYS[tf]
     up = target > last
+    cap = 180 if tf == "D" else 375              # mốc cuối đường tối đa ~9 tháng (ngày) / ~1,5 năm (tuần)
+    end = max(b for b, _ in path) * k
+    if end > cap:                                # sóng quá dài → nén thời gian, giữ hình dạng
+        f = cap / end
+        path = [(b * f, p) for b, p in path]
+        horizon = horizon * f
     out = {"kind": kind, "tf": tf, "dir": 1 if up else -1, "entry": round(last, 2), "target": round(float(target), 2),
            "stop": round(float(stop), 2) if stop is not None else None, "horizon": int(max(5, horizon * k)),
            "path": [[int(round(b * k)), round(float(p), 2)] for b, p in path], "why": why}
