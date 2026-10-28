@@ -176,7 +176,7 @@ def refetch_full(symbols: list[str]) -> pd.DataFrame:
 
 
 # ------------------------------------------------------------------ BCTC
-def _fin_one(sym: str, ctype: str) -> tuple[list[pd.DataFrame], str]:
+def _fin_one(sym: str, ctype: str, vci_only: bool = False) -> tuple[list[pd.DataFrame], str]:
     # Nguồn 1: Vietcap IQ (4–5 request/mã, có cả năm lẫn quý)
     try:
         mp = vci.metrics(sym, ctype)
@@ -190,7 +190,9 @@ def _fin_one(sym: str, ctype: str) -> tuple[list[pd.DataFrame], str]:
             return [df], "VCI"
     except (FetchError, KeyError, TypeError, ValueError) as e:
         log.debug("VCI BCTC %s lỗi: %s", sym, e)
-    # Nguồn 2: KBS (6 request/mã)
+    if vci_only:
+        return [], "FAIL"
+    # Nguồn 2: KBS (6 request/mã) – số năm tin được; số quý chỉ nhận khi bảng kỳ của KBS sạch (xem normalize._kbs_periods)
     try:
         res = []
         for yearly in (False, True):
@@ -210,29 +212,89 @@ def _fin_one(sym: str, ctype: str) -> tuple[list[pd.DataFrame], str]:
     return [], "FAIL"
 
 
+FIN_MIG = 2   # đổi số này khi cần dọn lại dữ liệu BCTC cũ
+
+
+def migrate_fin() -> list[str]:
+    """Dọn BCTC hỏng do phiên bản cũ: quý lấy từ KBS bị ghép sai kỳ (Head KBS trùng ID/kỳ) và cột trùng _x/_y.
+    Trả về danh sách mã cần tải lại."""
+    m = store.meta()
+    if int(m.get("fin_mig", 0)) >= FIN_MIG:
+        return []
+    redo = set()
+    for name in ("fin_q", "fin_y"):
+        df = store.read(name)
+        if df.empty:
+            continue
+        for c in [c for c in df.columns if c.endswith("_x")]:
+            b = c[:-2]
+            df[b] = df[b].combine_first(df[c]) if b in df else df[c]
+            if b + "_y" in df:
+                df[b] = df[b].combine_first(df[b + "_y"])
+                df = df.drop(columns=[b + "_y"])
+            df = df.drop(columns=[c])
+        if name == "fin_q":
+            bad = df["source"].astype(str) == "KBS"
+            redo |= set(df.loc[bad, "symbol"])
+            log.warning("Dọn BCTC: bỏ %d dòng quý từ KBS (ghép sai kỳ) của %d mã – tải lại từ Vietcap", int(bad.sum()), len(set(df.loc[bad, "symbol"])))
+            df = df[~bad]
+        else:
+            # năm từ KBS thiếu vốn chủ/LNTT/số CP → tải lại để có số đầy đủ
+            redo |= set(df.loc[(df["source"].astype(str) == "KBS"), "symbol"])
+        store.write(name, df.reset_index(drop=True))
+    m["fin_mig"] = FIN_MIG
+    m["fin_redo"] = sorted(redo)
+    store.save_meta(m)
+    return sorted(redo)
+
+
 def update_financials(listing: pd.DataFrame, symbols: list[str], workers: int = 4, mark: bool = True,
                       budget_sec: float | None = None) -> list[str]:
     ctype = dict(zip(listing["symbol"], listing.get("com_type", "CT")))
-    frames, used, done = [], Counter(), []
+    frames, used, done, retry = [], Counter(), [], []
     t0 = time.time()
+
+    def take(sym, res, src):
+        used[src] += 1
+        if src != "VCI":
+            retry.append(sym)
+        if src != "FAIL":
+            done.append(sym)
+        frames.extend([r for r in res if r is not None and not r.empty])
+
     with ThreadPoolExecutor(max_workers=workers) as ex:
         futs = {ex.submit(_fin_one, s, ctype.get(s, "CT")): s for s in symbols}
         for n, f in enumerate(as_completed(futs), 1):
             if f.cancelled():
                 continue
             res, src = f.result()
-            used[src] += 1
-            done.append(futs[f])
-            frames.extend([r for r in res if r is not None and not r.empty])
+            take(futs[f], res, src)
             if n % 100 == 0:
                 log.info("BCTC: %d/%d mã (%s)", n, len(symbols), dict(used))
             if budget_sec and time.time() - t0 > budget_sec:
                 for g_ in futs:
                     g_.cancel()
+    # lượt 2: mã Vietcap lỗi (thường do quá tải/timeout) → thử lại tuần tự, chậm, sau khi nghỉ
+    left = float(budget_sec) - (time.time() - t0) if budget_sec else 600.0
+    if retry and left > 60 and BREAKER.wait_ready("VCI", max(0.0, left - 60)):
+        time.sleep(min(30, left / 10))
+        got = 0
+        for s in list(retry):
+            if time.time() - t0 > (budget_sec or 1e9) or (not budget_sec and time.time() - t0 > 1800):
+                break
+            res, src = _fin_one(s, ctype.get(s, "CT"), vci_only=True)
+            if src == "VCI":
+                got += 1
+                used["VCI(lượt 2)"] += 1
+                frames.extend(res)
+                if s not in done:
+                    done.append(s)
+            time.sleep(0.6)
+        log.info("BCTC lượt 2 (thử lại Vietcap): %d/%d mã lấy được", got, len(retry))
     if frames:
         allf = normalize.finalize(pd.concat(frames, ignore_index=True))
-        store.upsert("fin_q", allf[allf["quarter"] > 0], ["symbol", "year", "quarter"])
-        store.upsert("fin_y", allf[allf["quarter"] == 0], ["symbol", "year", "quarter"])
+        store.upsert_fin("fin_q", allf[allf["quarter"] > 0])
+        store.upsert_fin("fin_y", allf[allf["quarter"] == 0])
     if mark:
         store.touch("financials", sources=dict(used), symbols=len(symbols))
     log.info("BCTC xong: %s · request: %s", dict(used), BREAKER.stats)
@@ -253,9 +315,23 @@ def update_fin_backfill(listing: pd.DataFrame, prices: pd.DataFrame, syms: list[
     recent = prices[prices["date"] >= prices["date"].max() - timedelta(days=90)]
     traded = set(recent.loc[recent["volume"] > 0, "symbol"])
     today = pd.Timestamp.now().normalize()
-    cand = [s for s in syms if s not in liquid and s in traded and s not in INDICES]
-    stale = [s for s in cand if s not in meta or (today - pd.Timestamp(meta[s])).days >= refresh]
-    stale.sort(key=lambda s: (s in meta, meta.get(s, "")))
+    # mọi mã niêm yết đều cần BCTC (kể cả mã không có giao dịch 90 ngày – vẫn có định giá & số liệu): mã chưa có trước,
+    # trong đó mã có giao dịch trước; mã không giao dịch làm mới thưa hơn (gấp 3 chu kỳ)
+    cand = [s for s in syms if s not in liquid and s not in INDICES]
+    have = set()
+    for nm in ("fin_y", "fin_q"):
+        d_ = store.read(nm)
+        if not d_.empty:
+            have |= set(d_["symbol"])
+    for s in cand:
+        if s in meta and s not in have:
+            meta.pop(s)          # đã đánh dấu "đã tải" nhưng không có dòng nào (dữ liệu bị dọn / lần trước lỗi) → tải lại
+    def _due(s):
+        if s not in meta:
+            return True
+        return (today - pd.Timestamp(meta[s])).days >= (refresh if s in traded else refresh * 3)
+    stale = [s for s in cand if _due(s)]
+    stale.sort(key=lambda s: (s in meta, s not in traded, meta.get(s, "")))
     todo = stale[:per_run]
     if not todo:
         log.info("BCTC mã ít giao dịch: đã đủ (%d mã)", len(cand))
@@ -659,15 +735,18 @@ def run(force_fin: bool = False, only: list[str] | None = None) -> None:
     prices = update_prices(syms)
 
     weekday = datetime.now().weekday()
+    redo = [] if only else migrate_fin()
     due = (weekday == int(config.get("schedule.financials_refresh_weekday", 5))
-           or store.age_days("financials") > 7 or force_fin)
+           or store.age_days("financials") > 7 or force_fin or bool(redo))
     if due:
         fin_syms = liquid_symbols(prices, float(config.get("universe.fin_min_avg_value_bn", 0.3)))
         fin_syms = [s for s in fin_syms if s in set(syms)]
+        # mã có dữ liệu đã dọn (KBS hỏng) chen lên đầu để chắc chắn được tải lại ngay lượt này
+        fin_syms = list(dict.fromkeys([s for s in redo if s in set(syms)] + fin_syms))
         if only:
             fin_syms = [s for s in syms if s in only]
-        log.info("Tải BCTC cho %d mã", len(fin_syms))
-        update_financials(listing, fin_syms, mark=not only)
+        log.info("Tải BCTC cho %d mã%s", len(fin_syms), f" (gồm {len(redo)} mã tải lại sau khi dọn dữ liệu hỏng)" if redo else "")
+        update_financials(listing, fin_syms, mark=not only, workers=3)
     else:
         log.info("Chưa tới lịch tải BCTC (cập nhật gần nhất %.1f ngày trước)",
                  store.age_days("financials"))

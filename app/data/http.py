@@ -127,6 +127,17 @@ class Breaker:
         if until > time.monotonic():
             raise FetchError(f"{source}: tạm ngắt do lỗi liên tiếp")
 
+    def wait_ready(self, source: str, max_wait: float) -> bool:
+        """Chờ cầu dao của nguồn đóng lại (tối đa max_wait giây) – dùng trước lượt thử lại."""
+        with self.lock:
+            until = self.open_until.get(source, 0)
+        w = until - time.monotonic()
+        if w > max_wait:
+            return False
+        if w > 0:
+            time.sleep(w + 1)
+        return True
+
     def ok(self, source: str):
         with self.lock:
             self.fails[source] = 0

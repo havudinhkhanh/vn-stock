@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 
 from . import config
+from .data import fin_health as fh
 from .analysis import backtest as bt
 from .analysis import forward as fwd
 from .analysis import fundamentals as fu
@@ -396,8 +397,12 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         r["has_fin"] = bool(fa.get("ok"))
         r["liquid_ok"] = bool(avg_val.get(s, 0) >= min_val and price >= float(ucfg.get("min_price", 5))
                               and len(df) >= int(ucfg.get("min_history_days", 120)))
-        if s in deep or (fa.get("ok") and len(df) >= 60 and ucfg.get("detail_all_fin", True)):   # mã penny / ít giao dịch có BCTC: vẫn có trang chi tiết + định giá
-            pat = pt.analyze(df)
+        if s in deep or (fa.get("ok") and len(df) >= 30 and ucfg.get("detail_all_fin", True)):   # mọi mã có BCTC (kể cả penny / mới niêm yết ≥ 30 phiên): có trang chi tiết + định giá
+            try:
+                pat = pt.analyze(df)
+            except Exception as e:  # noqa: BLE001
+                log.debug("Mô hình giá %s lỗi (lịch sử ngắn?): %s", s, e)
+                pat = {"ok": False}
             for key, fn in (("smc", smc_.analyze), ("vsa", vsa_.analyze), ("wyckoff2", vsa_.wyckoff_events)):
                 try:
                     pat[key] = fn(df)
@@ -478,6 +483,11 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
                  if multi else load_overrides())
     _liqpe = pd.to_numeric(u["pe"], errors="coerce")
     mkt_pe = float(_liqpe[(_liqpe > 0) & (_liqpe < 100) & (pd.to_numeric(u["avg_value_bn"], errors="coerce") >= 2)].median()) if len(u) else 12.0
+    _liqv = pd.to_numeric(u["avg_value_bn"], errors="coerce") >= 2
+    _pbv, _psv = pd.to_numeric(u.get("pb"), errors="coerce"), pd.to_numeric(u.get("ps"), errors="coerce")
+    mkt_mult = {"pb": float(_pbv[(_pbv > 0) & (_pbv < 10) & _liqv].median()) if _pbv is not None else None,
+                "ps": float(_psv[(_psv > 0) & (_psv < 20) & _liqv].median()) if _psv is not None else None}
+    _ps_peer = _psv.where((_psv > 0) & (_psv < 20) & _liqv).groupby(u["peer_used"]).median() if _psv is not None and "peer_used" in u else pd.Series(dtype=float)
     try:
         _own, _orgd = store.read("owners"), store.read("org_codes")
         org_map = dict(zip(_orgd["symbol"], _orgd["organ"])) if not _orgd.empty else {}
@@ -505,6 +515,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         hist = va.hist_multiples(qs, d["df"]["close"], fa.get("shares_mn"))
         _nn = lambda x: None if x is None or (isinstance(x, float) and np.isnan(x)) else x  # noqa: E731
         peers = {"pe_ind_med": _nn(r.get("pe_ind_med")), "pb_ind_med": _nn(r.get("pb_ind_med")), "roe_ind_med": _nn(r.get("roe_ind_med")),
+                 "ps_ind_med": _nn(_ps_peer.get(r.get("peer_used"))) if isinstance(r.get("peer_used"), str) else None,
                  "label": r.get("peer_used_label"),
                  "conglo": ("tập đoàn đa ngành, không có mâm tương đồng" if r.get("peer") == "conglomerate" else
                             None)}
@@ -517,7 +528,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             peers["sotp"] = so_
         ep = evx.episode(d["df"]["close"])
         val = va.value(fa, model, peers, hist, r["beta"], vcfg, mos, event=ep if ep and ep["phase"] == "active" else None,
-                       liq_bn=float(r.get("avg_value_bn") or 0))
+                       liq_bn=float(r.get("avg_value_bn") or 0), mkt=mkt_mult)
         try:
             val["market"] = va.market_view(fa, hist, val, mkt_pe, so_)
             _mk = val["market"]
@@ -1016,6 +1027,10 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             return float(x.median() * 100) if len(x) >= 3 else None
         return f, name
 
+    def _news_cat(s_):
+        fr = [x for x in (news_all.get(s_), news_hist.get(s_)) if x is not None and not x.empty]
+        return pd.concat(fr, ignore_index=True).drop_duplicates("title") if fr else None
+
     def _news_of(s_):
         """Tin 45 ngày gần nhất của mã (nhiều nguồn) – tin 'có tác động' đánh dấu lên biểu đồ như một sự kiện."""
         src = news_all.get(s_)
@@ -1105,8 +1120,15 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             "style_levels": sty.levels_for(r, d["df"], cfg),
             "beta": r.get("beta"),
             "mos": mos,
+            "bctc": fh.block(s, fq_s, fy_by.get(s), _news_cat(s), last_date.date()),
         }
         dump(out_dir / "stocks" / f"{s}.json", detail)
+    try:
+        health = fh.report(u, details, fq_by, fy_by, last_date.date())
+        dump(out_dir / "health.json", health)
+        dump(store.path("fin_health.json"), health)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Báo cáo sức khoẻ BCTC lỗi: %s", e)
 
     m = store.meta()
     meta = {"generated": datetime.now(__import__("zoneinfo").ZoneInfo("Asia/Ho_Chi_Minh")).isoformat(timespec="seconds"), "data_date": str(last_date.date()),

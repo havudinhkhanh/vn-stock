@@ -18,7 +18,7 @@ CANON = [
     # Cân đối kế toán
     "total_assets", "current_assets", "cash", "st_invest", "receivables", "inventory",
     "fixed_assets", "total_liab", "current_liab", "st_debt", "lt_debt", "equity", "minority",
-    "loans", "deposits",
+    "loans", "deposits", "charter_cap",
     # Lưu chuyển tiền tệ
     "cfo", "capex", "dividends_paid", "cfi", "cff",
     # Trên mỗi cổ phần / chỉ số nguồn cung cấp
@@ -100,7 +100,7 @@ RULES = [
     ("admin_exp", r"^general (and|&) admin\w* expenses?$", r"^chi phí quản lý doanh nghiệp$", r""),
     ("fin_income", r"^financial (income|revenue)$", r"^doanh thu hoạt động tài chính$", r""),
     ("fin_exp", r"^financial expenses?$", r"^chi phí tài chính$", r""),
-    ("interest_exp", r"^(of which,? )?interest expenses?$", r"^(trong đó:? )?chi phí lãi vay$", r""),
+    ("interest_exp", r"^(of which[,:]? )?interest expenses?$", r"^(trong đó[,:]? )?chi phí (lãi vay|đi vay)$", r"paid|đã trả"),
     ("operating_profit", r"^(net )?operating profit$|^net profit from operating activities$",
      r"^lợi nhuận thuần từ hoạt động kinh doanh$", r""),
     ("pbt", r"^(total )?(net )?(accounting )?profit before tax$",
@@ -131,13 +131,16 @@ RULES = [
      r"^vay (và nợ thuê tài chính )?dài hạn$", r""),
     ("equity", r"^(total )?(owners?'? |owner's |shareholders'? )?equity$|^capital and reserves$",
      r"^(tổng )?(cộng )?vốn chủ sở hữu$", r""),
+    ("charter_cap", r"^(owner's|owners'?|paid-in|contributed|charter) (capital|share capital)$|^share capital$",
+     r"^vốn (góp|đầu tư) của chủ sở hữu$|^vốn điều lệ$", r"other|khác"),
     ("minority", r"^(minority interests?|non-controlling interests?)$",
      r"^lợi ích (của )?cổ đông (không kiểm soát|thiểu số)$", r""),
     ("loans", r"^loans (and advances )?to customers$", r"^cho vay khách hàng$", r""),
     ("deposits", r"^deposits from customers$", r"^tiền gửi của khách hàng$", r""),
     ("cfo", r"^net cash.*(from|used in) operating activities$",
      r"^lưu chuyển tiền (tệ )?(thuần|ròng) (từ|sử dụng vào|trong) (các )?hoạt động (sản xuất )?kinh doanh$", r"before"),
-    ("capex", r"^(purchases?|acquisitions?) of fixed assets", r"^(tiền chi để )?mua sắm.*tài sản cố định", r""),
+    ("capex", r"^(purchases?|acquisitions?) of fixed assets|^payments? for (the )?(purchase of |acquisition of )?fixed assets",
+     r"^(tiền chi để )?mua sắm.*(tài sản cố định|tscđ)", r""),
     ("dividends_paid", r"^dividends?.*paid", r"^cổ tức.*(đã trả|cho chủ sở hữu)", r""),
     ("cfi", r"^net cash.*(from|used in) investing activities$",
      r"^lưu chuyển tiền (tệ )?(thuần|ròng) (từ|sử dụng vào|trong) (các )?hoạt động đầu tư$", r""),
@@ -159,7 +162,8 @@ def _clean(name) -> str:
 def match_items(items: list[dict]) -> dict[str, str]:
     """items: [{'key':..., 'en':..., 'vi':...}] theo thứ tự trên báo cáo -> {key: chỉ tiêu chuẩn}."""
     out, used = {}, set()
-    cleaned = [(it["key"], _clean(it.get("en")), _clean(it.get("vi"))) for it in items]
+    # mục không có số ở mọi kỳ (dòng tiêu đề như "NGUỒN VỐN") không được giành chỉ tiêu của dòng có số bên dưới
+    cleaned = [(it["key"], _clean(it.get("en")), _clean(it.get("vi"))) for it in items if it.get("has", True)]
     for canon, pen, pvi, excl in RULES:
         for key, en, vi in cleaned:
             if key in out:
@@ -271,25 +275,59 @@ def normalize_iq(symbol: str, stmts: dict[str, dict[str, pd.DataFrame]], metrics
 
 
 # ------------------------------------------------------------------ KBS
+def _kbs_periods(resp: dict, yearly: bool) -> list[tuple] | None:
+    """Ghép cột Value1..n ↔ kỳ. KBS trả Head đánh số ID theo từng nhóm (trùng ID, trùng kỳ) và số cột Value không khớp số
+    kỳ ở báo cáo quý → chỉ nhận khi Head sạch: ID 1..n liên tục, mỗi kỳ 1 lần, kỳ giảm dần, đủ cột Value. Không sạch → bỏ."""
+    head = resp.get("Head") or []
+    ids = [h.get("ID") for h in head]
+    if not head or sorted(ids) != list(range(1, len(head) + 1)):
+        return None
+    head = sorted(head, key=lambda h: h["ID"])
+    periods = []
+    for h in head:
+        y = pd.to_numeric(h.get("YearPeriod"), errors="coerce")
+        code = str(h.get("TermCode") or "")
+        if yearly:
+            q = 0
+        else:
+            mq = re.fullmatch(r"Q([1-4])", code)
+            if not mq:
+                return None
+            q = int(mq.group(1))
+        periods.append((y, q))
+    if len(set(periods)) != len(periods) or periods != sorted(periods, reverse=True):
+        return None
+    content = resp.get("Content") or {}
+    recs = [r for v in content.values() if isinstance(v, list) for r in v]
+    nval = max((int(k[5:]) for r in recs[:5] for k in r if re.fullmatch(r"Value\d+", k)), default=0)
+    if nval and nval != len(periods):
+        return None
+    return periods
+
+
+def _coalesce(df: pd.DataFrame) -> pd.DataFrame:
+    """Gộp cột trùng tên sau merge (x_x / x_y) – lấy giá trị có số."""
+    for c in [c for c in df.columns if c.endswith("_x")]:
+        b = c[:-2]
+        if b + "_y" in df:
+            df[b] = df[c].combine_first(df[b + "_y"])
+            df = df.drop(columns=[c, b + "_y"])
+    return df
+
+
 def normalize_kbs(symbol: str, reports: list[dict], yearly: bool) -> pd.DataFrame:
     """reports: các response finance-info (KQKD, CDKT, LCTT) của cùng 1 loại kỳ."""
     frames = []
     for resp in reports:
         if not resp:
             continue
-        head = sorted(resp.get("Head") or [], key=lambda h: h.get("ID", 0))
-        periods = []
-        for h in head:
-            y = pd.to_numeric(h.get("YearPeriod"), errors="coerce")
-            term = str(h.get("TermName") or "")
-            q = 0
-            mq = re.search(r"(\d)", term) if ("Quý" in term or "Q" in term) else None
-            if mq and not yearly:
-                q = int(mq.group(1))
-            periods.append((y, q))
+        periods = _kbs_periods(resp, yearly)
+        if periods is None:
+            continue
         content = resp.get("Content") or {}
         recs = [r for v in content.values() if isinstance(v, list) for r in v]
-        items = [{"key": i, "en": r.get("NameEn"), "vi": r.get("Name")} for i, r in enumerate(recs)]
+        items = [{"key": i, "en": r.get("NameEn"), "vi": r.get("Name"),
+                  "has": any(r.get(f"Value{j}") is not None for j in range(1, len(periods) + 1))} for i, r in enumerate(recs)]
         fmap = match_items(items)
         rows = {}
         for i, canon in fmap.items():
@@ -298,13 +336,12 @@ def normalize_kbs(symbol: str, reports: list[dict], yearly: bool) -> pd.DataFram
                 v = pd.to_numeric(r.get(f"Value{j}"), errors="coerce")
                 rows.setdefault((y, q), {})[canon] = v
         if rows:
-            df = pd.DataFrame([{"year": y, "quarter": q, **v} for (y, q), v in rows.items()])
-            frames.append(df)
+            frames.append(pd.DataFrame([{"year": y, "quarter": q, **v} for (y, q), v in rows.items()]))
     if not frames:
         return pd.DataFrame()
     out = frames[0]
     for f in frames[1:]:
-        out = out.merge(f, on=["year", "quarter"], how="outer")
+        out = _coalesce(out.merge(f, on=["year", "quarter"], how="outer"))
     out = out.dropna(subset=["year"])
     out = _signs(_to_bn(out, div=1e6))   # KBS (unit=1000) trả theo nghìn đồng -> tỷ đồng
     out["year"] = out["year"].astype("Int64")
@@ -325,6 +362,18 @@ def finalize(df: pd.DataFrame) -> pd.DataFrame:
         df["gross_profit"] = df["revenue"] - df["cogs"]
     df["ni_parent"] = df["ni_parent"].fillna(df["net_income"])
     df["net_income"] = df["net_income"].fillna(df["ni_parent"])
+    # chỉ tiêu suy ra khi nguồn thiếu (đánh dấu trong cột "derived" để trang mã ghi rõ)
+    der = pd.Series("", index=df.index)
+    m = df["equity"].isna() & df["total_assets"].notna() & df["total_liab"].notna()
+    df.loc[m, "equity"] = df.loc[m, "total_assets"] - df.loc[m, "total_liab"]
+    der[m] += "equity "
+    m = df["pbt"].isna() & df["net_income"].notna() & df["tax"].notna()
+    df.loc[m, "pbt"] = df.loc[m, "net_income"] + df.loc[m, "tax"]
+    der[m] += "pbt "
+    m = df["shares"].isna() & (df["charter_cap"] > 0)          # vốn góp (tỷ đồng) ÷ mệnh giá 10.000đ → triệu cổ phiếu
+    df.loc[m, "shares"] = df.loc[m, "charter_cap"] / 10
+    der[m] += "shares "
+    df["derived"] = der.str.strip().replace("", np.nan)
     df["debt"] = df[["st_debt", "lt_debt"]].sum(axis=1, min_count=1)
     df["fcf"] = df["cfo"] + df["capex"].fillna(0)
     df["year"] = df["year"].astype(int)

@@ -120,7 +120,7 @@ def event_flag(close: pd.Series | None) -> dict | None:
 
 
 def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: dict,
-          mos_pct: float, event: dict | None = None, liq_bn: float | None = None) -> dict:
+          mos_pct: float, event: dict | None = None, liq_bn: float | None = None, mkt: dict | None = None) -> dict:
     price = fa.get("price")
     rf = cfg.get("risk_free", 3.2) / 100
     erp = cfg.get("equity_risk_premium", 8.0) / 100
@@ -239,9 +239,39 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
     methods = [m for m in methods if m["value"] and m["value"] > 0]
     if not [m for m in methods if m["w"] > 0]:
         methods = []
+    fallback = None
     if not methods:
-        return {"ok": False, "reason": "Không đủ số liệu để định giá (lỗ, vốn âm hoặc thiếu BCTC)",
-                "ke": _r(ke * 100, 2), "beta": _r(b, 2)}
+        # Định giá dự phòng (mã lỗ / thiếu mặt bằng ngành): vẫn cho một con số tham khảo, ghi rõ cách tính và độ tin cậy thấp.
+        mk_ = mkt or {}
+        shares = fa.get("shares_mn")
+        rev = fa.get("revenue_ttm")
+        why = []
+        if bvps and bvps > 0:
+            pbx = pb_ind or hist.get("pb_med") or mk_.get("pb")
+            if pbx and pbx > 0:
+                k_ = 0.7 if (fa.get("ni_ttm") or 0) <= 0 else 1.0      # đang lỗ: chiết khấu 30% so với mặt bằng
+                pbx = float(np.clip(pbx * k_, 0.2, 5))
+                src_ = "mâm ngành" if pb_ind else ("lịch sử của mã" if hist.get("pb_med") else "trung vị thị trường")
+                methods.append({"key": "pb_fb", "mult": pbx, "name": f"P/B dự phòng {pbx:.2f}x ({src_}{' × 0,7 vì đang lỗ' if k_ < 1 else ''}) × BVPS",
+                                "value": _r(pbx * bvps / 1000), "w": 0.5, "range": [_r(pbx * 0.8 * bvps / 1000), _r(pbx * 1.2 * bvps / 1000)]})
+        else:
+            why.append("vốn chủ sở hữu âm" if (fa.get("equity_bn") or 0) < 0 else "không có giá trị sổ sách")
+        if rev and rev > 0 and shares and ctype == "CT":
+            psx = peers.get("ps_ind_med") or mk_.get("ps")
+            if psx and psx > 0:
+                psx = float(np.clip(psx * (0.6 if (fa.get("ni_ttm") or 0) <= 0 else 1.0), 0.05, 10))
+                rps = rev * 1000 / shares
+                methods.append({"key": "ps_fb", "mult": psx, "name": f"P/S dự phòng {psx:.2f}x ({'mâm ngành' if peers.get('ps_ind_med') else 'trung vị thị trường'}{' × 0,6 vì đang lỗ' if (fa.get('ni_ttm') or 0) <= 0 else ''}) × doanh thu/CP",
+                                "value": _r(psx * rps / 1000), "w": 0.5, "range": [_r(psx * 0.8 * rps / 1000), _r(psx * 1.2 * rps / 1000)]})
+        elif not rev or rev <= 0:
+            why.append("không có doanh thu")
+        methods = [m for m in methods if m["value"] and m["value"] > 0]
+        if not methods:
+            r_ = ("Không định giá được theo cơ bản: " + (", ".join(why) or "thiếu số cổ phiếu") +
+                  (" và đang lỗ" if (fa.get("ni_ttm") or 0) <= 0 else "") + " – không phương pháp nào cho giá trị dương.")
+            return {"ok": False, "reason": r_, "ke": _r(ke * 100, 2), "beta": _r(b, 2)}
+        fallback = ("Định giá dự phòng: DN " + ("đang lỗ" if (fa.get("ni_ttm") or 0) <= 0 else "thiếu số liệu cho P/E, DCF") +
+                    " nên chỉ dùng P/B / P/S so với mặt bằng – con số mang tính tham khảo, độ tin cậy thấp.")
     # cắt bớt giá trị lệch quá xa (> 2.5 lần trung vị) để tránh 1 phương pháp kéo lệch
     act = [m for m in methods if m["w"] > 0]
     med = float(np.median([m["value"] for m in act]))
@@ -307,6 +337,10 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
               "Lịch sử VN: mã \"rẻ\" kiểu này 6 tháng sau kém bình quân ~4%. Không vào lệnh mới cho tới khi BCTC quý sau xác nhận.")
         warning = f"{warning} {w3}" if warning else w3
         flag = "det"
+    if fallback:
+        reliable = False
+        flag = flag or "fallback"
+        warning = f"{fallback} {warning}" if warning else fallback
     if event:
         reliable = False
         flag = "event"
@@ -324,6 +358,8 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
         verdict = "n/a"
     elif event:
         verdict = "Có sự kiện – chưa định giá"
+    elif fallback:
+        verdict = "Định giá dự phòng – tham khảo"
     elif not reliable:
         verdict = "Chưa đáng tin – cần rà lại"
     elif price <= buy_below:

@@ -39,11 +39,32 @@ async function load(path) {
   return (cache[path] = await r.json());
 }
 async function tryLoad(path) { try { return await load(path); } catch (e) { return null; } }
-function toast(msg) {
-  const t = document.createElement("div");
-  t.className = "toast"; t.textContent = msg;
-  document.body.appendChild(t);
-  setTimeout(() => t.remove(), 2600);
+function toast(msg, o = {}) {
+  msg = String(msg ?? "");
+  const tp = o.type || (/^(⛔|❌|Lỗi|Error|Không lưu|Chưa lưu được)/i.test(msg) ? "err" : /^(⚠️|Chưa|Không|Cần|Hãy)/.test(msg) ? "warn" : /^(✅|Đã|Đang lưu|Saved)/.test(msg) ? "ok" : "info");
+  const ICO = { ok: "✓", warn: "!", err: "✕", info: "i" };
+  let box = document.getElementById("toasts");
+  if (!box) { box = document.createElement("div"); box.id = "toasts"; box.setAttribute("aria-live", "polite"); document.body.appendChild(box); }
+  [...box.children].filter((x) => !x.classList.contains("out")).slice(0, -2).forEach((x) => x.__out?.());      // giữ tối đa 3 thẻ
+  const body = msg.replace(/^(✅|⚠️|⛔|❌)\s*/u, "");
+  const t = document.createElement("div"), ms = o.ms || (o.title ? 6500 : tp === "err" ? 6000 : tp === "warn" ? 4500 : 3200);
+  t.className = `toast t-${tp}${o.title ? " ban" : ""}${o.href ? " lnk" : ""}`; t.setAttribute("role", tp === "err" ? "alert" : "status");
+  t.innerHTML = `<span class="ti"></span><span class="tb"><b></b>${o.title ? "<small></small>" : ""}</span>${o.title ? `<time>bây giờ</time>` : ""}<button type="button" class="tx" aria-label="Đóng">✕</button><i class="tp" style="animation-duration:${ms}ms"></i>`;
+  t.querySelector(".ti").textContent = o.icon || ICO[tp];
+  t.querySelector("b").textContent = o.title ? (o.icon && o.title.startsWith(o.icon) ? o.title.slice(o.icon.length).trim() : o.title) : body; if (o.title) t.querySelector("small").textContent = body;
+  box.appendChild(t);
+  let gone = false, y0 = null, left = ms, t0 = Date.now(), tm = 0;
+  const out = () => { if (gone) return; gone = true; clearTimeout(tm); t.classList.add("out"); setTimeout(() => t.remove(), 320); };
+  const run = () => { t0 = Date.now(); clearTimeout(tm); tm = setTimeout(out, left); t.classList.remove("hold"); };
+  t.__out = out;
+  t.addEventListener("mouseenter", () => { left = Math.max(800, left - (Date.now() - t0)); clearTimeout(tm); t.classList.add("hold"); });
+  t.addEventListener("mouseleave", run);
+  t.querySelector(".tx").addEventListener("click", (e) => { e.stopPropagation(); out(); });
+  t.addEventListener("touchstart", (e) => { y0 = e.touches[0].clientY; t.style.transition = "none"; }, { passive: true });
+  t.addEventListener("touchmove", (e) => { if (y0 != null) t.style.transform = `translateY(${Math.min(0, e.touches[0].clientY - y0)}px)`; }, { passive: true });
+  t.addEventListener("touchend", (e) => { if (y0 == null) return; const dy = e.changedTouches[0].clientY - y0; y0 = null; t.style.transition = ""; t.style.transform = ""; if (dy < -24) { t.__swiped = 1; out(); } });
+  t.addEventListener("click", () => { if (t.__swiped) return; out(); if (o.href) location.hash = o.href.replace(/^[^#]*#/, "#"); });
+  run();
 }
 function scoreColor(v) {
   if (!isNum(v)) return "var(--sunk)";
@@ -423,6 +444,7 @@ async function route() {
     else if (r === "digest") { setTab("digest"); await viewDigest(arg[0]); }
     else if (r === "account") { setTab(""); await viewAccount(); }
     else if (r === "admin") { setTab(""); await viewAdmin(arg[0]); }
+    else if (r === "health") { setTab(""); await viewHealth(); }
     else if (r === "notifications") { setTab(""); await viewNotifications(); }
     else if (r === "market") { setTab("market"); await viewMarket(); }
     else if (r === "swing") { setTab("swing"); await viewSwing(arg[0]); }
@@ -2455,7 +2477,8 @@ async function viewStock(sym, tabArg) {
   catch (e) {
     const r = rows.find((x) => x.symbol === sym);
     app().innerHTML = r ? `<div class="ph"><h1>${sym}</h1><span class="meta">${esc(r.exchange)} · ${esc(r.mam || r.sector || "")}</span></div><div class="panel"><p>${esc(r.name)} – thanh khoản quá thấp (${nf(r.avg_value_bn, 2)} tỷ/ngày) nên hệ thống không phân tích sâu.</p>
-      ${kpis([["Giá", nf(r.price)], ["P/E", nf(r.pe, 1)], ["P/B", nf(r.pb)], ["ROE", pct(r.roe, 1, false)], ["Cổ tức", pct(r.div_yield, 1, false)], ["Vốn hoá", mcapFmt(r.mcap_bn)]])}</div>`
+      ${kpis([["Giá", nf(r.price)], ["P/E", nf(r.pe, 1)], ["P/B", nf(r.pb)], ["ROE", pct(r.roe, 1, false)], ["Cổ tức", pct(r.div_yield, 1, false)], ["Vốn hoá", mcapFmt(r.mcap_bn)]])}
+      <p class="muted">Chưa có trang phân tích: ${isNum(r.pe) || isNum(r.pb) ? "lịch sử giá quá ngắn (< 30 phiên)" : "chưa tải được BCTC – hệ thống thử lại ở các lượt chạy tới"}.</p></div>${bctcPanel(null, sym)}`
       : `<div class="empty">Không tìm thấy mã ${esc(sym)}.</div>`;
     return;
   }
@@ -2850,14 +2873,28 @@ function tabSmart(d) {
   ${panel("Order Flow – dòng lệnh chủ động", ofBlock, of.ok ? `${of.days} phiên đã lưu` : "", "sec")}`;
 }
 
+// Nguồn & độ đầy đủ của BCTC: kỳ gần nhất, nguồn, chỉ tiêu phải suy ra, chậm kỳ, link BCTC gốc
+const SRC_NAME = { VCI: "Vietcap IQ", KBS: "KB Securities", TCBS: "TCBS" };
+function bctcPanel(b, sym) {
+  b = b || { links: [{ t: "Tải BCTC gốc (PDF) – Vietstock", u: `https://finance.vietstock.vn/${sym}/tai-tai-lieu.htm` }, { t: "Bảng BCTC chi tiết – Vietstock", u: `https://finance.vietstock.vn/${sym}/tai-chinh.htm` }] };
+  const st = !b.ok ? ["sell", "Chưa có BCTC"] : b.late || (b.missing || []).length ? ["warn", "Thiếu / chậm"] : ["buy", "Đầy đủ"];
+  const notes = [b.why, b.late, (b.missing || []).length ? `Nguồn chưa có: ${b.missing.join(", ")} – các chỉ số dùng chỉ tiêu này để trống.` : "",
+    ...(b.derived || []).map((x) => `Suy ra: ${x}`)].filter(Boolean);
+  return panel("Nguồn báo cáo tài chính", `<div class="bctc">
+    ${kpis([["Tình trạng", `<span class="pill ${st[0]}">${st[1]}</span>`], ["Kỳ gần nhất", esc(b.period || "—")], ["Kỳ cần có", esc(b.expected || "—"), "", "Quý gần nhất mà mọi DN đã hết hạn công bố BCTC"],
+      ["Nguồn số liệu", esc(SRC_NAME[b.source] || b.source || "—")], ["Số quý / năm", b.ok ? `${nf(b.n_q, 0)} / ${nf(b.n_y, 0)}` : "—"]])}
+    ${notes.length ? `<ul class="bnotes">${notes.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+    <div class="blinks">${(b.links || []).map((l) => `<a class="chip" href="${esc(l.u)}" target="_blank" rel="noopener">📄 ${esc(l.t)}${l.d ? ` <small class="faint">${esc(l.d)}</small>` : ""}</a>`).join("")}</div></div>`, "đối chiếu với BCTC gốc", "sec");
+}
+
 function tabFund(d) {
   const fa = d.fa || {};
-  if (!fa.ok) return `<div class="empty">${esc(fa.reason || "Chưa có báo cáo tài chính.")}</div>`;
+  if (!fa.ok) return `<div class="empty">${esc(fa.reason || "Chưa có báo cáo tài chính.")}</div>${bctcPanel(d.bctc, d.symbol)}`;
   const h = d.history || {};
   const isBank = fa.ctype !== "CT";
   const dv = fa.dividend || {};
   const k1 = isBank ? ["toi", "ni_parent"] : ["revenue", "ni_parent"], n1 = isBank ? ["Tổng thu nhập HĐ", "LN cổ đông mẹ"] : ["Doanh thu", "LN cổ đông mẹ"];
-  return `<div class="g g2">
+  return `${bctcPanel(d.bctc, d.symbol)}<div class="g g2">
     ${panel("Kết quả kinh doanh theo quý", barsSvg(h.quarterly || [], k1, [css("--brand"), css("--up")], n1), "tỷ đồng")}
     ${panel("Theo năm", barsSvg(h.annual || [], k1, [css("--brand"), css("--up")], n1), "tỷ đồng")}
     ${panel("Dòng tiền theo năm", barsSvg(h.annual || [], ["cfo", "capex", "fcf"], [css("--floor"), css("--down"), css("--up")], ["Dòng tiền KD", "Đầu tư TSCĐ", "Dòng tiền tự do"]), "tỷ đồng")}
@@ -3038,7 +3075,15 @@ function mktView(d, compact = false) {
 }
 function tabVal(d) {
   const v = d.valuation || {};
-  if (!v.ok || !v.model) return `<div class="empty">${esc(v.reason || "Không đủ số liệu để dự phóng (doanh nghiệp lỗ, vốn chủ âm hoặc thiếu BCTC).")}</div>`;
+  if (v.ok && !v.model) {   // định giá không có mô hình dự phóng (DN lỗ / thiếu số liệu): vẫn trình bày các phương pháp đã dùng
+    const ms = (v.methods || []).filter((m) => isNum(m.value));
+    return panel("Giá trị hợp lý", `${v.warning ? `<p class="note">${esc(v.warning)}</p>` : ""}
+      ${kpis([["Kết luận", esc(v.verdict || "—")], ["Hợp lý", nf(v.fair)], ["Khoảng", `${nf(v.fair_lo)}–${nf(v.fair_hi)}`], ["So với giá", pct(v.upside), cls(v.upside)]])}
+      <div class="tw sec"><table><thead><tr><th class="l">Phương pháp</th><th>Giá trị/cp</th><th>Khoảng</th><th>Trọng số</th></tr></thead><tbody>
+      ${ms.map((m) => `<tr><td class="l">${esc(m.name)}</td><td>${nf(m.value)}</td><td>${m.range ? `${nf(m.range[0])}–${nf(m.range[1])}` : "—"}</td><td>${isNum(m.w_eff) ? pct(m.w_eff * 100, 0, false) : "—"}</td></tr>`).join("")}</tbody></table></div>
+      <p class="faint" style="font-size:.74rem;margin-top:6px">Không lập được mô hình dự phóng 5 năm (DCF, DDM) vì doanh nghiệp đang lỗ hoặc thiếu chỉ tiêu – con số chỉ để tham khảo, hệ thống không đưa mã vào danh sách MUA theo định giá này.</p>`, "nghìn đồng/cp");
+  }
+  if (!v.ok || !v.model) return `<div class="empty">${esc(v.reason || "Không đủ số liệu để dự phóng (doanh nghiệp lỗ, vốn chủ âm hoặc thiếu BCTC).")}</div>${bctcPanel(d.bctc, d.symbol)}`;
   const a = v.model.assumptions;
   return `<div class="g g-main"><div class="stack">
     ${panel("Giá trị hợp lý", `${corpBox(d.fa)}<div id="vOut"></div>`)}
@@ -6015,12 +6060,38 @@ function clearLocal() { ["portfolio", "assumptions", "groups", "profile", "journ
 async function logout() { await api("auth/logout", "POST").catch(() => {}); clearLocal(); location.href = "/login"; }
 
 // ---- trang quản trị
+// ================================================================ SỨC KHOẺ DỮ LIỆU (BCTC & định giá) – kiểu bảng chẩn đoán của my-bit
+async function viewHealth() {
+  const H = await tryLoad("data/health.json");
+  if (!H) { app().innerHTML = `<div class="empty">Chưa có báo cáo sức khoẻ dữ liệu – sẽ có sau lượt cập nhật kế tiếp.</div>`; return; }
+  const c = H.count || {}, n = c.symbols || 1, P = (x) => pct((100 * (x || 0)) / n, 0, false);
+  const card = (k, v, sub, cl = "") => `<div class="hl-c"><small>${k}</small><b class="${cl}">${v}</b><small>${sub}</small></div>`;
+  const bar = (parts) => `<div class="hl-bar">${parts.map(([v, col, t]) => `<i style="width:${(100 * v) / n}%;background:${col}" title="${esc(t)}: ${nf(v, 0)}"></i>`).join("")}</div>`;
+  const syms = (L) => `<div class="hl-list">${(L || []).map((x) => `<a class="chip" href="#/s/${x}" title="${esc(JSON.stringify((H.detail || {})[x] || {}))}">${x}</a>`).join("") || '<span class="muted">không có</span>'}</div>`;
+  const src = Object.entries(c.src || {}).map(([k, v]) => `${esc(SRC_NAME[k] || k)} ${nf(v, 0)}`).join(" · ");
+  app().innerHTML = `<div class="ph"><h1>Sức khoẻ dữ liệu</h1><span class="meta">cập nhật ${esc(H.at)} · ${nf(n, 0)} mã · kỳ BCTC cần có ${esc(c.expected)}</span></div>
+    <section class="panel"><div class="hl-g">
+      ${card("Có BCTC", nf(c.with_fin, 0), P(c.with_fin) + " số mã", c.with_fin === n ? "up" : "")}
+      ${card("Có định giá", nf(c.valued, 0), `${P(c.valued)} · đáng tin ${nf(c.reliable, 0)}`, c.valued >= c.with_fin ? "up" : "")}
+      ${card("BCTC chậm kỳ", nf(c.late, 0), `kỳ gần nhất cũ hơn ${esc(c.expected)}`, c.late ? "ref" : "up")}
+      ${card("Thiếu chỉ tiêu", nf(c.missing, 0), "doanh thu / LNST / tài sản / vốn chủ / số CP", c.missing ? "ref" : "up")}
+      ${card("Có chỉ tiêu suy ra", nf(c.derived, 0), "vốn chủ, LNTT, số CP tính từ chỉ tiêu khác")}
+      ${card("Có trang phân tích", nf(c.pages, 0), P(c.pages) + " số mã")}</div>
+      ${bar([[c.reliable, css("--up"), "Định giá đáng tin"], [(c.valued || 0) - (c.reliable || 0), css("--brass"), "Định giá tham khảo"], [(c.with_fin || 0) - (c.valued || 0), css("--down"), "Có BCTC, chưa định giá"]])}
+      <p class="faint" style="font-size:.74rem">Xanh: định giá đáng tin · vàng: định giá tham khảo (lệch xa giá, dự phòng P/B–P/S…) · đỏ: có BCTC nhưng chưa định giá · xám: chưa có BCTC. Nguồn kỳ gần nhất: ${src || "—"}.</p></section>
+    ${panel("Vì sao chưa định giá", `<ul class="bnotes">${Object.entries(H.no_val_why || {}).map(([k, v]) => `<li>${esc(k)} – <b>${nf(v, 0)}</b> mã</li>`).join("") || "<li>Tất cả mã có BCTC đều đã định giá.</li>"}</ul>${syms(H.no_val)}`, "", "sec")}
+    ${panel(`Chưa có BCTC (${nf((H.no_fin || []).length, 0)})`, `<p class="faint" style="font-size:.78rem">Hệ thống tải dần mỗi lượt (mã có giao dịch trước), thử lại Vietcap khi lỗi, KBS dự phòng cho số năm.</p>${syms(H.no_fin)}`, "", "sec")}
+    ${panel("BCTC chậm kỳ", syms(H.late), "sắp theo thanh khoản", "sec")}
+    ${panel("Thiếu chỉ tiêu", syms(H.missing), "rê chuột lên mã để xem thiếu gì", "sec")}`;
+}
+
 async function viewAdmin(sub = "users") {
   if (!multiUser() || ME.role !== "admin") { app().innerHTML = `<div class="empty">Chỉ quản trị viên (chế độ nhiều người dùng).</div>`; return; }
   const tabs = [["users", "Người dùng"], ["invites", "Mã mời"], ["config", "Cấu hình"], ["audit", "Nhật ký"]];
+  if (sub === "health") { location.hash = "#/health"; return; }
   const st = await api("admin/stats").catch(() => ({}));
   const head = `<div class="ph"><h1>Quản trị</h1><span class="meta">${nf(st.users, 0)} tài khoản · ${nf(st.active, 0)} hoạt động · <b class="${st.pending ? "ref" : ""}">${nf(st.pending, 0)} chờ duyệt</b> · ${nf(st.pro, 0)} Pro · ${nf(st.active7, 0)} vào web 7 ngày · ${nf(st.push, 0)} thiết bị nhận đẩy · ${nf(st.notif7, 0)} thông báo 7 ngày</span></div>
-    <div class="views" style="margin-top:0">${tabs.map(([k, n]) => `<a class="btn ${k === sub ? "primary" : ""}" href="#/admin/${k}">${n}</a>`).join("")}</div>`;
+    <div class="views" style="margin-top:0">${tabs.map(([k, n]) => `<a class="btn ${k === sub ? "primary" : ""}" href="#/admin/${k}">${n}</a>`).join("")}<a class="btn" href="#/health">Sức khoẻ dữ liệu</a></div>`;
   if (sub === "users") {
     const j = await api("admin/users");
     const P = j.plans || {};
