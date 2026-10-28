@@ -1125,6 +1125,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             "style_levels": sty.levels_for(r, d["df"], cfg),
             "beta": r.get("beta"),
             "mos": mos,
+            "charts": fu.chart_pack(fq_s, fy_by.get(s), str(r.get("ctype") or "CT"), d["df"]["close"], dv_by.get(s), (d.get("fa") or {}).get("shares_mn")),
             "bctc": fh.block(s, fq_s, fy_by.get(s), _news_cat(s), last_date.date(), str(r.get("ctype") or "CT")),
         }
         dump(out_dir / "stocks" / f"{s}.json", detail)

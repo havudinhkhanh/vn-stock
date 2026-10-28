@@ -2707,6 +2707,7 @@ async function viewStock(sym, tabArg) {
     $("#tab").innerHTML = tabs[k](d);
     if (jump) { const st = $("#stabs"); const y = st.getBoundingClientRect().top + window.scrollY - stickTop(); if (window.scrollY > y) window.scrollTo({ top: y }); }
     if (k === "vl") bindVal(d);
+    if (k === "fa") finChartsBind(d);
     if (k === "rp") bindReport();
     if (k === "pe") bindPeerGroup(d);
     if (k === "sm") { L.smc = true; $$('[data-l="smc"]').forEach((b) => b.classList.add("on")); redraw(); }
@@ -2873,6 +2874,168 @@ function tabSmart(d) {
   ${panel("Order Flow – dòng lệnh chủ động", ofBlock, of.ok ? `${of.days} phiên đã lưu` : "", "sec")}`;
 }
 
+// ================================================================ BIỂU ĐỒ TÀI CHÍNH (kiểu Vietstock "Tài chính › Biểu đồ"): 12 biểu đồ, chọn Quý / Năm
+// fcSvg: cột (nhóm hoặc chồng, có số âm) + đường (trục trái / phải), lưới, nhãn kỳ, rê chuột xem số của mọi chuỗi trong kỳ, bấm chú thích để ẩn/hiện.
+const FCH = { id: 0, store: {} };
+const fcCompact = (v, unit) => {
+  if (!isNum(v)) return "";
+  if (unit === "%") return nf(v, Math.abs(v) < 10 ? 1 : 0);
+  if (unit === "x") return nf(v, Math.abs(v) < 10 ? 1 : 0);
+  const a = Math.abs(v);
+  return a >= 1e6 ? nf(v / 1e6, a >= 1e7 ? 0 : 1) + "tr" : a >= 1e3 ? nf(v / 1e3, a >= 1e4 ? 0 : 1) + "k" : nf(v, 0);
+};
+const fcFull = (v, unit) => (!isNum(v) ? "—" : unit === "%" ? nf(v, 1) + "%" : unit === "x" ? nf(v, 2) + "x" : unit === "đ" ? nf(v, 0) + " đ" : nf(v, 0) + " tỷ");
+function fcTicks(mn, mx, n = 4) {
+  if (!(mx > mn)) { mx = mn + 1; }
+  const raw = (mx - mn) / n, p = Math.pow(10, Math.floor(Math.log10(raw))), st = [1, 2, 2.5, 5, 10].map((k) => k * p).find((k) => k >= raw) || raw;
+  const lo = Math.floor(mn / st) * st, hi = Math.ceil(mx / st) * st, out = [];
+  for (let v = lo; v <= hi + st / 2; v += st) out.push(Math.round(v / st) * st);
+  return out;
+}
+function fcPath(pts) {   // đường cong mượt (Catmull-Rom → Bezier), ngắt khi thiếu số
+  let d = "", seg = [];
+  const flush = () => {
+    if (seg.length === 1) d += `M${seg[0][0]},${seg[0][1]}`;
+    else if (seg.length > 1) {
+      d += `M${seg[0][0]},${seg[0][1]}`;
+      for (let i = 0; i < seg.length - 1; i++) {
+        const p0 = seg[i - 1] || seg[i], p1 = seg[i], p2 = seg[i + 1], p3 = seg[i + 2] || p2, t = 0.18;
+        d += `C${p1[0] + (p2[0] - p0[0]) * t},${p1[1] + (p2[1] - p0[1]) * t} ${p2[0] - (p3[0] - p1[0]) * t},${p2[1] - (p3[1] - p1[1]) * t} ${p2[0]},${p2[1]}`;
+      }
+    }
+    seg = [];
+  };
+  pts.forEach((p) => (p ? seg.push(p) : flush())); flush();
+  return d;
+}
+function fcSvg(id) {
+  const C = FCH.store[id], rows = C.rows, hid = C.hidden;
+  const bars = C.bars.filter((s) => !hid.has(s.k)), lines = C.lines.filter((s) => !hid.has(s.k));
+  if (!rows.length || (!bars.length && !lines.length)) return `<div class="fc-empty">Chưa có số liệu</div>`;
+  const W = 420, H = 220, L = 40, R = C.lines.some((s) => s.axis === "r") ? 40 : 10, T = 10, B = 24, n = rows.length, gw = (W - L - R) / n;
+  // miền giá trị trục trái (cột + đường trái) & phải
+  let lv = [0];
+  if (C.stack) rows.forEach((r) => { let p = 0, m = 0; bars.forEach((s) => { const v = r[s.k]; if (isNum(v)) (v >= 0 ? (p += v) : (m += v)); }); lv.push(p, m); });
+  else rows.forEach((r) => bars.forEach((s) => isNum(r[s.k]) && lv.push(r[s.k])));
+  lines.filter((s) => s.axis !== "r").forEach((s) => rows.forEach((r) => isNum(r[s.k]) && lv.push(r[s.k])));
+  const rv = []; lines.filter((s) => s.axis === "r").forEach((s) => rows.forEach((r) => isNum(r[s.k]) && rv.push(r[s.k])));
+  const zeroL = bars.length > 0 || C.zero;
+  const tl = fcTicks(zeroL ? Math.min(0, ...lv) : Math.min(...lv.slice(1).length ? lv.slice(1) : [0]), Math.max(...lv)), [l0, l1] = [tl[0], tl[tl.length - 1]];
+  const yL = (v) => T + (1 - (v - l0) / (l1 - l0 || 1)) * (H - T - B);
+  let yR = null, tr = [];
+  if (rv.length) {   // trục phải: cùng số vạch với trục trái để lưới thẳng hàng
+    let mn = Math.min(...rv), mx = Math.max(...rv); const k = tl.length - 1;
+    if (mx === mn) { mn -= 1; mx += 1; }
+    // bước "đẹp" nhỏ nhất sao cho k vạch phủ hết [mn, mx]; nếu trục trái có vạch 0 thì cố đặt 0 của trục phải cùng hàng
+    const z = tl.indexOf(0), base = Math.pow(10, Math.floor(Math.log10((mx - mn) / k)) - 1);
+    let st = 0, lo = 0;
+    for (const m of [1, 2, 2.5, 5].flatMap((q) => [q, q * 10, q * 100, q * 1000])) {
+      const s_ = m * base; let l_ = Math.floor(mn / s_) * s_;
+      if (z > 0 && mn < 0 && mx > 0) l_ = -z * s_;
+      if (l_ <= mn + 1e-9 && l_ + s_ * k >= mx - 1e-9 && (!st || s_ < st)) { st = s_; lo = l_; }
+    }
+    if (!st) { st = (mx - mn) / k; lo = mn; }
+    tr = Array.from({ length: k + 1 }, (_, i) => +(lo + i * st).toFixed(6));
+    yR = (v) => T + (1 - (v - tr[0]) / (tr[k] - tr[0] || 1)) * (H - T - B);
+  }
+  const uL = (bars[0] || lines.find((s) => s.axis !== "r") || {}).u || "", uR = (lines.find((s) => s.axis === "r") || {}).u || "";
+  let s = `<svg viewBox="0 0 ${W} ${H}" class="fc-svg" preserveAspectRatio="none" role="img" aria-label="${esc(C.title)}">`;
+  tl.forEach((v) => { s += `<line x1="${L}" x2="${W - R}" y1="${yL(v)}" y2="${yL(v)}" class="${v === 0 ? "fc-z" : "fc-g"}"/><text x="${L - 5}" y="${yL(v) + 3.5}" text-anchor="end" class="fc-t">${fcCompact(v, uL)}</text>`; });
+  if (yR) tr.forEach((v) => { s += `<text x="${W - R + 5}" y="${yR(v) + 3.5}" class="fc-t">${fcCompact(v, uR)}</text>`; });
+  const every = Math.ceil(n / 8);
+  rows.forEach((r, i) => {
+    const x0 = L + i * gw;
+    if (C.stack) {
+      let p = 0, m = 0; const bw = Math.min(26, gw * 0.62), bx = x0 + (gw - bw) / 2;
+      bars.forEach((b) => { const v = r[b.k]; if (!isNum(v) || v === 0) return; const a = v >= 0 ? p : m, e = a + v; v >= 0 ? (p = e) : (m = e);
+        s += `<rect x="${bx}" y="${Math.min(yL(a), yL(e))}" width="${bw}" height="${Math.max(0.5, Math.abs(yL(e) - yL(a)))}" fill="${b.c}" rx="1.5"/>`; });
+    } else if (bars.length) {
+      const inner = Math.min(gw * 0.72, bars.length * 18), bw = inner / bars.length, bx = x0 + (gw - inner) / 2;
+      bars.forEach((b, j) => { const v = r[b.k]; if (!isNum(v)) return; s += `<rect x="${bx + j * bw + 0.5}" y="${Math.min(yL(v), yL(0))}" width="${Math.max(1, bw - 1.5)}" height="${Math.max(0.5, Math.abs(yL(v) - yL(0)))}" fill="${b.c}" rx="1.5"/>`; });
+    }
+    if (i % every === (n - 1) % every) s += `<text x="${x0 + gw / 2}" y="${H - 7}" text-anchor="middle" class="fc-t">${esc(r.p)}</text>`;
+  });
+  lines.forEach((ln) => {
+    const y = ln.axis === "r" ? yR : yL, pts = rows.map((r, i) => (isNum(r[ln.k]) ? [L + i * gw + gw / 2, y(r[ln.k])] : null));
+    s += `<path d="${fcPath(pts)}" fill="none" stroke="${ln.c}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"${ln.dash ? ' stroke-dasharray="4 3"' : ""}/>`;
+    pts.forEach((p) => p && (s += `<circle cx="${p[0]}" cy="${p[1]}" r="2.6" fill="var(--surface)" stroke="${ln.c}" stroke-width="1.6"/>`));
+  });
+  s += `<line class="fc-cur" x1="0" x2="0" y1="${T}" y2="${H - B}"/>`;
+  rows.forEach((r, i) => (s += `<rect class="fc-hit" data-i="${i}" x="${L + i * gw}" y="0" width="${gw}" height="${H - B}" fill="transparent"/>`));
+  return s + "</svg>";
+}
+function fcCard(C) {
+  const id = "fc" + ++FCH.id;
+  FCH.store[id] = { ...C, hidden: new Set(C.hide || []) };
+  const all = [...C.bars, ...C.lines];
+  const has = all.some((x) => C.rows.some((r) => isNum(r[x.k])));
+  return `<section class="fc-card${has ? "" : " fc-none"}" data-fc="${id}"><div class="fc-h"><b>${esc(C.title)}</b><small>${esc(C.sub || "")}</small></div>
+    <div class="fc-box">${fcSvg(id)}<div class="fc-tip"></div></div>
+    <div class="fc-leg">${all.filter((x) => C.rows.some((r) => isNum(r[x.k]))).map((x) => `<button type="button" data-fcs="${x.k}" class="${FCH.store[id].hidden.has(x.k) ? "off" : ""}"><i class="${C.bars.includes(x) ? "b" : "l"}" style="--c:${x.c}"></i>${esc(x.n)}</button>`).join("")}</div></section>`;
+}
+function fcBind(root) {
+  root.querySelectorAll(".fc-card").forEach((card) => {
+    const id = card.dataset.fc, box = card.querySelector(".fc-box"), tip = card.querySelector(".fc-tip");
+    const C = () => FCH.store[id];
+    box.addEventListener("mousemove", (e) => {
+      const h = e.target.closest(".fc-hit"); if (!h) { tip.style.display = "none"; return; }
+      const i = +h.dataset.i, c = C(), r = c.rows[i], svg = box.querySelector("svg"), cur = svg.querySelector(".fc-cur"), bb = svg.getBoundingClientRect(), vb = svg.viewBox.baseVal;
+      const cx = +h.getAttribute("x") + +h.getAttribute("width") / 2; cur.setAttribute("x1", cx); cur.setAttribute("x2", cx); cur.style.opacity = 1;
+      const items = [...c.bars, ...c.lines].filter((x) => !c.hidden.has(x.k) && isNum(r[x.k]));
+      tip.innerHTML = `<b>${esc(r.p)}</b>${items.map((x) => `<span><i style="background:${x.c}"></i>${esc(x.n)}<em>${fcFull(r[x.k], x.u)}</em></span>`).join("")}`;
+      tip.style.display = "block";
+      const px = (cx / vb.width) * bb.width, w = tip.offsetWidth;
+      tip.style.left = Math.max(0, Math.min(bb.width - w, px + (px > bb.width / 2 ? -w - 12 : 12))) + "px";
+    });
+    box.addEventListener("mouseleave", () => { tip.style.display = "none"; const cur = box.querySelector(".fc-cur"); if (cur) cur.style.opacity = 0; });
+    card.querySelectorAll("[data-fcs]").forEach((b) => (b.onclick = () => {
+      const c = C(), k = b.dataset.fcs; c.hidden.has(k) ? c.hidden.delete(k) : c.hidden.add(k);
+      b.classList.toggle("off", c.hidden.has(k)); box.querySelector("svg, .fc-empty").outerHTML = fcSvg(id);
+    }));
+  });
+}
+function finCharts(d, per) {
+  const P = d.charts; if (!P) return "";
+  const rows = P[per] || [], bank = P.bank, q = per === "q", sub = q ? "Theo quý" : "Theo năm", t = q ? " · 12 tháng" : "";
+  const c = { a: css("--floor"), b: css("--up"), c: css("--ref"), d: css("--ceil"), e: css("--down"), f: css("--brand"), g: css("--ink-3") };
+  const cards = [
+    { title: bank ? "Tăng trưởng thu nhập hoạt động" : "Tăng trưởng doanh thu", sub, rows, bars: [{ k: "rev", n: bank ? "Tổng thu nhập HĐ" : "Doanh thu thuần", c: c.a, u: "tỷ" }], lines: [{ k: "rev_g", n: q ? "Tăng trưởng cùng kỳ" : "Tăng trưởng", c: c.b, u: "%", axis: "r" }] },
+    { title: "Tăng trưởng lợi nhuận", sub, rows, bars: [{ k: "ni", n: "LNST cổ đông công ty mẹ", c: c.a, u: "tỷ" }], lines: [{ k: "ni_g", n: q ? "Tăng trưởng cùng kỳ" : "Tăng trưởng", c: c.b, u: "%", axis: "r" }] },
+    { title: "Biên lợi nhuận", sub: sub + t, rows, bars: [], lines: bank ? [{ k: "nm", n: "LNST / Tổng thu nhập HĐ", c: c.b, u: "%" }] :
+      [{ k: "gm", n: "Biên lợi nhuận gộp", c: c.c, u: "%" }, { k: "ebm", n: "Biên EBITDA", c: c.d, u: "%" }, { k: "om", n: "Biên LN từ HĐKD", c: c.f, u: "%" }, { k: "nm", n: "Biên LN ròng", c: c.a, u: "%" }] },
+    { title: "Định giá", sub: sub + " · cuối kỳ", rows, bars: [], lines: [{ k: "pe", n: "P/E", c: c.a, u: "x" }, { k: "pb", n: "P/B", c: c.d, u: "x", axis: "r" }] },
+    { title: "Dòng tiền", sub, rows, bars: [{ k: "cfo", n: "LCTT từ HĐ kinh doanh", c: c.a, u: "tỷ" }, { k: "cfi", n: "LCTT từ HĐ đầu tư", c: c.f, u: "tỷ" }, { k: "cff", n: "LCTT từ HĐ tài chính", c: c.c, u: "tỷ" }], lines: [] },
+    { title: "Hiệu quả sử dụng vốn", sub: sub + t, rows, bars: [], lines: [{ k: "roe", n: "ROE (vốn chủ bình quân)", c: c.b, u: "%" }, { k: "roa", n: "ROA (tài sản bình quân)", c: c.a, u: "%", axis: bank ? "r" : "l" }] },
+    { title: "Tài sản", sub, rows, stack: true, bars: bank ? [{ k: "loans", n: "Cho vay khách hàng", c: c.a, u: "tỷ" }, { k: "oa", n: "Tài sản khác", c: c.g, u: "tỷ" }] :
+      [{ k: "cash", n: "Tiền & tương đương tiền", c: c.a, u: "tỷ" }, { k: "sti", n: "Đầu tư tài chính ngắn hạn", c: c.f, u: "tỷ" }, { k: "rec", n: "Phải thu ngắn hạn", c: c.c, u: "tỷ" },
+        { k: "inv", n: "Hàng tồn kho", c: c.e, u: "tỷ" }, { k: "fa", n: "Tài sản cố định", c: c.b, u: "tỷ" }, { k: "oa", n: "Tài sản khác", c: c.g, u: "tỷ" }], lines: [] },
+    { title: "Nguồn vốn", sub, rows, stack: true, bars: bank ? [{ k: "dep", n: "Tiền gửi khách hàng", c: c.a, u: "tỷ" }, { k: "ol", n: "Nợ phải trả khác", c: c.g, u: "tỷ" }, { k: "eq", n: "Vốn chủ sở hữu", c: c.d, u: "tỷ" }] :
+      [{ k: "std", n: "Vay ngắn hạn", c: c.e, u: "tỷ" }, { k: "ltd", n: "Vay dài hạn", c: c.c, u: "tỷ" }, { k: "ol", n: "Nợ phải trả khác", c: c.g, u: "tỷ" }, { k: "eq", n: "Vốn chủ sở hữu", c: c.d, u: "tỷ" }], lines: [] },
+    { title: "Cấu trúc nợ", sub, rows, bars: [], lines: [{ k: "l_a", n: "Nợ phải trả / Tổng tài sản", c: c.e, u: "%" }, ...(bank ? [] : [{ k: "d_a", n: "Nợ vay / Tổng tài sản", c: c.b, u: "%" }])] },
+    { title: "ROE Dupont", sub: sub + t, rows, bars: [{ k: "roe", n: "ROE", c: c.a, u: "%" }], lines: [{ k: "nm", n: "Biên LN ròng", c: c.c, u: "%" }, ...(bank ? [] : [{ k: "at", n: "Vòng quay tài sản", c: c.b, u: "x", axis: "r" }]), { k: "lev", n: "Đòn bẩy (TS / vốn chủ)", c: c.d, u: "x", axis: "r" }] },
+    { title: "EPS và cổ tức", sub: sub + t, rows, bars: [{ k: "eps", n: "EPS 4 quý gần nhất", c: c.a, u: "đ" }], lines: [{ k: "dy", n: "Tỷ suất cổ tức tiền", c: c.b, u: "%", axis: "r" }] },
+    bank ? { title: "Cơ cấu thu nhập hoạt động", sub, rows, stack: true, bars: [{ k: "nii", n: "Thu nhập lãi thuần", c: c.a, u: "tỷ" }, { k: "nonii", n: "Thu nhập ngoài lãi", c: c.c, u: "tỷ" }], lines: [{ k: "pbt", n: "LN trước thuế", c: c.b, u: "tỷ" }] }
+      : { title: "Cơ cấu lợi nhuận trước thuế", sub, rows, stack: true, bars: [{ k: "op", n: "LN thuần từ HĐKD", c: c.a, u: "tỷ" }, { k: "oth", n: "Lợi nhuận khác", c: c.d, u: "tỷ" }], lines: [] },
+  ];
+  if (!q) { cards[10].bars[0].n = "EPS cả năm"; cards[10].sub = sub; }
+  return cards.map(fcCard).join("");
+}
+function finChartsPanel(d) {
+  if (!d.charts || !((d.charts.q || []).length || (d.charts.y || []).length)) return "";
+  const per = lsGet("fcPer", "q") === "y" && (d.charts.y || []).length ? "y" : (d.charts.q || []).length ? "q" : "y";
+  return `<section class="panel fc-wrap"><div class="ph"><h2>Biểu đồ tài chính</h2><span class="meta">tỷ đồng · rê chuột xem số, bấm chú thích để ẩn/hiện</span>
+    <span class="seg" id="fcPer" style="margin-left:auto"><button data-p="q" class="${per === "q" ? "on" : ""}">Quý</button><button data-p="y" class="${per === "y" ? "on" : ""}">Năm</button></span></div>
+    <div class="fc-grid" id="fcGrid">${finCharts(d, per)}</div></section>`;
+}
+function finChartsBind(d) {
+  const g = $("#fcGrid"); if (!g) return;
+  fcBind(g);
+  $$("#fcPer button").forEach((b) => (b.onclick = () => {
+    lsSet("fcPer", b.dataset.p); $$("#fcPer button").forEach((x) => x.classList.toggle("on", x === b));
+    g.innerHTML = finCharts(d, b.dataset.p); fcBind(g);
+  }));
+}
+
 // Nguồn & độ đầy đủ của BCTC: kỳ gần nhất, nguồn, chỉ tiêu phải suy ra, chậm kỳ, link BCTC gốc
 const SRC_NAME = { VCI: "Vietcap IQ", KBS: "KB Securities", TCBS: "TCBS" };
 function bctcPanel(b, sym) {
@@ -2894,10 +3057,11 @@ function tabFund(d) {
   const isBank = fa.ctype !== "CT";
   const dv = fa.dividend || {};
   const k1 = isBank ? ["toi", "ni_parent"] : ["revenue", "ni_parent"], n1 = isBank ? ["Tổng thu nhập HĐ", "LN cổ đông mẹ"] : ["Doanh thu", "LN cổ đông mẹ"];
-  return `${bctcPanel(d.bctc, d.symbol)}<div class="g g2">
-    ${panel("Kết quả kinh doanh theo quý", barsSvg(h.quarterly || [], k1, [css("--brand"), css("--up")], n1), "tỷ đồng")}
+  const fcp = finChartsPanel(d);
+  return `${fcp}${bctcPanel(d.bctc, d.symbol)}<div class="g g2">
+    ${fcp ? "" : `${panel("Kết quả kinh doanh theo quý", barsSvg(h.quarterly || [], k1, [css("--brand"), css("--up")], n1), "tỷ đồng")}
     ${panel("Theo năm", barsSvg(h.annual || [], k1, [css("--brand"), css("--up")], n1), "tỷ đồng")}
-    ${panel("Dòng tiền theo năm", barsSvg(h.annual || [], ["cfo", "capex", "fcf"], [css("--floor"), css("--down"), css("--up")], ["Dòng tiền KD", "Đầu tư TSCĐ", "Dòng tiền tự do"]), "tỷ đồng")}
+    ${panel("Dòng tiền theo năm", barsSvg(h.annual || [], ["cfo", "capex", "fcf"], [css("--floor"), css("--down"), css("--up")], ["Dòng tiền KD", "Đầu tư TSCĐ", "Dòng tiền tự do"]), "tỷ đồng")}`}
     ${panel(`Piotroski F-Score: ${fa.fscore ?? "—"}/9`, `<ul class="checks">${(fa.fscore_tests || []).map((t) => `<li class="${t.ok ? "ok" : ""}">${esc(t.name)}</li>`).join("")}</ul>`)}
   </div>
   ${panel("Sức khoẻ & hiệu quả", kpis([["ROE TB 5 năm", pct(fa.roe_avg5, 1, false)], ["Độ lệch ROE 5N", nf(fa.roe_std5, 1)], ["Số năm lỗ", fa.loss_years], ["ROIC", pct(fa.roic, 1, false)],
