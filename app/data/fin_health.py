@@ -45,7 +45,7 @@ def links(sym: str, news: pd.DataFrame | None) -> list[dict]:
     return out
 
 
-def block(sym: str, qs: pd.DataFrame | None, ys: pd.DataFrame | None, news: pd.DataFrame | None, today: date) -> dict:
+def block(sym: str, qs: pd.DataFrame | None, ys: pd.DataFrame | None, news: pd.DataFrame | None, today: date, ctype: str = "CT") -> dict:
     """Thông tin BCTC cho trang mã: kỳ gần nhất, nguồn, chỉ tiêu suy ra, chậm kỳ, link."""
     ey, eq = expected_quarter(today)
     b = {"links": links(sym, news), "expected": f"Q{eq}/{ey}"}
@@ -60,7 +60,11 @@ def block(sym: str, qs: pd.DataFrame | None, ys: pd.DataFrame | None, news: pd.D
     dv = str(L.get("derived") or "").split() if isinstance(L.get("derived"), str) else []
     if dv:
         b["derived"] = [DERIVED[k] for k in dv if k in DERIVED]
-    miss = [LABEL[k] for k in KEY if k in L and (L[k] is None or (isinstance(L[k], float) and np.isnan(L[k])))]
+    na = lambda k: k not in L or L[k] is None or (isinstance(L[k], float) and np.isnan(L[k]))  # noqa: E731
+    keys = KEY if ctype == "CT" else tuple(k for k in KEY if k != "revenue")   # NH/CTCK/BH: không có "doanh thu thuần"
+    miss = [LABEL[k] for k in keys if na(k)]
+    if ctype != "CT" and na("toi") and na("nii") and na("revenue"):
+        miss.insert(0, "tổng thu nhập HĐ")
     if miss:
         b["missing"] = miss
     if q and (int(L["year"]), q) < (ey, eq):
@@ -77,7 +81,7 @@ def report(u: pd.DataFrame, details: dict, fq_by: dict, fy_by: dict, today: date
         has = (qs is not None and not qs.empty) or (ys is not None and not ys.empty)
         val = d.get("val") or {}
         fa = d.get("fa") or {}
-        bl = block(s, qs, ys, None, today) if has else {"ok": False}
+        bl = block(s, qs, ys, None, today, str(u.at[s, "ctype"]) if "ctype" in u else "CT") if has else {"ok": False}
         rows.append({"s": s, "fin": has, "period": bl.get("period"), "src": bl.get("source"), "late": bool(bl.get("late")),
                      "missing": bl.get("missing") or [], "derived": bool(bl.get("derived")), "page": s in details,
                      "val": bool(val.get("ok")), "reliable": bool(val.get("reliable")),
