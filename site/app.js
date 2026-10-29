@@ -6220,6 +6220,71 @@ function initSearch() {
   box.addEventListener("click", () => { box.hidden = true; q.value = ""; });
 }
 
+// ================================================================ MENU THẢ XUỐNG ĐỒNG NHẤT – thay bảng gợi ý của <datalist> và hộp chọn mặc định của trình duyệt
+// (trình duyệt vẽ 2 loại này theo kiểu riêng của hệ điều hành – nền trắng, chữ khác font). Điện thoại / màn cảm ứng: giữ bánh xe chọn gốc của máy.
+const POP = { el: null, host: null, items: [], sel: 0, pick: null };
+const fold = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").toLowerCase();
+function popClose() { if (POP.el) POP.el.remove(); if (POP.host) POP.host.removeAttribute("aria-expanded"); POP.el = POP.host = POP.pick = null; POP.items = []; }
+function popMove(d) { if (!POP.el || !POP.items.length) return; POP.sel = (POP.sel + d + POP.items.length) % POP.items.length; const b = $$(".pop-i", POP.el); b.forEach((x, i) => x.classList.toggle("on", i === POP.sel)); b[POP.sel]?.scrollIntoView({ block: "nearest" }); }
+function popOpen(host, items, pick, sel = 0) {
+  if (POP.el) POP.el.remove();
+  POP.host = host; POP.items = items; POP.pick = pick; POP.sel = Math.max(0, sel);
+  if (!items.length) { POP.el = null; return; }
+  const el = document.createElement("div"); el.className = "pop"; el.setAttribute("role", "listbox");
+  let gg = ""; el.innerHTML = items.map((it, i) => `${it.g && it.g !== gg ? `<p class="pop-g">${esc((gg = it.g))}</p>` : ""}<button type="button" class="pop-i${i === POP.sel ? " on" : ""}${it.cur ? " cur" : ""}" data-i="${i}" role="option"><span class="pop-l">${it.html || esc(it.label)}</span>${it.sub ? `<small>${esc(it.sub)}</small>` : ""}${it.right ? `<em>${it.right}</em>` : ""}</button>`).join("");
+  document.body.appendChild(el); POP.el = el; host.setAttribute("aria-expanded", "true");
+  const R = host.getBoundingClientRect(), w = Math.max(R.width, 200), H = Math.min(el.scrollHeight, 320), below = innerHeight - R.bottom - 8;
+  Object.assign(el.style, { left: Math.max(8, Math.min(R.left, innerWidth - w - 8)) + "px", minWidth: w + "px", maxHeight: (below < H && R.top > below ? Math.min(320, R.top - 12) : Math.min(320, Math.max(140, below))) + "px" });
+  el.style.top = (below < H && R.top > below ? R.top - Math.min(el.offsetHeight, R.top - 12) - 4 : R.bottom + 4) + "px";
+  el.querySelector(".pop-i.on")?.scrollIntoView({ block: "nearest" });
+  el.addEventListener("mousedown", (e) => e.preventDefault());           // giữ con trỏ trong ô nhập
+  el.addEventListener("click", (e) => { const b = e.target.closest(".pop-i"); if (b) { const it = POP.items[+b.dataset.i], f = POP.pick; popClose(); f?.(it); } });
+}
+const coarse = () => matchMedia("(pointer:coarse)").matches;
+function popSelect(s) {
+  const items = [...s.options].filter((o) => !o.hidden).map((o) => ({ v: o.value, label: o.textContent.trim(), cur: o.selected, dis: o.disabled, g: o.parentElement?.tagName === "OPTGROUP" ? o.parentElement.label : "" }));
+  popOpen(s, items.filter((x) => !x.dis), (it) => { if (s.value === it.v) return; s.value = it.v; s.dispatchEvent(new Event("input", { bubbles: true })); s.dispatchEvent(new Event("change", { bubbles: true })); }, items.filter((x) => !x.dis).findIndex((x) => x.cur));
+}
+function popList(inp) {
+  const dl = document.getElementById(inp.dataset.dl); if (!dl) return popClose();
+  const t = fold(inp.value.trim()), T = inp.value.trim().toUpperCase(), out = [];
+  for (const o of dl.options) {
+    const v = o.value, n = o.textContent.trim() || o.label || "";
+    if (t && !(v.toUpperCase().startsWith(T) || fold(n).includes(t))) continue;
+    out.push({ v, n, s: v.toUpperCase() === T ? 0 : v.toUpperCase().startsWith(T) ? 1 : 2 });
+    if (!t && out.length >= 8) break;
+  }
+  out.sort((a, b) => a.s - b.s);
+  const it = out.slice(0, 8).map(({ v, n }) => { const r = null; return { v, html: `<b>${esc(v)}</b>`, sub: n && n.toUpperCase() !== v ? n : (r?.n || ""), right: r ? `${px(r.p)} <i class="${cls(r.r1)}">${pct(r.r1, 1)}</i>` : "" }; });
+  if (it.length === 1 && it[0].v.toUpperCase() === T) return popClose();
+  popOpen(inp, it, (x) => { inp.value = x.v; inp.dispatchEvent(new Event("input", { bubbles: true })); inp.dispatchEvent(new Event("change", { bubbles: true })); });
+}
+function initPop() {
+  if (!/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)) $$(".kbtn span").forEach((x) => { if (x.textContent === "⌘K") x.textContent = "Ctrl K"; });
+  const strip = () => $$("input[list]").forEach((i) => { i.dataset.dl = i.getAttribute("list"); i.removeAttribute("list"); i.setAttribute("autocomplete", "off"); });
+  strip(); let rq = 0;
+  new MutationObserver(() => { if (!rq) rq = requestAnimationFrame(() => { rq = 0; strip(); }); }).observe(document.body, { childList: true, subtree: true });
+  document.addEventListener("focusin", (e) => { const i = e.target.closest?.("input[data-dl]"); if (i && !i.readOnly) popList(i); });
+  document.addEventListener("input", (e) => { const i = e.target.closest?.("input[data-dl]"); if (i && e.isTrusted) popList(i); });
+  document.addEventListener("focusout", (e) => { if (POP.host && e.target === POP.host) setTimeout(() => { if (document.activeElement !== POP.host) popClose(); }, 0); });
+  document.addEventListener("mousedown", (e) => {
+    const s = e.target.closest?.("select");
+    if (s && !s.multiple && !(s.size > 1) && !s.disabled && !coarse() && e.button === 0) { e.preventDefault(); s.focus(); if (POP.host === s) popClose(); else popSelect(s); return; }
+    if (POP.el && !POP.el.contains(e.target) && e.target !== POP.host) popClose();
+  }, true);
+  document.addEventListener("keydown", (e) => {
+    const a = document.activeElement;
+    if (a?.tagName === "SELECT" && !coarse() && !a.multiple && POP.host !== a && (e.key === " " || e.key === "Enter" || (e.altKey && e.key === "ArrowDown") || e.key === "F4")) { e.preventDefault(); popSelect(a); return; }
+    if (!POP.el || a !== POP.host) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); e.stopPropagation(); popMove(e.key === "ArrowDown" ? 1 : -1); }
+    else if (e.key === "Enter" || (e.key === " " && a.tagName === "SELECT")) { e.preventDefault(); e.stopPropagation(); const it = POP.items[POP.sel], f = POP.pick; popClose(); f?.(it); }
+    else if (e.key === "Escape" || e.key === "Tab") { if (e.key === "Escape") e.preventDefault(); popClose(); }
+  }, true);
+  addEventListener("scroll", (e) => { if (POP.el && !POP.el.contains(e.target)) popClose(); }, true);
+  addEventListener("resize", () => popClose()); addEventListener("hashchange", () => popClose());
+}
+
+
 // ================================================================ BẢNG ĐIỆN (dải chạy đầu trang)
 const LIMIT = { HOSE: 7, HNX: 10, UPCOM: 15 };
 function boardCls(chg, ex) {
@@ -6897,7 +6962,7 @@ function initHelpBtn() {
 (async function main() {
   ME = await fetchMe();
   if (!ME) { location.replace("/login?next=" + encodeURIComponent("/" + location.hash)); return; }
-  initTheme(); initSearch(); initGlobal(); GL.init(); initAccountUI(); initHelpBtn(); initRail(); plansData();
+  initTheme(); initSearch(); initPop(); initGlobal(); GL.init(); initAccountUI(); initHelpBtn(); initRail(); plansData();
   $("#pdfBtn")?.addEventListener("click", () => PDFX.dialog());
   paintUpd(); setInterval(paintUpd, 60000);
   WL.load().catch(() => {});

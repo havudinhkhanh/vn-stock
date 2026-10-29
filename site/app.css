@@ -1687,3 +1687,10 @@ main,.top-in{max-width:none!important}
   .tabs::-webkit-scrollbar{display:none}
   .tabs a{flex:none;white-space:nowrap}
 }
+/* menu thả xuống đồng nhất (thay hộp chọn mặc định của trình duyệt) */
+.pop{position:fixed;z-index:400;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.28);padding:4px;overflow:auto;overscroll-behavior:contain;font-size:.82rem;max-width:min(420px,calc(100vw - 16px))}
+.pop-i{display:flex;align-items:center;gap:8px;width:100%;padding:7px 10px;border:0;border-radius:7px;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;white-space:nowrap}
+.pop-i small{color:var(--ink-3);font-size:.74rem;overflow:hidden;text-overflow:ellipsis;min-width:0}.pop-i em{margin-left:auto;padding-left:12px;font-style:normal;font-variant-numeric:tabular-nums;font-size:.76rem;color:var(--ink-2)}
+.pop-i.on{background:var(--sunk)}.pop-i.cur{color:var(--brand);font-weight:600}.pop-i.cur::after{content:"✓";margin-left:auto;padding-left:12px}
+select[aria-expanded]{border-color:var(--brand)!important}
+.pop-g{margin:6px 10px 2px;font-size:.64rem;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-3)}
