@@ -738,6 +738,29 @@ function mkChart(el, extra = {}) {
   return c;
 }
 const ser = (t, v) => t.map((d, i) => (v[i] == null || Number.isNaN(v[i]) ? null : { time: d, value: v[i] })).filter(Boolean);
+// công cụ vẽ tay trên biểu đồ nến (đường xu hướng, Fibonacci, vùng, ghi chú…) – mã vẽ tải khi bấm ✏️ hoặc khi mã đã có hình vẽ
+const LAZY = {}, JSV = { "chartdraw.js": "__JSV_DRAW__" };
+function lazyJs(name) {
+  return (LAZY[name] ||= new Promise((ok, no) => {
+    const v = JSV[name] && !JSV[name].startsWith("__") ? JSV[name] : "", el = document.createElement("script");
+    el.src = name + (v ? "?v=" + v : ""); el.async = true;
+    el.onload = () => ok(); el.onerror = () => { delete LAZY[name]; el.remove(); no(new Error("Không tải được " + name + " – kiểm tra mạng rồi tải lại trang")); };
+    document.head.appendChild(el);
+  }));
+}
+function drawHook(el, c, s, o, dkey) {
+  if (!el || !dkey || el.clientHeight < 200) return;
+  const key = "draw_" + dkey;
+  if (el._cd && el._cd.c !== c) el._cd.destroy();
+  el.querySelector(":scope > .cd-tg")?.remove();
+  const b = document.createElement("button"); b.type = "button"; b.className = "cd-tg"; b.title = "Công cụ vẽ: đường xu hướng, Fibonacci, đường ngang, vùng, thước đo, ghi chú";
+  b.setAttribute("aria-label", "Công cụ vẽ"); b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>`;
+  if (getComputedStyle(el).position === "static") el.style.position = "relative";
+  el.appendChild(b);
+  const go = (open) => lazyJs("chartdraw.js").then(() => window.CDRAW.attach({ el, c, s, o, key, get: lsGet, set: lsSet, fmt: (p) => nf(p), pct: (v) => pct(v, 2), btn: b, open })).catch((e) => toast(e.message));
+  b.onclick = (e) => { e.stopPropagation(); go(true); };
+  if ((lsGet(key, []) || []).length) { b.classList.add("has"); go(false); }
+}
 function candleChart(el, o, opts = {}) {
   const c = mkChart(el);
   let cs;
@@ -754,6 +777,7 @@ function candleChart(el, o, opts = {}) {
     c.priceScale("vol").applyOptions({ scaleMargins: { top: 0.84, bottom: 0 } });
     vs.setData(o.t.map((d, i) => ({ time: d, value: o.v[i], color: o.c[i] >= (o.c[i - 1] ?? o.c[i]) ? css("--up") + "55" : css("--down") + "55" })));
   }
+  if (opts.dkey) drawHook(el, c, cs, o, opts.dkey);
   return { c, cs };
 }
 
@@ -1222,7 +1246,7 @@ async function viewMarket() {
   const drawIdx = () => {
     disposeCharts();
     const tf = lsGet("tfIx", "D"), TO = tfSeries(m.indices[st.idx]), o = TO[tf] || TO.D;
-    const { c } = candleChart($("#ixChart"), o);
+    const { c } = candleChart($("#ixChart"), o, { dkey: "IX_" + st.idx });
     const [f1, f2] = { D: [50, 200], W: [10, 40], M: [10, 24], Q: [4, 12], Y: [3, 5] }[tf];
     c.addLineSeries({ color: css("--brand"), lineWidth: 1, priceLineVisible: false, lastValueVisible: false }).setData(ser(o.t, IND.sma(o.c, f1)));
     c.addLineSeries({ color: css("--ref"), lineWidth: 1, priceLineVisible: false, lastValueVisible: false }).setData(ser(o.t, IND.sma(o.c, f2)));
@@ -2771,7 +2795,7 @@ async function viewStock(sym, tabArg) {
   curCharts.forEach((x) => { try { x.remove(); } catch (e) { /* đã huỷ */ } const k = charts.indexOf(x); if (k >= 0) charts.splice(k, 1); });
   curCharts = [];
   const tf = TFO[lsGet("tf", "D")] ? lsGet("tf", "D") : "D", o = TFO[tf], kf = TF_KEY[tf];
-  const { c, cs } = candleChart($("#pChart"), o);
+  const { c, cs } = candleChart($("#pChart"), o, { dkey: sym });
   chartPlus($("#pChart"), c, o, { sym });
   const C = o.c;
   const tset = new Set(o.t);
@@ -5931,7 +5955,7 @@ const DESK_R = {
     el.innerHTML = `<div class="dch-h"><a href="#/s/${X.sym}"><b>${X.sym}</b></a><span class="dpx ${boardCls(r.chg1d, r.exchange)}">${nf(r.price)}</span><span class="${cls(r.chg1d)}">${pct(r.chg1d, 2)}</span>
       <span class="sp"></span>${tfSeg("dkTf", tf, ["D", "W", "M"])}${chartModeSeg()}</div><div class="dchart"></div>`;
     const o = tfs[tf], box = $(".dchart", el);
-    const { c, cs } = candleChart(box, o);
+    const { c, cs } = candleChart(box, o, { dkey: X.sym });
     el._c = c;
     chartPlus(box, c, o, { sym: X.sym });
     [[20, "--floor"], [50, "--brand"], [200, "--ref"]].forEach(([n, col]) => { const s = c.addLineSeries({ color: css(col), lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }); s.setData(ser(o.t, IND.sma(o.c, n))); });

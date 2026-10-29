@@ -71,8 +71,23 @@ def stamp() -> None:
                                                  for p in ("/vendor/*", "/app.css", "/glossary.js")) + "\n", encoding="utf-8")
 
 
+def stamp_lazy() -> None:
+    """Tệp JS tải khi cần (chartdraw.js): ghi băm nội dung vào app.js (JSV) để luôn lấy bản mới khi đổi mã."""
+    import hashlib
+    app = SITE / "app.js"
+    if not app.exists():
+        return
+    js = app.read_text(encoding="utf-8")
+    for name, ph in (("chartdraw.js", "__JSV_DRAW__"),):
+        f = SITE / name
+        if f.exists() and ph in js:
+            js = js.replace(ph, hashlib.sha1(f.read_bytes()).hexdigest()[:10])
+    app.write_text(js, encoding="utf-8")
+
+
 if __name__ == "__main__":
-    for name, loader in (("app.js", "js"), ("glossary.js", "js"), ("app.css", "css")):
+    for name, loader in (("app.js", "js"), ("chartdraw.js", "js"), ("glossary.js", "js"), ("app.css", "css")):
         if (SITE / name).exists():
             minify(SITE / name, loader)
+    stamp_lazy()
     stamp()
