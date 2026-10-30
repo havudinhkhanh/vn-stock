@@ -38,6 +38,7 @@ from .analysis import events as evx
 from .analysis import peers as pr_
 from .analysis import stance as stn
 from .analysis import forecast as fc
+from .analysis import coreport as cr_
 from . import swing_build as swb
 from . import pairs_build as pab
 from . import personal as per_
@@ -301,6 +302,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         return None
     split_info: dict = {}
     fwd_by: dict = {}
+    cr_fwd: dict = {}
 
     def corp_view(sym: str, fa: dict, price: float, d_last) -> dict | None:
         """P/E quanh các đợt chia cổ tức: P/E đúng (số CP sau chia), P/E nếu tính theo số CP cũ, P/E trừ cổ tức tiền sắp nhận."""
@@ -591,6 +593,10 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             if len(br_) >= 2:
                 fwd_by[s] = {"roe1": br_[0].get("roe"), "roe2": br_[1].get("roe"), "roa1": br_[0].get("roa"), "roa2": br_[1].get("roa"),
                              "ni1": br_[0].get("ni"), "ni2": br_[1].get("ni")}
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            cr_fwd[s] = cr_.fwd_growth(val, fa.get("ni_ttm"), fa.get("revenue_ttm"))
         except Exception:  # noqa: BLE001
             pass
         if val.get("ok"):
@@ -1102,6 +1108,13 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
                 log.debug("mô tả sự kiện %s lỗi: %s", s_, ex)
         return H
 
+    try:      # hồ sơ doanh nghiệp: mốc ngành / thị trường + dữ liệu Vietcap IQ (cổ đông, nội bộ, sự kiện)
+        cr_stats = cr_.universe_stats(u, fq_by, fy_by, cr_fwd)
+        _pp = store.path("profiles.json")
+        cr_prof = json.loads(_pp.read_text(encoding="utf-8")) if _pp.exists() else {}
+    except Exception as e:  # noqa: BLE001
+        log.warning("Hồ sơ doanh nghiệp – mốc so sánh lỗi: %s", e)
+        cr_stats, cr_prof = {"mkt": {}, "ind": {}}, {}
     for s, d in details.items():
         r = u.loc[s]
         peers = pr_.members(u, s)
@@ -1160,6 +1173,11 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             "charts": fu.chart_pack(fq_s, fy_by.get(s), str(r.get("ctype") or "CT"), d["df"]["close"], dv_by.get(s), (d.get("fa") or {}).get("shares_mn")),
             "bctc": fh.block(s, fq_s, fy_by.get(s), _news_cat(s), last_date.date(), str(r.get("ctype") or "CT")),
         }
+        try:
+            detail["co"] = cr_.build(s, r, fq_s, fy_by.get(s), dv_by.get(s), d.get("fa") or {}, d.get("val"), d["df"]["close"], cr_prof.get(s), cr_stats,
+                                     {"pe": _f(r.get("pe_ind_med")), "pb": _f(r.get("pb_ind_med"))}, cr_fwd.get(s))
+        except Exception as e:  # noqa: BLE001
+            log.warning("Hồ sơ doanh nghiệp %s lỗi: %s", s, e)
         dump(out_dir / "stocks" / f"{s}.json", detail)
     try:   # kết quả kiểm chứng kịch bản giá (research/scenarios_test.py → app/analysis/scen_stats.json)
         sp_ = Path(__file__).parent / "analysis" / "scen_stats.json"

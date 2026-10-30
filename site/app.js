@@ -739,7 +739,7 @@ function mkChart(el, extra = {}) {
 }
 const ser = (t, v) => t.map((d, i) => (v[i] == null || Number.isNaN(v[i]) ? null : { time: d, value: v[i] })).filter(Boolean);
 // công cụ vẽ tay trên biểu đồ nến (đường xu hướng, Fibonacci, vùng, ghi chú…) – mã vẽ tải khi bấm ✏️ hoặc khi mã đã có hình vẽ
-const LAZY = {}, JSV = { "chartdraw.js": "__JSV_DRAW__" };
+const LAZY = {}, JSV = { "chartdraw.js": "__JSV_DRAW__", "coreport.js": "__JSV_COREP__" };
 function lazyJs(name) {
   return (LAZY[name] ||= new Promise((ok, no) => {
     const v = JSV[name] && !JSV[name].startsWith("__") ? JSV[name] : "", el = document.createElement("script");
@@ -2722,7 +2722,7 @@ async function viewStock(sym, tabArg) {
     <div style="flex-basis:100%">${actBar(sym, { label: true, held })}</div>
   </div>
   ${newsAlert(d)}
-  <div class="subtabs stick" role="tablist" id="stabs"><span class="stk-id" aria-hidden="true"><a href="#/s/${sym}" onclick="scrollTo({top:0});return false">${sym}</a><b>${nf(last)}</b><b class="${cls(chg)}">${pct(chg, 1)}</b><small>${esc(d.row?.peer_label || d.industry || "")}</small></span>${[["ov", "Tổng quan"], ["vl", "Dự phóng & định giá"], ["rp", "Báo cáo phân tích"], ["fa", "Cơ bản"], ["ta", "Kỹ thuật"], ["wv", "Sóng & mô hình"], ["sm", "Tạo lập & dòng tiền"], ["pe", "Cùng ngành"], ["news", "Tin tức"]]
+  <div class="subtabs stick" role="tablist" id="stabs"><span class="stk-id" aria-hidden="true"><a href="#/s/${sym}" onclick="scrollTo({top:0});return false">${sym}</a><b>${nf(last)}</b><b class="${cls(chg)}">${pct(chg, 1)}</b><small>${esc(d.row?.peer_label || d.industry || "")}</small></span>${[["ov", "Tổng quan"], ["co", "Hồ sơ"], ["vl", "Dự phóng & định giá"], ["rp", "Báo cáo phân tích"], ["fa", "Cơ bản"], ["ta", "Kỹ thuật"], ["wv", "Sóng & mô hình"], ["sm", "Tạo lập & dòng tiền"], ["pe", "Cùng ngành"], ["news", "Tin tức"]]
     .map(([k, n]) => `<button role="tab" data-t="${k}">${n}</button>`).join("")}</div>
   ${(() => { const C = ctxRecs(secs || {}, d.sector, d.industry), pm = d.peers?.median, M = C.mkt || {}, pe0 = fa.pe ?? r.pe, pb0 = fa.pb ?? r.pb;
     const b = pm && (isNum(pm.pe) || isNum(pm.pb)) ? { pe_med: pm.pe, pb_med: pm.pb } : C.ind || C.sec || {};
@@ -2983,7 +2983,8 @@ async function viewStock(sym, tabArg) {
 
   // ---- các tab
   const tabs = { ov: () => "", ta: tabTech, wv: (x) => `<div class="g g2"><section class="panel">${wavesBlock(x.waves)}</section><section class="panel"><div class="ph"><h2>Mức giá quan trọng</h2></div>${levelsKv(x.waves)}</section></div>`,
-    sm: tabSmart, fa: tabFund, vl: tabVal, rp: tabReport, pe: tabPeers, news: tabNews };
+    sm: tabSmart, fa: tabFund, vl: tabVal, rp: tabReport, pe: tabPeers, news: tabNews,
+    co: (x) => { if (window.CO_TAB) return window.CO_TAB(x); lazyJs("coreport.js").then(() => { if ($(".subtabs button.on")?.dataset.t === "co") { $("#tab").innerHTML = window.CO_TAB(x); window.CO_BIND(x); } }).catch((e) => toast(e.message)); return `<div class="empty">Đang tải hồ sơ doanh nghiệp…</div>`; } };
   const show = (k, jump) => {
     $$(".subtabs button").forEach((b) => b.classList.toggle("on", b.dataset.t === k));
     if (LS) { LS.grid.classList.toggle("onlychart", ["ta", "wv", "sm"].includes(k)); LS.grid.hidden = !["ov", "ta", "wv", "sm"].includes(k); LS.bar.hidden = k !== "ov"; }
@@ -2992,6 +2993,7 @@ async function viewStock(sym, tabArg) {
     if (k === "vl") bindVal(d);
     if (k === "fa") finChartsBind(d);
     if (k === "rp") bindReport();
+    if (k === "co" && window.CO_BIND) window.CO_BIND(d);
     if (k === "pe") bindPeerGroup(d);
     if (k === "sm") { L.smc = true; $$('[data-l="smc"]').forEach((b) => b.classList.add("on")); redraw(); }
   };

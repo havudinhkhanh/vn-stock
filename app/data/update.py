@@ -726,6 +726,46 @@ def update_owners(symbols: list[str], per_run: int = 300, refresh_days: int = 30
     log.info("Cổ đông lớn: %d mã lượt này · mã tổ chức %d mã · còn %d mã chờ", len(done), len(codes), max(0, len(todo) - len(done)))
 
 
+def update_profiles(symbols: list[str], per_run: int = 260, refresh_days: int = 7, budget_sec: float = 330) -> None:
+    """Hồ sơ doanh nghiệp (Vietcap IQ): cổ đông lớn & chức vụ, cơ cấu sở hữu (nhà nước / nước ngoài / tổ chức / HĐQT),
+    giao dịch nội bộ, sự kiện (cổ tức, ĐHCĐ, phát hành…), giới thiệu công ty. Lưu data/profiles.json, làm mới mỗi refresh_days ngày, mã thanh khoản cao trước."""
+    import json as _j
+    from ..analysis import coreport as cr
+    pth = store.path("profiles.json")
+    try:
+        P = _j.loads(pth.read_text(encoding="utf-8")) if pth.exists() else {}
+    except ValueError:
+        P = {}
+    t0, today = time.time(), pd.Timestamp.now().normalize()
+    age = lambda s: (today - pd.Timestamp(P[s]["fetched"])).days if s in P and P[s].get("fetched") else 10**6  # noqa: E731
+    todo = [s for s in symbols if age(s) >= refresh_days]
+    todo.sort(key=lambda s: (s in P, -age(s)))
+    done = 0
+    def g(url, **kw):
+        try:
+            return (get("VCI", url, timeout=20, **kw) or {}).get("data")
+        except FetchError:
+            return None
+    fr, to = (today - pd.Timedelta(days=3 * 365)).strftime("%Y%m%d"), (today + pd.Timedelta(days=60)).strftime("%Y%m%d")
+    for s in todo[:per_run]:
+        if time.time() - t0 > budget_sec:
+            break
+        sh = g(f"{vci.IQ}/v1/company/{s}/shareholder") or []
+        st = g(f"{vci.IQ}/v1/company/{s}/shareholder-structure") or {}
+        ins = g(f"{vci.IQ}/v1/company/{s}/insider-transaction", params={"page": 0, "size": 60})
+        ins = (ins.get("content") if isinstance(ins, dict) else ins) or []
+        ev = g(f"{vci.IQ}/v1/events", params={"ticker": s, "fromDate": fr, "toDate": to, "page": 0, "size": 60})
+        ev = (ev.get("content") if isinstance(ev, dict) else ev) or []
+        det = g(f"{vci.IQ}/v1/company/details", params={"ticker": s}) or {}
+        if not (sh or st or ins or ev or det):
+            continue
+        P[s] = {**cr.compact_profile(sh, st, ins, ev, det), "fetched": str(today.date())}
+        done += 1
+    if done:
+        tmp = pth.with_suffix(".tmp"); tmp.write_text(_j.dumps(P, ensure_ascii=False, default=str), encoding="utf-8"); tmp.replace(pth)
+    log.info("Hồ sơ doanh nghiệp: %d mã lượt này · đã có %d mã · còn %d mã chờ", done, len(P), max(0, len(todo) - done))
+
+
 def run(force_fin: bool = False, only: list[str] | None = None) -> None:
     listing = update_listing()
     exch = set(config.get("universe.exchanges", ["HOSE", "HNX", "UPCOM"]))
@@ -777,6 +817,10 @@ def run(force_fin: bool = False, only: list[str] | None = None) -> None:
             update_owners([s for s in liq_o if s in set(syms)], int(config.get("data.owners_per_run", 300)))
         except Exception as e:  # noqa: BLE001
             log.warning("Cổ đông lớn lỗi: %s", e)
+        try:
+            update_profiles([s for s in liq_o if s in set(syms)], int(config.get("data.profiles_per_run", 260)))
+        except Exception as e:  # noqa: BLE001
+            log.warning("Hồ sơ doanh nghiệp lỗi: %s", e)
         try:
             update_baskets(float(config.get("data.basket_budget_sec", 240)))
         except Exception as e:  # noqa: BLE001

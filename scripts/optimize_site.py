@@ -78,7 +78,7 @@ def stamp_lazy() -> None:
     if not app.exists():
         return
     js = app.read_text(encoding="utf-8")
-    for name, ph in (("chartdraw.js", "__JSV_DRAW__"),):
+    for name, ph in (("chartdraw.js", "__JSV_DRAW__"), ("coreport.js", "__JSV_COREP__")):
         f = SITE / name
         if f.exists() and ph in js:
             js = js.replace(ph, hashlib.sha1(f.read_bytes()).hexdigest()[:10])
@@ -86,7 +86,7 @@ def stamp_lazy() -> None:
 
 
 if __name__ == "__main__":
-    for name, loader in (("app.js", "js"), ("chartdraw.js", "js"), ("glossary.js", "js"), ("app.css", "css")):
+    for name, loader in (("app.js", "js"), ("chartdraw.js", "js"), ("coreport.js", "js"), ("glossary.js", "js"), ("app.css", "css")):
         if (SITE / name).exists():
             minify(SITE / name, loader)
     stamp_lazy()
