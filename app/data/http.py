@@ -30,6 +30,7 @@ BASE_HEADERS = {
 ORIGINS = {
     "VCI": "https://trading.vietcap.com.vn",
     "VCI_EVENTS": "https://trading.vietcap.com.vn",
+    "VCI_PROF": "https://trading.vietcap.com.vn",
     "TCBS": "https://tcinvest.tcbs.com.vn",
     "SSI": "https://iboard.ssi.com.vn",
     "VND": "https://dchart.vndirect.com.vn",
@@ -58,6 +59,7 @@ class Throttle:
 _THROTTLES = {
     "VCI": Throttle(4),
     "VCI_EVENTS": Throttle(1.5),
+    "VCI_PROF": Throttle(1.2),      # hồ sơ doanh nghiệp: chạy chậm, cuối lượt, không chen nguồn chính
     "TCBS": Throttle(3),
     "SSI": Throttle(3),
     "VND": Throttle(3),
@@ -69,7 +71,7 @@ _THROTTLES = {
 _local = threading.local()
 
 
-NO_RETRY = {"VCI_EVENTS"}
+NO_RETRY = {"VCI_EVENTS", "VCI_PROF"}
 
 
 def session(source: str = "") -> requests.Session:
@@ -112,7 +114,7 @@ class FetchError(RuntimeError):
 class Breaker:
     """Cầu dao: nguồn lỗi liên tiếp quá nhiều thì tạm ngắt, tránh kẹt cả lần chạy."""
 
-    LIMITS = {"VCI_EVENTS": 6}
+    LIMITS = {"VCI_EVENTS": 6, "VCI_PROF": 4}
 
     def __init__(self, limit: int = 12, cooldown: float = 240.0):
         self.limit, self.cooldown = limit, cooldown

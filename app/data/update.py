@@ -726,7 +726,7 @@ def update_owners(symbols: list[str], per_run: int = 300, refresh_days: int = 30
     log.info("Cổ đông lớn: %d mã lượt này · mã tổ chức %d mã · còn %d mã chờ", len(done), len(codes), max(0, len(todo) - len(done)))
 
 
-def update_profiles(symbols: list[str], per_run: int = 260, refresh_days: int = 7, budget_sec: float = 330) -> None:
+def update_profiles(symbols: list[str], per_run: int = 70, refresh_days: int = 7, budget_sec: float = 200) -> None:
     """Hồ sơ doanh nghiệp (Vietcap IQ): cổ đông lớn & chức vụ, cơ cấu sở hữu (nhà nước / nước ngoài / tổ chức / HĐQT),
     giao dịch nội bộ, sự kiện (cổ tức, ĐHCĐ, phát hành…), giới thiệu công ty. Lưu data/profiles.json, làm mới mỗi refresh_days ngày, mã thanh khoản cao trước."""
     import json as _j
@@ -740,10 +740,10 @@ def update_profiles(symbols: list[str], per_run: int = 260, refresh_days: int = 
     age = lambda s: (today - pd.Timestamp(P[s]["fetched"])).days if s in P and P[s].get("fetched") else 10**6  # noqa: E731
     todo = [s for s in symbols if age(s) >= refresh_days]
     todo.sort(key=lambda s: (s in P, -age(s)))
-    done = 0
+    done = miss = 0
     def g(url, **kw):
         try:
-            return (get("VCI", url, timeout=20, **kw) or {}).get("data")
+            return (get("VCI_PROF", url, timeout=12, **kw) or {}).get("data")
         except FetchError:
             return None
     fr, to = (today - pd.Timedelta(days=3 * 365)).strftime("%Y%m%d"), (today + pd.Timedelta(days=60)).strftime("%Y%m%d")
@@ -758,7 +758,12 @@ def update_profiles(symbols: list[str], per_run: int = 260, refresh_days: int = 
         ev = (ev.get("content") if isinstance(ev, dict) else ev) or []
         det = g(f"{vci.IQ}/v1/company/details", params={"ticker": s}) or {}
         if not (sh or st or ins or ev or det):
+            miss += 1
+            if miss >= 3:            # nguồn đang chậm / chặn: dừng ngay, để dành cho lần sau
+                log.warning("Hồ sơ doanh nghiệp: nguồn không trả dữ liệu 3 mã liên tiếp – dừng lượt này")
+                break
             continue
+        miss = 0
         P[s] = {**cr.compact_profile(sh, st, ins, ev, det), "fetched": str(today.date())}
         done += 1
     if done:
@@ -818,10 +823,6 @@ def run(force_fin: bool = False, only: list[str] | None = None) -> None:
         except Exception as e:  # noqa: BLE001
             log.warning("Cổ đông lớn lỗi: %s", e)
         try:
-            update_profiles([s for s in liq_o if s in set(syms)], int(config.get("data.profiles_per_run", 260)))
-        except Exception as e:  # noqa: BLE001
-            log.warning("Hồ sơ doanh nghiệp lỗi: %s", e)
-        try:
             update_baskets(float(config.get("data.basket_budget_sec", 240)))
         except Exception as e:  # noqa: BLE001
             log.warning("Rổ chỉ số / ETF lỗi: %s", e)
@@ -855,3 +856,10 @@ def run(force_fin: bool = False, only: list[str] | None = None) -> None:
             update_fin_backfill(listing, prices, syms, set(liquid_symbols(prices, float(config.get("universe.fin_min_avg_value_bn", 0.3)))))
         except Exception as e:  # noqa: BLE001
             log.warning("BCTC mã ít giao dịch lỗi: %s", e)
+    # hồ sơ doanh nghiệp (cổ đông, nội bộ, sự kiện, giới thiệu): sau cùng, chậm – không làm chậm / chặn các nguồn chính
+    if not only:
+        try:
+            update_profiles([s for s in liquid_symbols(prices, float(config.get("universe.fin_min_avg_value_bn", 0.3))) if s in set(syms)],
+                            int(config.get("data.profiles_per_run", 70)))
+        except Exception as e:  # noqa: BLE001
+            log.warning("Hồ sơ doanh nghiệp lỗi: %s", e)
