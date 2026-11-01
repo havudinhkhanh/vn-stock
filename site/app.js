@@ -7164,7 +7164,7 @@ function initHelpBtn() {
     if (m) drawBoard(t, m, meta);
   } catch (e) { /* chưa có dữ liệu */ }
   window.addEventListener("hashchange", route);
-  route();
+  Promise.resolve(route()).finally(() => window.__splashOut?.());      // trang đầu vẽ xong → tắt màn hình mở app
 })();
 
 // ================================================================ ĐIỆN THOẠI (kiểu iOS): thanh tab 5 mục + "Thêm" (bảng trượt từ dưới), khối dài thu gọn "Xem thêm"
