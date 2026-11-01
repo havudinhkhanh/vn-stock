@@ -8,8 +8,8 @@
   let invite = (hash.get("invite") || qs.get("invite") || "").toUpperCase();
   const msg = (t, ok) => { const m = $("#msg"); m.textContent = t || ""; m.className = "msg " + (ok ? "ok" : t ? "bad" : ""); };
   try {
-    const th = localStorage.getItem("vnstock_theme");
-    if (th) document.documentElement.dataset.theme = JSON.parse(th);
+    const th = JSON.parse(localStorage.getItem("vnstock_theme") || "null");
+    if (th) document.documentElement.dataset.theme = th === "system" ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : th;
   } catch (e) { /* bỏ qua */ }
 
   function show(pane) {

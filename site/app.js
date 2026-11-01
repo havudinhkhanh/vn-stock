@@ -6218,15 +6218,52 @@ async function viewCompare(arg) {
 }
 
 // ================================================================ khởi động
+const themeMeta = () => { const m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = document.documentElement.dataset.theme === "light" ? "#FFFFFF" : "#0B1119"; };
+// ---- giao diện Sáng / Tối / Theo hệ thống – menu kéo xuống kiểu iOS (UIMenu): dấu ✓ bên trái, biểu tượng bên phải, mở phóng ra từ nút.
+//      "Theo hệ thống" đổi theo cài đặt Sáng/Tối của iPhone / máy tính ngay khi máy đổi (kể cả chế độ Tự động theo giờ).
+const TH_MQ = matchMedia("(prefers-color-scheme: dark)");
+const TH_OPT = [["light", "Sáng", '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'],
+  ["dark", "Tối", '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>'],
+  ["system", "Theo hệ thống", '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>']];
+const thPref = () => { const v = lsGet("theme", "dark"); return TH_OPT.some((o) => o[0] === v) ? v : "dark"; };
+const thEff = (p = thPref()) => (p === "system" ? (TH_MQ.matches ? "dark" : "light") : p);
+const thSvg = (k, s = 18) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${(TH_OPT.find((o) => o[0] === k) || TH_OPT[1])[2]}</svg>`;
+function thIcon() {
+  const b = $("#theme"); if (!b) return; const p = thPref(), L = TH_OPT.find((o) => o[0] === p)[1];
+  b.innerHTML = thSvg(p === "system" ? "system" : p === "light" ? "light" : "dark"); b.title = `Giao diện: ${L}`; b.setAttribute("aria-label", `Giao diện: ${L}`);
+  b.setAttribute("aria-haspopup", "menu");
+  $$(".th-seg [data-thv]").forEach((x) => x.setAttribute("aria-checked", String(x.dataset.thv === p)));
+}
+function thApply(p, rerender = true) {
+  if (p) lsSet("theme", p);
+  const e = thEff(), ch = document.documentElement.dataset.theme !== e;
+  document.documentElement.dataset.theme = e; document.documentElement.dataset.thp = thPref();
+  if (typeof themeMeta === "function") themeMeta(); thIcon();
+  if (ch && rerender) { document.documentElement.classList.add("th-x"); setTimeout(() => { route(); setTimeout(() => document.documentElement.classList.remove("th-x"), 260); }, 20); }
+}
+TH_MQ.addEventListener?.("change", () => { if (thPref() === "system") thApply(); });
+function thClose() { const m = $("#thMenu"); if (!m) return; m.classList.add("out"); setTimeout(() => m.remove(), 180); $("#theme")?.setAttribute("aria-expanded", "false"); }
+function thMenu(anchor = $("#theme")) {
+  if ($("#thMenu")) { thClose(); return; }
+  const r = anchor.getBoundingClientRect(), p = thPref(), W = 250, vw = document.documentElement.clientWidth;
+  const left = Math.max(8, Math.min(vw - W - 8, r.right - W)), top = r.bottom + 8, sys = TH_MQ.matches ? "Tối" : "Sáng";
+  const m = document.createElement("div"); m.id = "thMenu"; m.className = "ios-menu";
+  m.innerHTML = `<div class="ios-menu-bg" data-x></div><div class="ios-menu-in" role="menu" aria-label="Giao diện" style="left:${left}px;top:${top}px;width:${W}px;transform-origin:${r.left + r.width / 2 - left}px -8px">
+    <div class="ios-menu-h">Giao diện</div>
+    ${TH_OPT.map(([k, t]) => `<button type="button" role="menuitemradio" aria-checked="${k === p}" data-thv="${k}"><span class="ios-ck">${k === p ? "✓" : ""}</span><span class="ios-t">${t}${k === "system" ? `<small>Đang: ${sys}</small>` : ""}</span>${thSvg(k, 19)}</button>`).join("")}</div>`;
+  document.body.appendChild(m); anchor.setAttribute("aria-expanded", "true");
+  m.querySelector("[data-x]").onclick = thClose;
+  $$("[data-thv]", m).forEach((b) => (b.onclick = () => { thApply(b.dataset.thv); thClose(); }));
+  const k = (e) => { if (e.key === "Escape") { thClose(); removeEventListener("keydown", k); } }; addEventListener("keydown", k);
+  addEventListener("hashchange", thClose, { once: true }); addEventListener("resize", thClose, { once: true });
+  m.querySelector(`[data-thv="${p}"]`)?.focus({ preventScroll: true });
+}
+// nút chọn nhanh 3 lựa chọn kiểu iOS (UISegmentedControl) – dùng ở trang Tài khoản, đổi là áp dụng ngay
+const thSegHtml = () => `<div class="th-seg" role="radiogroup" aria-label="Giao diện">${TH_OPT.map(([k, t]) => `<button type="button" role="radio" aria-checked="${k === thPref()}" data-thv="${k}">${thSvg(k, 15)}<span>${k === "system" ? "Hệ thống" : t}</span></button>`).join("")}</div>`;
+function thSegBind(root = document) { $$(".th-seg [data-thv]", root).forEach((b) => (b.onclick = () => thApply(b.dataset.thv))); }
 function initTheme() {
-  const saved = lsGet("theme", null);
-  document.documentElement.dataset.theme = saved || "dark";       // mặc định: bàn giao dịch tối
-  $("#theme").onclick = () => {
-    const dark = document.documentElement.dataset.theme === "dark";
-    document.documentElement.dataset.theme = dark ? "light" : "dark";
-    lsSet("theme", document.documentElement.dataset.theme);
-    route();
-  };
+  thApply(null, false);
+  $("#theme").onclick = (e) => { e.stopPropagation(); thMenu(e.currentTarget); };
 }
 function initSearch() {
   const q = $("#q"), box = $("#sugg");
@@ -6815,6 +6852,7 @@ function acPage(o) {
   <section class="acp-card"><h2>Hồ sơ</h2>
     ${acRow("Tên hiển thị", "Hiện trên đầu trang & trong thông báo", `<input id="acName" value="${esc(ME.name || "")}" placeholder="Tên của anh/chị"><button class="btn" id="acSave">Lưu</button>`)}
     ${acRow("Email đăng nhập", "", `<span class="acp-v">${esc(ME.email)}</span>`)}
+    ${acRow("Giao diện", "“Hệ thống” = tự đổi theo Sáng/Tối của máy", thSegHtml())}
   </section>
   <section class="acp-card"><h2>Bảo mật</h2>
     ${ME.has_pw ? acRow("Mật khẩu hiện tại", "", `<input id="pwOld" type="password" autocomplete="current-password" placeholder="••••••••">`) : ""}
@@ -6852,6 +6890,7 @@ async function viewAccount() {
   const N = { push: np.push || "normal", email: np.email || "important", email_to: np.email_to || "", kinds: np.kinds || {} };
   const lv = (k, v) => `<select id="${k}">${[["all", "Tất cả"], ["normal", "Bình thường (bỏ tin nhỏ)"], ["important", "Chỉ việc quan trọng"], ["off", "Tắt"]].map(([a, b]) => `<option value="${a}" ${v === a ? "selected" : ""}>${b}</option>`).join("")}</select>`;
   app().innerHTML = acPage({ N, ps, subs, extra: "", pushWhen: "gửi sau các lượt 11:35, 14:35, 15:35", levels: "“Quan trọng” = chạm/sắp chạm mức thoát, khuyến nghị bán/cắt lỗ, cảnh báo giá. “Bình thường” thêm mã mới vào danh sách MUA, dòng tiền lớn, đèn thị trường." });
+  thSegBind(app());
   $("#acSave").onclick = async () => { try { const j = await api("auth/profile", "POST", { name: $("#acName").value }); ME = { ...ME, ...j.me }; toast("Đã lưu"); } catch (e) { toast(e.message); } };
   $("#pwSave").onclick = async () => { try { await api("auth/password", "POST", { old: $("#pwOld")?.value || "", new: $("#pwNew").value }); toast("Đã đổi mật khẩu"); viewAccount(); } catch (e) { toast(e.message); } };
   $("#acOut").onclick = logout;
