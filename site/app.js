@@ -7208,7 +7208,8 @@ function initHelpBtn() {
 // 2 bảng cạnh nhau (lưới 2 cột) vẫn tràn → lưới xếp 1 cột; còn tràn (bảng lớn như Bộ lọc) thì mờ mép phải để biết còn cột – vuốt/kéo ngang để xem.
 function twFit(tw) {
   const t = tw.querySelector(":scope > table"); if (!t || !t.offsetWidth) return;
-  tw.classList.remove("fit", "fit2", "over", "end");
+  // chỉ gỡ lớp đang có (gỡ lớp không có vẫn bắt trình duyệt tính lại cả bảng)
+  for (const c of ["fit", "fit2", "over", "end"]) if (tw.classList.contains(c)) tw.classList.remove(c);
   const ov = () => t.scrollWidth - tw.clientWidth > 2;
   if (!ov()) return;
   tw.classList.add("fit"); if (!ov()) return;
@@ -7219,13 +7220,14 @@ let twRq = 0;
 const twAll = () => { if (!twRq) twRq = requestAnimationFrame(() => {
   twRq = 0;
   document.querySelectorAll("#app .tw-stack").forEach((g) => g.classList.remove("tw-stack"));
-  const tws = [...document.querySelectorAll("#app .tw")]; tws.forEach(twFit);
+  const tws = [...document.querySelectorAll("#app .tw")]; const big = tws.map((tw) => tw.querySelector(":scope > table")).filter((t) => t && t.tBodies[0]?.rows.length > 40);
+  big.forEach((t) => t.classList.add("tw-meas")); tws.forEach(twFit); big.forEach((t) => t.classList.remove("tw-meas"));
   const grids = new Set();
   tws.forEach((tw) => { if (!tw.classList.contains("over")) return; const t = tw.querySelector(":scope > table"); if (t && t.scrollWidth > tw.clientWidth * 1.6) return;      // bảng rất rộng: giữ cuộn ngang
     let g = tw.closest(".panel")?.parentElement;
     for (let k = 0; g && g.id !== "app" && k < 3; k++, g = g.parentElement) { const cs = getComputedStyle(g); if (cs.display === "grid" && cs.gridTemplateColumns.split(" ").length === 2) { if (!g.querySelector("input, select, textarea")) grids.add(g); return; } } });      // lưới có ô nhập (vd. giả định dự phóng) giữ nguyên bố cục
   grids.forEach((g) => g.classList.add("tw-stack"));
-  grids.forEach((g) => g.querySelectorAll(".tw").forEach(twFit));
+  big.forEach((t) => t.classList.add("tw-meas")); grids.forEach((g) => g.querySelectorAll(".tw").forEach(twFit)); big.forEach((t) => t.classList.remove("tw-meas"));
 }); };
 new MutationObserver((ms) => { if (ms.some((m) => [...m.addedNodes].some((n) => n.nodeType === 1 && (n.matches?.(".tw, table") || n.querySelector?.(".tw"))))) twAll(); }).observe(document.documentElement, { childList: true, subtree: true });
 { let tr = 0; addEventListener("resize", () => { clearTimeout(tr); tr = setTimeout(twAll, 150); }); }
