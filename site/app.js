@@ -10,8 +10,13 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const isNum = (x) => x !== null && x !== undefined && x !== "" && typeof x !== "boolean" && !Number.isNaN(Number(x));
 // định dạng số: dùng lại bộ Intl.NumberFormat (toLocaleString tạo bộ mới mỗi lần – rất chậm với bảng hàng nghìn ô)
 const NF = {};
-const nf = (x, d = 2) => (isNum(x) ? (NF[d] || (NF[d] = new Intl.NumberFormat("vi-VN", { minimumFractionDigits: d, maximumFractionDigits: d }))).format(Number(x)) : "—");
-const pct = (x, d = 1, sign = true) => (isNum(x) ? (sign && x > 0 ? "+" : "") + nf(x, d) + "%" : "—");
+// số làm tròn ra 0 thì không có dấu trừ ("-0,0%" → "0,0%")
+const nz = (x, d) => { const v = Number(x), k = 10 ** Math.min(d, 12); return Math.round(Math.abs(v) * k) === 0 ? 0 : v; };
+const nf = (x, d = 2) => (isNum(x) ? (NF[d] || (NF[d] = new Intl.NumberFormat("vi-VN", { minimumFractionDigits: d, maximumFractionDigits: d }))).format(nz(x, d)) : "—");
+const pct = (x, d = 1, sign = true) => (isNum(x) ? (sign && nz(x, d) > 0 ? "+" : "") + nf(x, d) + "%" : "—");
+// chữ do máy chủ / bot viết sẵn (nhật ký, thông báo): số thập phân kiểu Anh 0.0675 · 46.4× · 3.1% → kiểu Việt 0,0675 · 46,4× · 3,1%
+// (bỏ qua số có đúng 3 chữ số sau dấu chấm mà phần nguyên khác 0, vì có thể là hàng nghìn kiểu Việt như 1.256)
+const viDec = (s) => (typeof LANG !== "undefined" && LANG === "en") ? String(s ?? "") : String(s ?? "").replace(/(^|[^\d.,\w])(\d{1,9})\.(\d+)(?!\d|[.,]\d)/g, (m, a, i, f, o, str) => (i === "0" || f.length !== 3 || /^[%×xR]/.test(str.slice(o + m.length)) ? `${a}${i},${f}` : m));
 const cls = (x) => (!isNum(x) ? "" : x > 0 ? "up" : x < 0 ? "down" : "ref");
 const bn = (x) => (isNum(x) ? nf(x, 0) + " tỷ" : "—");
 const vnd = (x) => (isNum(x) ? nf(x, 0) + " đ" : "—");
@@ -6729,7 +6734,7 @@ function ntfRow(n) {
   // lệnh bot: TIỀN THẬT (viền vàng + nhãn) / DEMO / SÀN THỬ (mờ hơn) – nhìn là biết lệnh nào là tiền thật
   const T = n.title || "", acc = /^💰 TIỀN THẬT|LỆNH THẬT/.test(T) ? "real" : /^🟡 DEMO|^💵 Demo/.test(T) ? "demo" : /^🧪 SÀN THỬ/.test(T) || (/^scalp/.test(n.kind || "") && /^[🪝⚡]/u.test(T)) ? "paper" : "";
   return `<div class="nt-i ${n.read_at ? "" : "new"} sev${n.sev || 0}${acc ? " nt-" + acc : ""}" data-nid="${n.id}"><a class="nt-a" href="${esc(url || "#/notifications")}"><span class="nt-ic" aria-hidden="true">${ic}</span>
-    <span class="nt-b"><b>${esc(title)}</b>${n.body ? `<span class="nt-t">${esc(n.body)}</span>` : ""}<small class="nt-m"><span>${esc(g[1])}</span>${n.sym ? `<span class="nt-s">${esc(n.sym)}</span>` : ""}<span>${tm} · ${agoShort(n.created_at)}</span></small></span></a>
+    <span class="nt-b"><b>${esc(viDec(title))}</b>${n.body ? `<span class="nt-t">${esc(viDec(n.body))}</span>` : ""}<small class="nt-m"><span>${esc(g[1])}</span>${n.sym ? `<span class="nt-s">${esc(n.sym)}</span>` : ""}<span>${tm} · ${agoShort(n.created_at)}</span></small></span></a>
     ${n.read_at ? "" : `<button type="button" class="nt-rd" data-rd="${n.id}" title="Đánh dấu đã đọc" aria-label="Đánh dấu đã đọc">✓</button>`}</div>`;
 }
 // danh sách gom theo ngày + thanh lọc; f = "all" | "new" | mã nhóm
