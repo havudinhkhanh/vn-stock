@@ -1882,3 +1882,10 @@ select[aria-expanded]{border-color:var(--brand)!important}
 .acp-pt-w{overflow:visible;margin:8px 0 0}
 @media (max-width:760px){.acp-pt th.f,.acp-pt td.f{width:46%}.acp-pt thead th:not(.f) span{font-size:.86rem}.acp-pt thead th i{font-size:.58rem;padding:2px 6px}}
 .acp-id h1{font-family:inherit!important}@media (max-width:760px){.acp-pt .lim{font-size:.74rem;white-space:normal}}
+
+/* thông báo lệnh bot: tiền thật nổi bật, sàn thử mờ hơn */
+.nt-i.nt-real{box-shadow:inset 3px 0 0 #E8B931;background:color-mix(in srgb,#E8B931 9%,transparent)}
+.nt-i.nt-real .nt-b>b{color:#F2C94C}
+.nt-i.nt-demo{box-shadow:inset 3px 0 0 color-mix(in srgb,#E8B931 45%,transparent)}
+.nt-i.nt-paper .nt-b>b{font-weight:600}.nt-i.nt-paper .nt-ic,.nt-i.nt-paper .nt-t{opacity:.72}
+[data-theme=light] .nt-i.nt-real .nt-b>b{color:#8A5A00}
