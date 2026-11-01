@@ -7114,3 +7114,19 @@ const twAll = () => { if (!twRq) twRq = requestAnimationFrame(() => {
 }); };
 new MutationObserver((ms) => { if (ms.some((m) => [...m.addedNodes].some((n) => n.nodeType === 1 && (n.matches?.(".tw, table") || n.querySelector?.(".tw"))))) twAll(); }).observe(document.documentElement, { childList: true, subtree: true });
 { let tr = 0; addEventListener("resize", () => { clearTimeout(tr); tr = setTimeout(twAll, 150); }); }
+
+// ================================================================ BÀN PHÍM ĐIỆN THOẠI: ô đang gõ không bị thanh tab dưới / nút nổi che, tự cuộn ô vào giữa vùng còn thấy
+(() => {
+  if (!matchMedia("(pointer:coarse)").matches) return;
+  const vv = window.visualViewport, root = document.documentElement;
+  const isTxt = (el) => !!el && (el.tagName === "TEXTAREA" || el.isContentEditable || (el.tagName === "INPUT" && !/^(checkbox|radio|range|button|submit|reset|color|file|image)$/i.test(el.type || "")));
+  let tm = 0;
+  const fit = () => {
+    if (vv) root.style.setProperty("--vvh", Math.round(vv.height) + "px");
+    const a = document.activeElement;
+    if (isTxt(a) && !a.closest(".cmdk,.pal,.top")) { clearTimeout(tm); tm = setTimeout(() => { try { a.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e) { /* bỏ qua */ } }, 80); }
+  };
+  document.addEventListener("focusin", (e) => { if (isTxt(e.target)) { document.body.classList.add("kb-on"); setTimeout(fit, 350); } });
+  document.addEventListener("focusout", () => setTimeout(() => { if (!isTxt(document.activeElement)) document.body.classList.remove("kb-on"); }, 150));
+  vv?.addEventListener("resize", fit); fit();
+})();

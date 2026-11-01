@@ -1750,3 +1750,10 @@ select[aria-expanded]{border-color:var(--brand)!important}
 @media (max-width:700px){.co-top{grid-template-columns:minmax(0,1fr)}.co-h h2{font-size:1.1rem}}
 .co-ch.co-scroll{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}.co-ch.co-scroll svg{max-width:none}
 .co-ch.co-scroll::after{content:"← kéo ngang để xem hết →";position:sticky;left:0;display:block;font-size:.68rem;color:var(--ink-3);text-align:center}
+
+/* bàn phím điện thoại đang mở: ẩn thanh tab dưới & nút nổi để không che ô đang gõ */
+@media (pointer:coarse) and (max-width:979px){body.kb-on .tabs,body.kb-on .pnfab,body.kb-on .sc-setfab,body.kb-on .selbar,body.kb-on .mtabbar{display:none!important}}
+/* điện thoại / máy tính bảng dọc: ô tìm trên đầu trang quá hẹp (chữ bị cắt) → dùng nút 🔍 mở bảng tìm nhanh toàn chiều ngang */
+@media (max-width:979px){.top-in .search{display:none!important}.top-in .upd{margin-right:auto}}
+@media (pointer:coarse){input:not([type=checkbox]):not([type=radio]):not([type=range]),select,textarea{font-size:16px!important}
+  .pal{padding-top:8px!important}.pal-l{max-height:calc(var(--vvh,100vh) - 190px)!important}}
