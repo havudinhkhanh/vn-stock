@@ -5856,9 +5856,10 @@ async function palette(q0 = "") {
   const S = await secsData();
   const el = document.createElement("div");
   el.id = "pal"; el.className = "tbox pal";
-  el.innerHTML = `<div class="tb-in"><input id="palQ" placeholder="Gõ mã, tên công ty, ngành, trang… (vd: FPT, thép, so sánh FPT HPG, mua VNM)" autocomplete="off" value="${esc(q0)}"><div id="palL" class="pal-l"></div>
-    <p class="faint" style="font-size:.7rem;margin-top:6px">↑↓ chọn · Enter mở · Esc đóng · phím tắt: <b>g</b> rồi <b>h</b> Hôm nay, <b>n</b> Ngành, <b>l</b> Lọc, <b>t</b> Theo dõi, <b>d</b> Danh mục, <b>c</b> So sánh, <b>k</b> Kiểm chứng</p></div>`;
+  el.innerHTML = `<div class="tb-in"><div class="pal-qr"><input id="palQ" placeholder="Gõ mã, tên công ty, ngành, trang… (vd: FPT, thép, so sánh FPT HPG, mua VNM)" autocomplete="off" value="${esc(q0)}"><button type="button" class="pal-x">Huỷ</button></div><div id="palL" class="pal-l"></div>
+    <p class="faint pal-hint" style="font-size:.7rem;margin-top:6px">↑↓ chọn · Enter mở · Esc đóng · phím tắt: <b>g</b> rồi <b>h</b> Hôm nay, <b>n</b> Ngành, <b>l</b> Lọc, <b>t</b> Theo dõi, <b>d</b> Danh mục, <b>c</b> So sánh, <b>k</b> Kiểm chứng</p></div>`;
   document.body.appendChild(el);
+  el.querySelector(".pal-x").onclick = () => el.remove();      // điện thoại: nút "Huỷ" kiểu iOS (không có phím Esc)
   const strip = (x) => String(x || "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").toLowerCase();
   let items = [], sel = 0;
   const build = () => {

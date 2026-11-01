@@ -1935,3 +1935,8 @@ table.tw-meas>tbody>tr:nth-child(n+31){display:none}
   .ntp-in::before{margin:8px auto 2px;width:40px}
   .ntp-h{cursor:grab}
 }
+
+/* bảng tìm nhanh: nút "Huỷ" kiểu iOS trên điện thoại (không có phím Esc) */
+.pal-qr{display:flex;align-items:center;gap:8px}.pal-qr>input{flex:1;min-width:0}
+.pal-x{display:none;flex:none;border:0;background:none;padding:6px 2px 6px 6px;font:inherit;font-size:1rem;color:var(--brand);cursor:pointer;-webkit-tap-highlight-color:transparent}
+@media (pointer:coarse),(max-width:600px){.pal-x{display:inline-block}.pal-hint{display:none}.pal-qr>input{font-size:16px}}
