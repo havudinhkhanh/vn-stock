@@ -3,6 +3,7 @@
 // Chế độ cũ (chưa gắn D1): một chủ sở hữu, đăng nhập qua Cloudflare Access, dữ liệu trong Workers KV.
 import { admin } from "../_lib/admin.js";
 import { auth } from "../_lib/auth.js";
+import { article } from "../_lib/article.js";
 import {
   can, ensureSchema, err, getSession, json, limits, nowIso, sameOrigin, USER_KEYS, vapidPublic, withCookie,
 } from "../_lib/core.js";
@@ -94,6 +95,7 @@ export async function onRequest(ctx) {
     if (key === "admin") return admin(ctx, sub, ses);
     if (key === "run" && m === "POST") return ses.r === "admin" ? ghRun(env) : err("Chỉ quản trị viên", 403);
 
+    if (key === "article" && m === "GET") return article(ctx);      // xem nhanh bài báo của thông báo tin tức (chỉ chữ + ảnh chính)
     if (key === "personal" && m === "GET") {
       const [p, l, w] = await Promise.all([getData(env, uid, "_personal"), getData(env, uid, "_live"), getData(env, uid, "_weekly")]);
       return json({ personal: p, live: l, weekly: can(ses, "weekly") ? w : null });
