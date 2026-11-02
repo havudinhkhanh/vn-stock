@@ -1971,3 +1971,12 @@ table.tw-meas>tbody>tr:nth-child(n+31){display:none}
 body.nt-pk{overflow:hidden}
 .ntpk-in{max-height:calc(100vh - 24px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));max-height:calc(100dvh - 24px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px))}
 .ntpk-img{aspect-ratio:auto;height:min(34vh,240px)}
+/* thông báo: rê chuột / chạm = nền sáng lên, không gạch chân chữ */
+.nt-a,.nt-a:hover,.nt-a:focus,.nt-a *{text-decoration:none!important}
+.nt-i{transition:background-color .15s ease}
+.nt-i:hover{background:color-mix(in srgb,var(--ink) 6%,transparent)}
+.nt-i.new:hover{background:color-mix(in srgb,var(--brand) 11%,transparent)}
+.nt-i.nt-real:hover{background:color-mix(in srgb,#E8B931 15%,transparent)}
+.nt-i:hover .nt-b>b{color:var(--brass,var(--brand))}
+.nt-i.nt-real:hover .nt-b>b{color:#F2C94C}
+.nt-a:focus-visible{outline:2px solid color-mix(in srgb,var(--brand) 55%,transparent);outline-offset:-2px;border-radius:10px}
