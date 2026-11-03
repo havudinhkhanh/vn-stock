@@ -45,6 +45,9 @@ concurrency:
 permissions:
   contents: write   # chỉ để đẩy log chạy lên nhánh `status`
 
+env:
+  STATUS_SSH_KEY: ${{ secrets.STATUS_SSH_KEY }}      # có thì báo cáo vào repo riêng tư bot-status (xem scripts/publish_status.sh)
+
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -88,7 +91,7 @@ jobs:
         run: |
           mkdir -p data
           if [ ! -f data/fwd_log.parquet ]; then
-            (git fetch -q --depth 1 origin status && git show FETCH_HEAD:keep/fwd_log.parquet > data/fwd_log.parquet) 2>/dev/null || rm -f data/fwd_log.parquet
+            bash scripts/publish_status.sh --get keep/fwd_log.parquet data/fwd_log.parquet 2>/dev/null || (git fetch -q --depth 1 origin status && git show FETCH_HEAD:keep/fwd_log.parquet > data/fwd_log.parquet) 2>/dev/null || rm -f data/fwd_log.parquet
           fi
 
       - name: Kết nối Cloudflare KV (nơi lưu danh mục của anh)
