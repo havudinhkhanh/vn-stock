@@ -2095,3 +2095,10 @@ small{font-size:.8em}
 .lay-btn[hidden]{display:none!important}
 td.wrap{text-align:left}
 .arow .al{display:flex;flex-direction:column;align-items:stretch;gap:1px;padding:0;background:none;border-radius:0;font-size:inherit;text-align:left}
+/* nút: đủ tương phản cả sáng lẫn tối – sáng: nền xanh đậm chữ trắng; tối: nền vàng đồng chữ đậm */
+.btn{color:var(--ink);background:var(--surface);border:1px solid color-mix(in srgb,var(--ink) 22%,var(--line));font-weight:500}
+.btn:hover{background:var(--sunk-2);border-color:color-mix(in srgb,var(--ink) 38%,var(--line))}
+.btn.primary,.lay-btn.on,.views .btn.primary{background:var(--brand);border-color:var(--brand);color:var(--brand-ink);font-weight:600}
+.btn.primary:hover{background:color-mix(in srgb,var(--brand) 86%,var(--ink-2));border-color:transparent}
+.btn:focus-visible,.lay-btn:focus-visible{outline:2px solid var(--brass,var(--brand));outline-offset:2px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
