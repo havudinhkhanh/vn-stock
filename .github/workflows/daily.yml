@@ -46,6 +46,7 @@ permissions:
   contents: write   # chỉ để đẩy log chạy lên nhánh `status`
 
 env:
+  STATUS_TOKEN: ${{ secrets.GH_DISPATCH_TOKEN }}
   STATUS_SSH_KEY: ${{ secrets.STATUS_SSH_KEY }}      # có thì báo cáo vào repo riêng tư bot-status (xem scripts/publish_status.sh)
 
 jobs:
