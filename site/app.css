@@ -2034,3 +2034,64 @@ small{font-size:.8em}
 .note{line-height:1.6}
 .disclaimer{font-size:.76rem}
 @media (max-width:700px){body{font-size:14.5px}h1,.ph h1{font-size:1.35rem!important}td{font-size:.84rem}}
+
+/* ==== Bố cục linh hoạt: lưới 12 phần – thẻ rộng ¼ ⅓ ½ ⅔ ¾ hoặc cả hàng, kéo mép phải để đổi */
+.lay{grid-template-columns:repeat(12,minmax(0,1fr))!important}
+.lay>.lc.w3{grid-column:span 3}.lay>.lc.w4{grid-column:span 4}.lay>.lc.w6{grid-column:span 6}.lay>.lc.w8{grid-column:span 8}.lay>.lc.w9{grid-column:span 9}.lay>.lc.w12{grid-column:1/-1}
+@media (min-width:860px) and (max-width:1179px){.lay>.lc.w3,.lay>.lc.w4,.lay>.lc.w6{grid-column:span 6}.lay>.lc.w8,.lay>.lc.w9,.lay>.lc.w12{grid-column:1/-1}}
+@media (max-width:859px){.lay>.lc[class*=" w"]{grid-column:1/-1}.lbar [data-lw]{display:none}.lrs{display:none!important}}
+.lrs{display:none}
+.lay.editing .lrs{display:block;position:absolute;top:30px;right:-7px;bottom:8px;width:14px;cursor:ew-resize;z-index:6;touch-action:none}
+.lay.editing .lrs::after{content:"";position:absolute;left:5px;top:50%;width:4px;height:44px;margin-top:-22px;border-radius:3px;background:var(--brass,var(--brand));opacity:.75}
+.lay.editing .lc.rsz{outline-style:solid}
+.lbar button[data-lw]{min-width:22px;font-size:.78rem}
+/* thanh công cụ: không chiếm hàng khi không tuỳ chỉnh và không có thẻ ẩn */
+.laytool{margin:0}.laytool:not(.on):not(.has){display:none}.laytool.on,.laytool.has{margin-top:10px}
+/* nút "Bố cục" gọn ở cuối thanh tab con / đầu trang */
+.lay-btn{display:inline-flex;align-items:center;gap:6px;margin-left:auto;flex:none;height:30px;padding:0 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink-2);font:500 .76rem/1 "Be Vietnam Pro",system-ui,sans-serif;cursor:pointer;white-space:nowrap;align-self:center}
+.lay-btn svg{width:14px;height:14px}.lay-btn:hover{color:var(--ink);background:var(--sunk)}
+.lay-btn.on{background:var(--brass,var(--brand));border-color:transparent;color:#0B1119}
+.lay-btn .lay-n{font-style:normal;font-size:.66rem;padding:1px 6px;border-radius:99px;background:var(--sunk);color:var(--ink-2)}
+.ph .lay-btn{margin-left:8px}
+@media (max-width:760px){.lay-btn span{display:none}.lay-btn{padding:0 8px}}
+/* tab con: tab đang chọn không bị cắt viền; khoảng cách dưới thanh tab gọn lại */
+.subtabs button{outline:none;border-radius:8px 8px 0 0}
+.subtabs button:focus-visible{box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--brass,var(--brand)) 70%,transparent)}
+.subtabs.stick{align-items:center}
+.subtabs.stick+*{margin-top:8px}
+.lay{margin-top:8px}
+
+/* ==== Đầu trang mã: dải chỉ số chính lấp khoảng trống giữa giá và nhãn */
+.stock-head{display:grid!important;grid-template-columns:auto auto minmax(0,1fr);align-items:center;gap:10px 26px}
+.stock-head>.shk{grid-column:1/-1;grid-row:2}
+.stock-head>.tags{justify-self:end;justify-content:flex-end;grid-row:1;grid-column:3}
+.stock-head>div[style*="flex-basis"]{grid-column:1/-1}
+.shk{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:8px;margin:0;min-width:0}
+.shk>div{padding:7px 10px;border-radius:10px;background:var(--sunk);min-width:0}
+.shk dt{font-size:.68rem;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.shk dd{margin:1px 0 0;font:600 .98rem/1.2 "Be Vietnam Pro",system-ui,sans-serif;font-variant-numeric:tabular-nums;white-space:nowrap}
+.shk dd em{font-style:normal;font-size:.76rem;margin-left:4px}.shk dd em.up{color:var(--up)}.shk dd em.down{color:var(--down)}
+.shk small{display:block;font-size:.66rem;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:1179px){.stock-head{grid-template-columns:auto minmax(0,1fr)}.stock-head>.tags{grid-column:1/-1;grid-row:auto;justify-self:start;justify-content:flex-start}.stock-head>.shk{grid-row:auto}}
+@media (max-width:620px){.stock-head{grid-template-columns:minmax(0,1fr)}.shk{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.shk>div{padding:6px 8px}}
+
+/* ==== Giả định dự phóng: gom theo nhóm thành thẻ, mỗi dòng = nhãn + giải thích ngắn | ô nhập + đơn vị */
+.agrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px;margin-top:8px}
+.acard{border:1px solid var(--line-2);border-radius:12px;background:var(--sunk);padding:4px 12px 8px}
+.acard.wide{grid-column:1/-1}
+.acard .agrp{margin:8px 0 4px;font-size:.78rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:var(--ink-3)}
+.arow{display:grid;grid-template-columns:minmax(0,1fr) 128px;gap:4px 12px;align-items:center;padding:7px 0;border-top:1px solid var(--line-2)}
+.arow:first-of-type{border-top:0}
+.arow .al{min-width:0;display:flex;flex-direction:column;gap:1px}
+.arow label{font-size:.84rem;font-weight:500;color:var(--ink)}
+.arow .awhy{max-width:none;margin:0;font-size:.7rem;line-height:1.35;color:var(--ink-3);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;cursor:help}
+.arow:focus-within .awhy,.arow .awhy:hover{-webkit-line-clamp:unset;display:block}
+.ain{display:flex;align-items:center;gap:6px}
+.ain input{width:100%;min-width:0;height:32px;padding:0 8px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:500 16px/1 "Be Vietnam Pro",system-ui,sans-serif;font-variant-numeric:tabular-nums;text-align:right}
+@media (min-width:761px){.ain input{font-size:.88rem}}
+.ain input:focus{outline:none;border-color:var(--brass,var(--brand));box-shadow:0 0 0 3px color-mix(in srgb,var(--brass,var(--brand)) 20%,transparent)}
+.ain .au{flex:none;width:30px;font-size:.72rem;color:var(--ink-3)}
+@media (max-width:620px){.agrid{grid-template-columns:minmax(0,1fr)}.arow{grid-template-columns:minmax(0,1fr) 112px}}
+.lay-btn[hidden]{display:none!important}
+td.wrap{text-align:left}
+.arow .al{display:flex;flex-direction:column;align-items:stretch;gap:1px;padding:0;background:none;border-radius:0;font-size:inherit;text-align:left}

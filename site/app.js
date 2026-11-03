@@ -472,17 +472,24 @@ const LAY = {
     def.forEach((k, i) => { if (!order.includes(k)) { const prev = def.slice(0, i).reverse().find((p) => order.includes(p)); order.splice(prev ? order.indexOf(prev) + 1 : 0, 0, k); } });
     const by = Object.fromEntries(cards.map((c) => [c.dataset.k, c]));
     order.forEach((k) => {
-      const c = by[k]; const sp = S.span?.[k] ?? +c.dataset.def;
-      c.classList.add("s" + sp); if ((S.hide || []).includes(k)) c.classList.add("hid"); if ((S.col || []).includes(k)) c.classList.add("col");
+      const c = by[k]; const wd = LAY.wOf(S, k, +c.dataset.def);
+      c.classList.add("w" + wd); if ((S.hide || []).includes(k)) c.classList.add("hid"); if ((S.col || []).includes(k)) c.classList.add("col");
       c.insertAdjacentHTML("afterbegin", `<div class="lbar"><span class="lh" title="Kéo để đổi chỗ">⠿</span><b>${esc(c.dataset.t)}</b>
-        <span class="lbtn"><button data-ls="1" title="Hẹp (1/3 hàng)">Hẹp</button><button data-ls="2" title="Vừa (2/3 hàng)">Vừa</button><button data-ls="3" title="Rộng (cả hàng)">Rộng</button>
+        <span class="lbtn">${LAY.W.map(([w, t, n]) => `<button data-lw="${w}" title="${n}">${t}</button>`).join("")}
         <button data-lmv="-1" title="Lên">↑</button><button data-lmv="1" title="Xuống">↓</button><button data-lc title="Thu gọn / mở">–</button><button data-lx title="Ẩn thẻ">✕</button></span></div>`);
+      c.insertAdjacentHTML("beforeend", '<span class="lrs" title="Kéo để đổi độ rộng" aria-hidden="true"></span>');
       grid.appendChild(c);
     });
     [...root.querySelectorAll(".g, .stack, .snap, .sigrow")].filter((n) => !grid.contains(n)).forEach((n) => { if (!n.querySelector("[data-card], section.panel, details.panel, .lc") && !n.textContent.trim()) n.remove(); });
+    // thanh công cụ bố cục: chỉ hiện khi đang tuỳ chỉnh / có thẻ đã ẩn; nút mở là 1 biểu tượng gọn ở thanh tab con / đầu trang (không chiếm 1 hàng riêng)
     const bar = document.createElement("div"); bar.className = "laytool"; bar.dataset.nopdf = "";
-    bar.innerHTML = `<button class="chip" data-ledit>⊞ Tuỳ chỉnh bố cục</button><span class="laytray"></span>`;
+    bar.innerHTML = `<span class="laytray"></span>`;
     grid.parentNode.insertBefore(bar, grid);
+    const host = (opts.btnHost && document.querySelector(opts.btnHost)) || document.querySelector("#app .subtabs.stick") || root.querySelector(".ph") || document.querySelector("#app .ph");
+    document.querySelectorAll("#app .lay-btn").forEach((x) => x.remove());
+    const lb = document.createElement("button"); lb.type = "button"; lb.className = "lay-btn"; lb.dataset.nopdf = ""; lb.title = "Tuỳ chỉnh bố cục: đổi chỗ, độ rộng, thu gọn, ẩn thẻ"; lb.setAttribute("aria-label", "Tuỳ chỉnh bố cục");
+    lb.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="18" height="7" rx="1.5"/></svg><span>Bố cục</span><i class="lay-n" hidden></i>';
+    if (host) host.appendChild(lb); else bar.prepend(lb);
     document.documentElement.style.setProperty("--stick", stickTop() + "px");
     const stb = document.querySelector(".subtabs.stick"); document.documentElement.style.setProperty("--stabs", (stb ? stb.offsetHeight + 6 : 0) + "px");
     LAY.cur = { page, grid, bar, def, defSpan: Object.fromEntries(cards.map((c) => [c.dataset.k, +c.dataset.def])) };
@@ -495,12 +502,18 @@ const LAY = {
   store(L) {
     const cards = [...L.grid.querySelectorAll(":scope > .lc, :scope > .mrow > .lc")];
     const span = {};
-    cards.forEach((c) => { const s = [1, 2, 3].find((n) => c.classList.contains("s" + n)); if (s !== L.defSpan[c.dataset.k]) span[c.dataset.k] = s; });
-    UIS.layout[L.page] = { order: cards.map((c) => c.dataset.k), span, hide: cards.filter((c) => c.classList.contains("hid")).map((c) => c.dataset.k), col: cards.filter((c) => c.classList.contains("col")).map((c) => c.dataset.k) };
+    cards.forEach((c) => { const w = LAY.W.map((x) => x[0]).find((n) => c.classList.contains("w" + n)); if (w && w !== ({ 1: 4, 2: 8, 3: 12 })[L.defSpan[c.dataset.k]]) span[c.dataset.k] = w; });
+    UIS.layout[L.page] = { order: cards.map((c) => c.dataset.k), w: span, hide: cards.filter((c) => c.classList.contains("hid")).map((c) => c.dataset.k), col: cards.filter((c) => c.classList.contains("col")).map((c) => c.dataset.k) };
     uiSave(); LAY.tray(L);
   },
+  // độ rộng theo phần 12 của hàng: ¼ ⅓ ½ ⅔ ¾ cả hàng (bản cũ lưu 1/2/3 = ⅓/⅔/cả hàng)
+  W: [[3, "¼", "1/4 hàng"], [4, "⅓", "1/3 hàng"], [6, "½", "1/2 hàng"], [8, "⅔", "2/3 hàng"], [9, "¾", "3/4 hàng"], [12, "▭", "Cả hàng"]],
+  wOf(S, k, def) { const w = S.w?.[k]; if (LAY.W.some((x) => x[0] === w)) return w; const sp = S.span?.[k] ?? def; return ({ 1: 4, 2: 8, 3: 12 })[sp] || 4; },
+  setW(c, w) { LAY.W.forEach(([n]) => c.classList.remove("w" + n)); c.classList.add("w" + w); },
   tray(L) {
     const hid = [...L.grid.querySelectorAll(".lc.hid")];
+    const nb = document.querySelector("#app .lay-btn .lay-n"); if (nb) { nb.hidden = !hid.length; nb.textContent = hid.length ? `${hid.length} ẩn` : ""; }
+    L.bar.classList.toggle("has", !!hid.length);
     const t = L.bar.querySelector(".laytray");
     t.innerHTML = hid.length ? `<span class="faint">Đã ẩn:</span> ${hid.map((c) => `<button class="chip" data-lshow="${esc(c.dataset.k)}">+ ${esc(c.dataset.t)}</button>`).join("")}` : "";
     t.querySelectorAll("[data-lshow]").forEach((b) => (b.onclick = () => { L.grid.querySelector(`.lc[data-k="${CSS.escape(b.dataset.lshow)}"]`)?.classList.remove("hid"); LAY.store(L); }));
@@ -508,10 +521,10 @@ const LAY = {
   bind(L) {
     const { grid, bar } = L;
     const edit = async (on) => {
-      grid.classList.toggle("editing", on); bar.classList.toggle("on", on);
-      bar.querySelector("[data-ledit]").outerHTML = on ? `<span class="lhelp"><b>Đang tuỳ chỉnh:</b> kéo ⠿ để đổi chỗ · Hẹp / Vừa / Rộng · ↑ ↓ · – thu gọn · ✕ ẩn (mở lại ở “Đã ẩn”)</span><button class="chip" data-lreset>Về mặc định</button><button class="btn primary" data-ledit>Xong</button>`
-        : `<button class="chip" data-ledit>⊞ Tuỳ chỉnh bố cục</button>`;
-      bar.querySelectorAll("[data-ledit]").forEach((b) => (b.onclick = () => edit(!grid.classList.contains("editing"))));
+      grid.classList.toggle("editing", on); bar.classList.toggle("on", on); document.querySelector("#app .lay-btn")?.classList.toggle("on", on);
+      bar.querySelectorAll(".lhelp, [data-lreset], [data-ldone]").forEach((x) => x.remove());
+      if (on) bar.insertAdjacentHTML("afterbegin", `<span class="lhelp"><b>Đang tuỳ chỉnh:</b> kéo ⠿ để đổi chỗ · kéo mép phải hoặc bấm ¼ ⅓ ½ ⅔ ¾ ▭ để đổi độ rộng · ↑ ↓ · – thu gọn · ✕ ẩn</span><button class="chip" data-lreset>Về mặc định</button><button class="btn primary" data-ldone>✓ Xong</button>`);
+      const dn = bar.querySelector("[data-ldone]"); if (dn) dn.onclick = () => edit(false);
       const rs = bar.querySelector("[data-lreset]");
       if (rs) rs.onclick = () => { delete UIS.layout[L.page]; uiSave(); toast("Đã về bố cục mặc định"); route(); };
       if (on) {
@@ -519,11 +532,19 @@ const LAY = {
         if (window.Sortable && !L.sort) L.sort = Sortable.create(grid, { handle: ".lh", animation: 150, draggable: ".lc", ghostClass: "lghost", forceFallback: true, fallbackOnBody: true, scroll: true, scrollSensitivity: 90, scrollSpeed: 18, onEnd: () => LAY.store(L) });
       }
     };
-    bar.querySelector("[data-ledit]").onclick = () => edit(true);
+    const lbtn = document.querySelector("#app .lay-btn"); if (lbtn) lbtn.onclick = () => edit(!grid.classList.contains("editing"));
+    // kéo mép phải của thẻ (khi đang tuỳ chỉnh) → đổi độ rộng, bắt vào các mức ¼ ⅓ ½ ⅔ ¾ cả hàng
+    grid.addEventListener("pointerdown", (e) => {
+      const h = e.target.closest(".lrs"); if (!h || !grid.classList.contains("editing")) return;
+      e.preventDefault(); const c = h.closest(".lc"), g = grid.getBoundingClientRect(), x0 = c.getBoundingClientRect().left, col = g.width / 12;
+      const mv = (ev) => { const cols = (ev.clientX - x0) / col, w = LAY.W.map((x) => x[0]).reduce((a, b) => (Math.abs(b - cols) < Math.abs(a - cols) ? b : a)); if (!c.classList.contains("w" + w)) LAY.setW(c, w); };
+      const up = () => { removeEventListener("pointermove", mv); removeEventListener("pointerup", up); c.classList.remove("rsz"); LAY.store(L); window.dispatchEvent(new Event("resize")); };
+      c.classList.add("rsz"); addEventListener("pointermove", mv); addEventListener("pointerup", up);
+    });
     grid.addEventListener("click", (e) => {
       const b = e.target.closest(".lbar button"); if (!b) return;
       const c = b.closest(".lc");
-      if (b.dataset.ls) { c.classList.remove("s1", "s2", "s3"); c.classList.add("s" + b.dataset.ls); }
+      if (b.dataset.lw) LAY.setW(c, +b.dataset.lw);
       else if (b.dataset.lmv) { const dir = +b.dataset.lmv; let n = dir < 0 ? c.previousElementSibling : c.nextElementSibling; while (n && n.classList.contains("hid")) n = dir < 0 ? n.previousElementSibling : n.nextElementSibling; if (n) (dir < 0 ? n.before(c) : n.after(c)); c.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
       else if (b.dataset.lc !== undefined) c.classList.toggle("col");
       else if (b.dataset.lx !== undefined) c.classList.add("hid");
@@ -2729,7 +2750,14 @@ async function viewStock(sym, tabArg) {
     <div class="pxb"><div class="px ${boardCls(chg, d.exchange)}">${nf(last)}</div><div class="${boardCls(chg, d.exchange)} pxc">${arrow(boardCls(chg, d.exchange))} ${pct(chg, 2)}</div>
       ${(() => { const H = (o.h || []).slice(-250), Lw = (o.l || []).slice(-250); if (H.length < 20) return ""; const hi = Math.max(...H), lo = Math.min(...Lw), x = hi > lo ? (last - lo) / (hi - lo) * 100 : 50;
         return `<div class="rng52" title="Vùng giá 52 tuần"><span>${nf(lo)}</span><i><b style="left:${Math.max(0, Math.min(100, x))}%"></b></i><span>${nf(hi)}</span><small>52 tuần</small></div>`; })()}</div>
-    <div class="tags" style="margin-left:auto">${d.in_plan ? '<span class="pill buy">Trong danh sách MUA</span>' : ""}${(d.baskets || []).map((b) => `<span class="pill brand">${esc(BASKET_SHORT[b] || b)}</span>`).join("")}
+    ${(() => { const pmh = d.peers?.median || {}, peM = pmh.pe, it = [
+        v.ok && isNum(v.fair) ? ["Giá trị hợp lý", `${nf(v.fair)} <em class="${cls(v.upside)}">${pct(v.upside, 0)}</em>`, esc(v.verdict || "")] : null,
+        v.ok && isNum(v.buy_below) ? ["Mua an toàn dưới", nf(v.buy_below), last <= v.buy_below ? "giá đang trong vùng" : `cách ${pct((v.buy_below / last - 1) * 100, 0)}`] : null,
+        ["P/E", nf(fa.pe ?? r.pe, 1), isNum(peM) ? `mâm ${nf(peM, 1)}` : ""], ["P/B", nf(fa.pb ?? r.pb, 2), isNum(pmh.pb) ? `mâm ${nf(pmh.pb, 2)}` : ""],
+        isNum(fa.roe ?? r.roe) ? ["ROE", pct(fa.roe ?? r.roe, 1, false), ""] : null, isNum(r.div_yield) && r.div_yield > 0 ? ["Cổ tức", pct(r.div_yield, 1, false), "lợi suất"] : null,
+        isNum(r.mcap_bn) ? ["Vốn hoá", r.mcap_bn >= 1000 ? nf(r.mcap_bn / 1000, 1) + " nghìn tỷ" : nf(r.mcap_bn, 0) + " tỷ", ""] : null, isNum(r.avg_value_bn) ? ["GTGD TB 20p", nf(r.avg_value_bn, r.avg_value_bn < 10 ? 1 : 0) + " tỷ", ""] : null].filter(Boolean);
+      return it.length ? `<dl class="shk">${it.map(([k, x, sub]) => `<div><dt>${k}</dt><dd>${x}</dd>${sub ? `<small>${sub}</small>` : ""}</div>`).join("")}</dl>` : ""; })()}
+    <div class="tags">${d.in_plan ? '<span class="pill buy">Trong danh sách MUA</span>' : ""}${(d.baskets || []).map((b) => `<span class="pill brand">${esc(BASKET_SHORT[b] || b)}</span>`).join("")}
       <span class="pill ${r.trend === "up" ? "buy" : r.trend === "down" ? "sell" : ""}">Xu hướng ${TREND_VI[r.trend] || "—"}</span>
       ${secRec ? `<span class="pill" title="Vị trí ngành trên biểu đồ xoay vòng"><span class="quad" style="background:${qcol(secRec.quadrant)}"></span>Ngành ${esc(secRec.quadrant)}</span>` : ""}
       ${isNum(r.ind_rank) ? `<span class="pill" title="Xếp hạng điểm tổng hợp trong mâm so sánh${d.peers?.group?.label ? ": " + esc(d.peers.group.label) : ""}">Hạng ${nf(r.ind_rank, 0)}/${r.ind_n} trong mâm${d.peers?.group?.label ? " " + esc(d.peers.group.label) : ""}</span>` : ""}
@@ -3000,9 +3028,10 @@ async function viewStock(sym, tabArg) {
   // ---- các tab
   const tabs = { ov: () => "", ta: tabTech, wv: (x) => `<div class="g g2"><section class="panel">${wavesBlock(x.waves)}</section><section class="panel"><div class="ph"><h2>Mức giá quan trọng</h2></div>${levelsKv(x.waves)}</section></div>`,
     sm: tabSmart, fa: tabFund, vl: tabVal, rp: tabReport, pe: tabPeers, news: tabNews,
-    co: (x) => { if (window.CO_TAB) return window.CO_TAB(x); lazyJs("coreport.js").then(() => { if ($(".subtabs button.on")?.dataset.t === "co") { $("#tab").innerHTML = window.CO_TAB(x); window.CO_BIND(x); } }).catch((e) => toast(e.message)); return `<div class="empty">Đang tải hồ sơ doanh nghiệp…</div>`; } };
+    co: (x) => { if (window.CO_TAB) return window.CO_TAB(x); lazyJs("coreport.js").then(() => { if ($(".subtabs button[data-t].on")?.dataset.t === "co") { $("#tab").innerHTML = window.CO_TAB(x); window.CO_BIND(x); } }).catch((e) => toast(e.message)); return `<div class="empty">Đang tải hồ sơ doanh nghiệp…</div>`; } };
   const show = (k, jump) => {
-    $$(".subtabs button").forEach((b) => b.classList.toggle("on", b.dataset.t === k));
+    $$(".subtabs button[data-t]").forEach((b) => b.classList.toggle("on", b.dataset.t === k));
+    const lyb = $(".subtabs .lay-btn"); if (lyb) lyb.hidden = k !== "ov";
     if (LS) { LS.grid.classList.toggle("onlychart", ["ta", "wv", "sm"].includes(k)); LS.grid.hidden = !["ov", "ta", "wv", "sm"].includes(k); LS.bar.hidden = k !== "ov"; }
     $("#tab").innerHTML = tabs[k](d);
     if (jump) { const st = $("#stabs"); const y = st.getBoundingClientRect().top + window.scrollY - stickTop(); if (window.scrollY > y) window.scrollTo({ top: y }); }
@@ -3013,7 +3042,7 @@ async function viewStock(sym, tabArg) {
     if (k === "pe") bindPeerGroup(d);
     if (k === "sm") { L.smc = true; $$('[data-l="smc"]').forEach((b) => b.classList.add("on")); redraw(); }
   };
-  $$(".subtabs button").forEach((b) => (b.onclick = () => { history.replaceState(null, "", `#/s/${sym}/${b.dataset.t}`); show(b.dataset.t, true); }));
+  $$(".subtabs button[data-t]").forEach((b) => (b.onclick = () => { history.replaceState(null, "", `#/s/${sym}/${b.dataset.t}`); show(b.dataset.t, true); }));
   $("#stabs").style.top = stickTop() + "px";
   stuckWatch($("#stabs"));
   show(tabs[tabArg] ? tabArg : "ov");
@@ -3779,11 +3808,12 @@ function tabVal(d) {
     ${panel("Giả định dự phóng", `${v.model.overridden?.length ? `<p class="note">Đang dùng giả định anh đã sửa: ${esc(v.model.overridden.join(", "))}</p>` : ""}
       <p class="faint" style="font-size:.76rem;margin-top:4px">Mặc định suy ra từ lịch sử của chính ${esc(d.symbol)} (bảng dưới), kéo dần về mức ngành khi lịch sử thất thường. Tăng trưởng đi từ năm 1 → năm 3 → dài hạn; biên lợi nhuận đi dần từ hiện tại về trung vị nhiều năm.</p>
       ${invHint(v)}
-      ${Object.entries(A_GROUPS).map(([gk, gn]) => { const F = A_FIELDS.filter(([k, , , g]) => g === gk && a[k] !== undefined && a[k] !== null); if (!F.length) return "";
+      <div class="agrid">${Object.entries(A_GROUPS).map(([gk, gn]) => { const F = A_FIELDS.filter(([k, , , g]) => g === gk && a[k] !== undefined && a[k] !== null); if (!F.length) return "";
         const FAL = v.model.base?.capex_mode === "fa" ? { da: "Khấu hao / TSCĐ đầu năm", capex1: "Đầu tư TSCĐ / TSCĐ đầu năm – năm 1", capex_lt: "Đầu tư TSCĐ / TSCĐ – dài hạn (duy trì)" } : {};
-        return `<h3 class="agrp">${gn}</h3><div class="assump" style="margin-top:6px">${F.map(([k, n, u]) => `
-        <div class="field"><label for="as_${k}">${FAL[k] || n} (${u})</label><input id="as_${k}" data-a="${k}" data-u="${u}" inputmode="decimal" value="${aShow(k, u, a[k])}">${v.model.why?.[k] ? `<small class="awhy">${esc(v.model.why[k])}</small>` : ""}</div>`).join("")}
-        ${gk === "g" ? `<div class="field"><label for="as_ke">Chi phí vốn chủ ke (%)</label><input id="as_ke" inputmode="decimal" value="${nf(v.ke, 2).replace(",", ".")}"></div>` : ""}</div>`; }).join("")}
+        const row = (id, lab, u, val, why, attrs) => `<div class="arow"><div class="al"><label for="${id}">${lab}</label>${why ? `<small class="awhy" title="${esc(why)}">${esc(why)}</small>` : ""}</div>
+          <div class="ain"><input id="${id}" ${attrs} inputmode="decimal" value="${val}"><span class="au">${esc(u)}</span></div></div>`;
+        return `<section class="acard${gk === "p" ? " wide" : ""}"><h3 class="agrp">${gn}</h3>${F.map(([k, n, u]) => row(`as_${k}`, FAL[k] || n, u, aShow(k, u, a[k]), v.model.why?.[k], `data-a="${k}" data-u="${u}"`)).join("")}
+          ${gk === "g" ? row("as_ke", "Chi phí vốn chủ ke", "%", nf(v.ke, 2).replace(",", "."), "lãi suất phi rủi ro + beta × phần bù rủi ro + phần bù quy mô, tối thiểu theo cấu hình", "") : ""}</section>`; }).join("")}</div>
       <p style="margin-top:8px"><button class="btn primary" id="aSave">Lưu giả định cho ${d.symbol}</button> <button class="btn" id="aReset">Về mặc định</button></p>
       <p class="faint" style="font-size:.74rem">Sửa số – kết quả tính lại ngay. Lưu rồi thì lần chạy kế tiếp hệ thống dùng giả định của anh khi ra tín hiệu.</p>
       ${(v.model.hist || []).length ? `<div class="tw sec"><table><thead><tr><th class="l">Lịch sử của ${esc(d.symbol)}</th>${v.model.hist.map((h) => `<th>${h.year}</th>`).join("")}</tr></thead><tbody>
