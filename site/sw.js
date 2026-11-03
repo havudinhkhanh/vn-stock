@@ -5,7 +5,7 @@
    - Dữ liệu /data/: lấy mạng trước, mất mạng → bản đã lưu.
    - /api/ và mọi yêu cầu khác GET / khác tên miền: KHÔNG đụng tới (luôn đi thẳng tới máy chủ).
    Đăng xuất → trang gửi {t:"clear"} để xoá sạch đệm (dữ liệu theo gói của người dùng). */
-const APP = "VN-Stock", VER = "v1", SHELL = `${APP}-shell-${VER}`, DATA = `${APP}-data-${VER}`;
+const APP = "VN-Stock", VER = "v2", SHELL = `${APP}-shell-${VER}`, DATA = `${APP}-data-${VER}`;
 const okRes = (r) => r && r.ok && r.status === 200 && r.type === "basic" && !r.redirected;
 const LIMIT = { [SHELL]: 120, [DATA]: 200 };
 
