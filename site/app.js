@@ -1146,8 +1146,18 @@ async function viewToday() {
     <div class="dk"><small>Độ rộng thị trường</small><div class="dk-big"><b class="up">${adv}</b><span>tăng</span><b class="down">${dec}</b><span>giảm</span></div>
       <div class="adbar"><i style="width:${(adv / tot) * 100}%"></i></div>
       <small>${nf(br.above50, 0)}% mã trên MA50 · ${nf(br.above200, 0)}% trên MA200 · đỉnh/đáy mới ${br.new_hi ?? "—"}/${br.new_lo ?? "—"} · ${reg.distribution_days} ngày phân phối</small></div>
-    <div class="dk hlb"><small>P/E toàn thị trường</small><div class="dk-big"><b>${nf(MV.pe_w_pos ?? MV.pe_w, 1)}</b><span>gia quyền</span><b>${nf(MV.pe_med, 1)}</b><span>trung vị</span>${isNum(MV.pe_h) ? `<b>${nf(MV.pe_h, 1)}</b><span>điều hoà</span>` : ""}</div>
-      <small>Trung vị so với lịch sử ${vsCell(MV.pe_vs_hist)} · P/B ${nf(MV.pb_w)} · phần bù so với TPCP <b>${nf(MV.erp, 1)}%</b></small> <a href="#/sector" class="dk-link">So sánh các ngành</a></div>
+    <div class="dk hlb pem"><small>P/E toàn thị trường</small>
+      <div class="pem-g">
+        <div title="Tổng vốn hoá ÷ tổng lợi nhuận (bỏ DN lỗ) – mã lớn chi phối"><span>Gia quyền</span><b>${nf(MV.pe_w_pos ?? MV.pe_w, 1)}</b></div>
+        <div title="Mã ở giữa khi xếp P/E – đại diện cổ phiếu điển hình"><span>Trung vị</span><b>${nf(MV.pe_med, 1)}</b></div>
+        ${isNum(MV.pe_h) ? `<div title="Trung bình điều hoà – mỗi DN như nhau, ít bị P/E cực cao kéo lệch"><span>Điều hoà</span><b>${nf(MV.pe_h, 1)}</b></div>` : ""}
+      </div>
+      <dl class="pem-f">
+        <div><dt>Trung vị so với lịch sử</dt><dd>${vsCell(MV.pe_vs_hist)}</dd></div>
+        <div><dt>P/B gia quyền</dt><dd>${nf(MV.pb_w)}</dd></div>
+        <div><dt>Phần bù so với TPCP</dt><dd>${nf(MV.erp, 1)}%</dd></div>
+      </dl>
+      <a href="#/sector" class="dk-link pem-l">So sánh các ngành <span aria-hidden="true">→</span></a></div>
     <div class="dk todo"><small>Việc hôm nay</small>
       <button class="tdo buy" ${go("secBuy")}><b>${plan.picks.length}</b> mã nên mua <span>${nf(plan.invested, 0)}% vốn</span></button>
       <button class="tdo sell" ${go("secSell")} ${sells.length ? "" : "disabled"}><b>${sells.length}</b> mã cần xử lý</button>
