@@ -1991,3 +1991,46 @@ body.nt-pk{overflow:hidden}
 .nt-ctx.out .ios-menu-in{animation:ntCtxOut .12s ease-in both}
 @keyframes ntCtxIn{from{opacity:0;transform:scale(.96)}}@keyframes ntCtxOut{to{opacity:0}}
 @media (pointer:fine){.ntpk-bg{-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);background:rgba(0,0,0,.45)}.ntpk-in{animation-duration:.2s;animation-timing-function:cubic-bezier(.2,.8,.3,1)}@keyframes pkIn{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:none}}}
+/* ⚖️ tỉ trọng phương pháp định giá */
+.mwbox{margin-top:12px;border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--surface)}
+.mwbox summary{cursor:pointer;display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 10px;list-style:none}.mwbox summary::-webkit-details-marker{display:none}
+.mwbox summary::before{content:"▸";color:var(--ink-3);transition:transform .15s}.mwbox[open] summary::before{transform:rotate(90deg)}
+.mwl{display:grid;gap:6px;margin:10px 0 8px}
+.mwr{display:grid;grid-template-columns:minmax(0,1fr) minmax(120px,220px) 58px 62px;align-items:center;gap:10px;padding:6px 8px;border-radius:9px;background:var(--sunk)}
+.mwr.z{opacity:.55}
+.mwr label{display:flex;flex-direction:column;gap:1px;min-width:0}.mwr label b{font-weight:600;font-size:.84rem}.mwr label small{color:var(--ink-3);font-size:.7rem;overflow-wrap:anywhere}
+.mwr input[type=range]{width:100%;accent-color:var(--brand)}
+.mwr .mwn{width:58px;height:30px;padding:0 6px;border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-size:16px;text-align:right;font-variant-numeric:tabular-nums}
+@media (min-width:761px){.mwr .mwn{font-size:.82rem}}
+.mws{display:flex;flex-direction:column;align-items:flex-end;line-height:1.15}.mws b{font-variant-numeric:tabular-nums}.mws small{color:var(--ink-3);font-size:.66rem}
+.mwadj{display:flex;gap:8px;align-items:flex-start;font-size:.78rem;color:var(--ink-2);margin:4px 0 8px}
+.mwb{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
+@media (max-width:760px){.mwr{grid-template-columns:minmax(0,1fr) 58px 54px;grid-template-areas:"l n s" "r r r"}.mwr label{grid-area:l}.mwr input[type=range]{grid-area:r}.mwr .mwn{grid-area:n}.mwr .mws{grid-area:s}}
+
+/* ==== font giống MyBit (chép từ my-bit/site/app.css) */
+/* ===================================================================== CHỮ DỄ ĐỌC (ghi đè lớp cũ)
+   Một họ chữ duy nhất Be Vietnam Pro (dấu tiếng Việt chuẩn), số cùng độ rộng, không dùng chữ hẹp / chữ có chân */
+:root{--num:"Be Vietnam Pro",system-ui,sans-serif;--serif:"Be Vietnam Pro",system-ui,sans-serif}
+:root[data-theme="dark"]{--ink:#E8EDF3;--ink-2:#B4BDC9;--ink-3:#8793A4}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--ink:#E8EDF3;--ink-2:#B4BDC9;--ink-3:#8793A4}}
+:root[data-theme="light"]{--ink-2:#465163;--ink-3:#6E7889}
+body{font:400 14px/1.55 "Be Vietnam Pro",system-ui,sans-serif;letter-spacing:0;font-variant-numeric:tabular-nums lining-nums;-webkit-font-smoothing:antialiased}
+h1,.ph h1{font:700 1.6rem/1.2 "Be Vietnam Pro",system-ui,sans-serif!important;letter-spacing:-.015em}
+h1 small{font-weight:500;font-size:.62em;color:var(--ink-2)}
+.ph h2,.ph h3,.panel>h2,details.panel>summary{font:600 1rem/1.35 "Be Vietnam Pro",system-ui,sans-serif!important;letter-spacing:-.005em}
+a.brand,.rail-brand b{font:700 1.15rem/1 "Be Vietnam Pro",system-ui,sans-serif!important;letter-spacing:-.01em}
+td,td.l,td.wrap,td.name{font-family:"Be Vietnam Pro",system-ui,sans-serif;font-size:.86rem;font-weight:400}
+td b,td.l b{font-weight:600}
+th{font-size:.74rem;font-weight:600;letter-spacing:.01em}
+.kpis dt{font-size:.72rem}
+.kpis dd,.tk-v,.stats dd,.st dd{font-family:"Be Vietnam Pro",system-ui,sans-serif!important;font-weight:600;letter-spacing:-.01em}
+.pill{font:600 .74rem/1.5 "Be Vietnam Pro",system-ui,sans-serif!important;letter-spacing:0;padding:1px 8px;border-radius:999px}
+.pill.big{font-size:.84rem!important;padding:3px 11px}
+.tabs a{font-family:"Be Vietnam Pro",system-ui,sans-serif!important;letter-spacing:0}
+.tfseg button,.seg button{font-family:"Be Vietnam Pro",system-ui,sans-serif!important;font-weight:500}
+small,.faint,.muted{line-height:1.45}
+small{font-size:.8em}
+.panel{padding:14px 16px}
+.note{line-height:1.6}
+.disclaimer{font-size:.76rem}
+@media (max-width:700px){body{font-size:14.5px}h1,.ph h1{font-size:1.35rem!important}td{font-size:.84rem}}

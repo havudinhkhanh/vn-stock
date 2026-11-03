@@ -257,6 +257,20 @@ def _trim_median(x: pd.Series) -> float | None:
     return m
 
 
+def _trim_hmean(x: pd.Series) -> float | None:
+    """P/E trung bình điều hoà (mỗi mã như nhau): n ÷ Σ(1/P/E) = nghịch đảo của tỷ suất lợi nhuận E/P bình quân.
+    Bỏ mã ngoài khoảng 1/3–3 lần trung vị trước (P/E rất thấp do lãi bất thường 1 lần kéo trung bình điều hoà xuống mạnh)."""
+    x = x.dropna()
+    x = x[x > 0]
+    if x.empty:
+        return None
+    m = float(x.median())
+    y = x[(x >= m / 3) & (x <= m * 3)]
+    if len(y) >= 3:
+        x = y
+    return float(len(x) / (1.0 / x).sum())
+
+
 def benchmark(u: pd.DataFrame, metrics: list[str], ref: pd.Series, min_n: int = 3) -> pd.DataFrame:
     """Trung vị mâm cho từng mã + mâm thực sự dùng (sau khi nới khi mâm quá nhỏ).
     ref: True = mã dùng để tính trung vị (có thanh khoản, có BCTC). Tập đoàn đa ngành: không có trung vị (None)."""
@@ -292,14 +306,15 @@ def benchmark(u: pd.DataFrame, metrics: list[str], ref: pd.Series, min_n: int = 
         if ck not in cache:
             mem = refm & (u[col] == val) & x.notna()
             xx = x[mem]
-            cache[ck] = ((_trim_median(xx) if m in ("pe", "pb") else (float(xx.median()) if len(xx) else None)), int(len(xx)))
+            cache[ck] = ((_trim_hmean(xx) if m == "pe_h" else _trim_median(xx) if m in ("pe", "pb") else (float(xx.median()) if len(xx) else None)), int(len(xx)))
         return cache[ck]
 
-    for m in metrics:
-        if m not in u:
+    for m in list(metrics) + (["pe_h"] if "pe" in metrics else []):      # pe_h: P/E mâm theo trung bình điều hoà (cùng mâm, cùng cách co về nhóm gần nhất)
+        src = "pe" if m == "pe_h" else m
+        if src not in u:
             continue
-        x = pd.to_numeric(u[m], errors="coerce")
-        if m in ("pe", "pb"):
+        x = pd.to_numeric(u[src], errors="coerce")
+        if m in ("pe", "pb", "pe_h"):
             x = x.where(x > 0)
         vals = []
         for s in u.index:

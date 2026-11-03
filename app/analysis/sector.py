@@ -38,12 +38,27 @@ def index_series(w: pd.DataFrame, syms: list[str], wt: pd.Series) -> pd.Series:
     return 100 * (1 + daily).cumprod()
 
 
+def hmean_pe(pe: pd.Series) -> float | None:
+    """P/E trung bình điều hoà (mỗi DN như nhau) = n ÷ Σ(1/P/E): nghịch đảo tỷ suất lợi nhuận bình quân. Chỉ DN có lãi;
+    bỏ mã ngoài khoảng 1/3–3 lần trung vị (P/E rất thấp do lãi bất thường kéo trung bình điều hoà xuống mạnh)."""
+    x = pd.to_numeric(pe, errors="coerce").dropna()
+    x = x[x > 0]
+    if len(x) < 2:
+        return None
+    m = float(x.median())
+    y = x[(x >= m / 3) & (x <= m * 3)]
+    if len(y) >= 3:
+        x = y
+    return float(len(x) / (1.0 / x).sum())
+
+
 def valuation_block(f: pd.DataFrame) -> dict:
     """Định giá gộp của một tập doanh nghiệp (có BCTC):
     - pe_w: P/E gia quyền vốn hoá = tổng vốn hoá / tổng LN 12 tháng (tính cả DN lỗ – giống P/E của chỉ số)
     - pe_w_pos: như trên nhưng chỉ DN có lãi (cùng cơ sở với lịch sử để so sánh)
     - pb_w: tổng vốn hoá / tổng vốn chủ; roe_w: tổng LN / tổng vốn chủ
-    - pe_med, pb_med: trung vị (đại diện "doanh nghiệp điển hình")."""
+    - pe_med, pb_med: trung vị (đại diện "doanh nghiệp điển hình")
+    - pe_h: trung bình điều hoà P/E (mỗi DN như nhau, không theo vốn hoá)."""
     out = {}
     if f is None or f.empty:
         return out
@@ -65,6 +80,7 @@ def valuation_block(f: pd.DataFrame) -> dict:
         if both.sum() >= 2:
             out["roe_w"] = _r(100 * ni[both].sum() / (mc[both] / pb[both]).sum(), 1)
     out["pe_med"] = _r(pe[pe > 0].median(), 1)
+    out["pe_h"] = _r(hmean_pe(pe), 1)
     out["pb_med"] = _r(pb[pb > 0].median(), 2)
     out["ey_w"] = _r(100 / out["pe_w"], 2) if out.get("pe_w") else None
     out["loss_share"] = _r(100 * float((ni[ok] <= 0).mean()), 0) if ok.any() else None
@@ -83,6 +99,7 @@ def history_block(q: pd.DataFrame, cur: dict, n: int = 24) -> dict:
         return out
     g = q.groupby(["year", "quarter"])
     med_pe = g["pe_src"].median().tail(n)
+    h_pe = g["pe_src"].apply(hmean_pe).reindex(med_pe.index)
     med_pb = g["pb_src"].median().tail(n) if "pb_src" in q else None
     w_pe = None
     if "mcap_src" in q:
@@ -100,6 +117,7 @@ def history_block(q: pd.DataFrame, cur: dict, n: int = 24) -> dict:
     out["val_hist"] = [{"p": lab(yy, qq_), "pe": _r(med_pe.get((yy, qq_)), 1),
                         "pb": _r(med_pb.get((yy, qq_)), 2) if med_pb is not None else None,
                         "pe_w": _r(w_pe.get((yy, qq_)), 1) if w_pe is not None else None,
+                        "pe_h": _r(h_pe.get((yy, qq_)), 1),
                         "pb_w": _r(w_pb.get((yy, qq_)), 2) if w_pe is not None else None}
                        for (yy, qq_) in med_pe.index]
     # tương thích ngược
@@ -114,6 +132,7 @@ def history_block(q: pd.DataFrame, cur: dict, n: int = 24) -> dict:
     out.update(stats([x["pe"] for x in out["val_hist"]], cur.get("pe_med"), "pe"))
     out.update(stats([x["pb"] for x in out["val_hist"]], cur.get("pb_med"), "pb"))
     out.update(stats([x["pe_w"] for x in out["val_hist"]], cur.get("pe_w_pos"), "pew"))
+    out.update(stats([x["pe_h"] for x in out["val_hist"]], cur.get("pe_h"), "peh"))
     out.update(stats([x["pb_w"] for x in out["val_hist"]], cur.get("pb_w"), "pbw"))
     return out
 

@@ -552,7 +552,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             model["overridden"] = sorted(ov)
         hist = va.hist_multiples(qs, d["df"]["close"], fa.get("shares_mn"))
         _nn = lambda x: None if x is None or (isinstance(x, float) and np.isnan(x)) else x  # noqa: E731
-        peers = {"pe_ind_med": _nn(r.get("pe_ind_med")), "pb_ind_med": _nn(r.get("pb_ind_med")), "roe_ind_med": _nn(r.get("roe_ind_med")),
+        peers = {"pe_ind_med": _nn(r.get("pe_ind_med")), "pe_h_ind_med": _nn(r.get("pe_h_ind_med")), "pb_ind_med": _nn(r.get("pb_ind_med")), "roe_ind_med": _nn(r.get("roe_ind_med")),
                  "ps_ind_med": _nn(_ps_peer.get(r.get("peer_used"))) if isinstance(r.get("peer_used"), str) else None,
                  "label": r.get("peer_used_label"),
                  "conglo": ("tập đoàn đa ngành, không có mâm tương đồng" if r.get("peer") == "conglomerate" else
@@ -565,8 +565,9 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         if so_ and (so_.get("listed_share") or 0) >= float(vcfg.get("sotp_min_share", 25)):
             peers["sotp"] = so_
         ep = evx.episode(d["df"]["close"])
+        _mw = (overrides.get(s) or {}).get("mw") if isinstance((overrides.get(s) or {}).get("mw"), dict) else (overrides.get("_ALL") or {}).get("mw")
         val = va.value(fa, model, peers, hist, r["beta"], vcfg, mos, event=ep if ep and ep["phase"] == "active" else None,
-                       liq_bn=float(r.get("avg_value_bn") or 0), mkt=mkt_mult)
+                       liq_bn=float(r.get("avg_value_bn") or 0), mkt=mkt_mult, mw=_mw if isinstance(_mw, dict) else None)
         try:
             val["market"] = va.market_view(fa, hist, val, mkt_pe, so_)
             _mk = val["market"]

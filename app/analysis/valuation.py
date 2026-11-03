@@ -120,7 +120,8 @@ def event_flag(close: pd.Series | None) -> dict | None:
 
 
 def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: dict,
-          mos_pct: float, event: dict | None = None, liq_bn: float | None = None, mkt: dict | None = None) -> dict:
+          mos_pct: float, event: dict | None = None, liq_bn: float | None = None, mkt: dict | None = None, mw: dict | None = None) -> dict:
+    """mw: tỉ trọng từng phương pháp anh tự đặt ({khoá: %}, "_adj": False = không tự giảm trọng số phương pháp lệch xa) – thay trọng số gốc."""
     price = fa.get("price")
     rf = cfg.get("risk_free", 3.2) / 100
     erp = cfg.get("equity_risk_premium", 8.0) / 100
@@ -213,6 +214,15 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
         methods.append({"key": "pe", "mult": pe_t, "name": f"P/E mục tiêu {pe_t:.1f}x ({src}) × {ename}",
                         "value": _r(pe_t * e / 1000), "w": 0.35 if ctype == "CT" else 0.20,
                         "range": [_r(lo_m * e / 1000), _r(hi_m * e / 1000)]})
+    # 3b) P/E mâm theo TRUNG BÌNH ĐIỀU HOÀ (mỗi DN như nhau: n ÷ Σ 1/P/E) × cùng EPS và cùng điều chỉnh ROE như trên.
+    #     Chưa kiểm chứng như P/E trung vị → trọng số gốc 0% (chỉ tham khảo); anh tự đặt tỉ trọng nếu muốn dùng.
+    peh = peers.get("pe_h_ind_med")
+    if peh and eps and eps > 0 and 3 < peh * adj < 40:
+        e = eps * min(nfac, dfac)
+        pht = peh * adj
+        methods.append({"key": "pe_h", "mult": pht, "name": f"P/E điều hoà {pht:.1f}x ({('mâm ' + peers['label']) if peers.get('label') else 'ngành'}{f' ×{adj:.2f} theo ROE' if adj != 1 else ''}; mỗi DN như nhau) × EPS",
+                        "value": _r(pht * e / 1000), "w": 0.0, "ref": True,
+                        "range": [_r(pht * 0.85 * e / 1000), _r(pht * 1.15 * e / 1000)]})
     # 4) P/B mục tiêu (cùng logic: mặt bằng ngành điều chỉnh theo ROE)
     pb_ind = peers.get("pb_ind_med")
     # P/B hợp lý tỷ lệ thuận với ROE (P/B = (ROE−g)/(ke−g)) → điều chỉnh đủ theo ROE (0,5–2,5 lần); kiểm chứng IC 0,023 so với 0,008 khi chỉ điều chỉnh ±30%
@@ -237,6 +247,19 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
         methods.append({"key": "sotp", "name": f"Tổng giá trị các phần (SOTP): {len(so['parts'])} công ty con niêm yết theo giá thị trường × tỷ lệ sở hữu + phần còn lại theo sổ sách, chiết khấu holding {so['discount']:.0f}%",
                         "value": ps, "w": 0.6 if peers.get("conglo") else 0.3, "range": [_r(ps * 0.85), _r(ps * 1.15)]})
     methods = [m for m in methods if m["value"] and m["value"] > 0]
+    for m in methods:
+        m["w0"] = m["w"]                     # trọng số gốc của hệ thống (trang hiện để so & nút "Về mặc định")
+    adj_far = True
+    if mw:
+        adj_far = mw.get("_adj", True) is not False
+        if any(k in mw for k in (m["key"] for m in methods)):
+            for m in methods:
+                if m["key"] in mw:
+                    try:
+                        m["w"] = max(0.0, float(mw[m["key"]])) / 100
+                        m["user"] = True
+                    except (TypeError, ValueError):
+                        pass
     if not [m for m in methods if m["w"] > 0]:
         methods = []
     fallback = None
@@ -276,11 +299,11 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
     act = [m for m in methods if m["w"] > 0]
     med = float(np.median([m["value"] for m in act]))
     for m in methods:
-        m["used"] = bool(m["w"] > 0 and med / 2.5 <= m["value"] <= med * 2.5)
+        m["used"] = bool(m["w"] > 0 and (not adj_far or med / 2.5 <= m["value"] <= med * 2.5))
     used = [m for m in methods if m["used"]] or act
-    # phương pháp càng lệch xa trung vị càng ít trọng số (không để 1 phương pháp kéo cả kết quả)
+    # phương pháp càng lệch xa trung vị càng ít trọng số (không để 1 phương pháp kéo cả kết quả) – anh tắt được trong tỉ trọng tự đặt
     for m in used:
-        m["w_eff"] = m["w"] / (1 + 3 * abs(np.log(m["value"] / med)))
+        m["w_eff"] = m["w"] / (1 + 3 * abs(np.log(m["value"] / med))) if adj_far else m["w"]
     wsum = sum(m["w_eff"] for m in used)
     for m in used:
         m["w_eff"] = round(m["w_eff"] / wsum, 3)
@@ -374,6 +397,7 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
             "buy_below": _r(buy_below), "sell_above": _r(fair * 1.10), "upside": _r(upside, 1), "median": _r(med_used),
             "ke_parts": {"rf": _r(rf * 100, 2), "beta": _r(b, 2), "beta_used": _r(max(b, 1.0), 2), "erp": _r(erp * 100, 2), "size": _r(size_p * 100, 1),
                          "floor": cfg.get("ke_min", 12.0)},
+            "mw": {k: v for k, v in (mw or {}).items()} or None, "adj_far": adj_far,
             "liq": liq, "verdict": verdict, "reliable": reliable, "warning": warning, "flag": flag, "event": event, "det": det, "methods": methods, "norm": nz, "ke": _r(ke * 100, 2), "beta": _r(b, 2),
             "scenarios": sc, "model": model, "hist": {k: _r(v, 2) for k, v in hist.items()}}
 

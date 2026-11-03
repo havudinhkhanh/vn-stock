@@ -1125,7 +1125,7 @@ async function viewToday() {
     <div class="dk"><small>Độ rộng thị trường</small><div class="dk-big"><b class="up">${adv}</b><span>tăng</span><b class="down">${dec}</b><span>giảm</span></div>
       <div class="adbar"><i style="width:${(adv / tot) * 100}%"></i></div>
       <small>${nf(br.above50, 0)}% mã trên MA50 · ${nf(br.above200, 0)}% trên MA200 · đỉnh/đáy mới ${br.new_hi ?? "—"}/${br.new_lo ?? "—"} · ${reg.distribution_days} ngày phân phối</small></div>
-    <div class="dk hlb"><small>P/E toàn thị trường</small><div class="dk-big"><b>${nf(MV.pe_w_pos ?? MV.pe_w, 1)}</b><span>gia quyền</span><b>${nf(MV.pe_med, 1)}</b><span>trung vị</span></div>
+    <div class="dk hlb"><small>P/E toàn thị trường</small><div class="dk-big"><b>${nf(MV.pe_w_pos ?? MV.pe_w, 1)}</b><span>gia quyền</span><b>${nf(MV.pe_med, 1)}</b><span>trung vị</span>${isNum(MV.pe_h) ? `<b>${nf(MV.pe_h, 1)}</b><span>điều hoà</span>` : ""}</div>
       <small>Trung vị so với lịch sử ${vsCell(MV.pe_vs_hist)} · P/B ${nf(MV.pb_w)} · phần bù so với TPCP <b>${nf(MV.erp, 1)}%</b></small> <a href="#/sector" class="dk-link">So sánh các ngành</a></div>
     <div class="dk todo"><small>Việc hôm nay</small>
       <button class="tdo buy" ${go("secBuy")}><b>${plan.picks.length}</b> mã nên mua <span>${nf(plan.invested, 0)}% vốn</span></button>
@@ -1355,11 +1355,18 @@ function aggRec(M) {
   if (Ep.length >= 2) V.pe_w_pos = sm(Ep, (r) => r.mcap_bn) / sm(Ep, (r) => r.ni_ttm);
   if (B.length >= 2) { const bk = sm(B, (r) => r.mcap_bn / r.pb); V.pb_w = sm(B, (r) => r.mcap_bn) / bk; const BE = B.filter((r) => isNum(r.ni_ttm)); if (BE.length >= 2) V.roe_w = 100 * sm(BE, (r) => r.ni_ttm) / sm(BE, (r) => r.mcap_bn / r.pb); }
   if (V.pe_w) V.ey_w = 100 / V.pe_w;
+  V.pe_h = peHmean(M.map((r) => r.pe));
   V.loss_share = E.length ? 100 * E.filter((r) => r.ni_ttm <= 0).length / E.length : null;
   { const pg = M.filter((r) => r.pe > 0 && r.ni_yoy > 0).map((r) => r.pe / r.ni_yoy).sort((a, b) => a - b); V.peg_med = pg.length >= 2 ? pg[Math.floor(pg.length / 2)] : null; }
   return { ...V, n: M.length, n_sec: new Set(M.map((r) => r.sector)).size, mcap_bn: sum("mcap_bn"), value_bn: sum("avg_value_bn"), r1w: wr("chg1w"), r1m: wr("chg1m"), r3m: wr("chg3m"), r1y: wr("chg1y"),
     pe_med: med("pe", true), pb_med: med("pb", true), roe_med: med("roe"), ni_yoy_med: med("ni_yoy"), rev_yoy_med: med("rev_yoy"), div_med: med("div_yield"), fscore_med: med("fscore"), de_med: med("de"),
     upside_med: med("upside"), composite_med: med("composite"), above50: null, up_pct: M.length ? 100 * M.filter((r) => r.trend === "up").length / M.length : null };
+}
+// P/E trung bình điều hoà (mỗi DN như nhau) = n ÷ Σ(1/P/E), bỏ mã ngoài 1/3–3 lần trung vị – giống app/analysis/sector.py
+function peHmean(a) {
+  let x = a.filter((v) => isNum(v) && v > 0).sort((p, q) => p - q); if (x.length < 2) return null;
+  const m = x.length % 2 ? x[(x.length - 1) / 2] : (x[x.length / 2 - 1] + x[x.length / 2]) / 2, y = x.filter((v) => v >= m / 3 && v <= m * 3);
+  if (y.length >= 3) x = y; return x.length / x.reduce((s_, v) => s_ + 1 / v, 0);
 }
 function secValStrip(rec, M, isGroup) {
   const pew = rec.pe_w_pos ?? rec.pe_w, mpew = M.pe_w_pos ?? M.pe_w;
@@ -1367,6 +1374,7 @@ function secValStrip(rec, M, isGroup) {
     <div class="bigs">
       <div class="big hlb"><small>P/E gia quyền</small><b>${nf(pew, 1)}</b><span>TT ${nf(mpew, 1)} · ${vsCell(vsPct(pew, mpew))}${isNum(rec.pew_vs_hist) ? ` · LS ${vsCell(rec.pew_vs_hist)}` : ""}</span></div>
       <div class="big hlb"><small>P/E trung vị</small><b>${nf(rec.pe_med, 1)}</b><span>TT ${nf(M.pe_med, 1)} · ${vsCell(vsPct(rec.pe_med, M.pe_med))}${isNum(rec.pe_vs_hist) ? ` · LS ${vsCell(rec.pe_vs_hist)}` : ""}</span></div>
+      ${isNum(rec.pe_h) ? `<div class="big" title="Trung bình điều hoà: n ÷ Σ(1/P/E) – mỗi doanh nghiệp như nhau, nghịch đảo tỷ suất lợi nhuận bình quân"><small>P/E điều hoà</small><b>${nf(rec.pe_h, 1)}</b><span>TT ${nf(M.pe_h, 1)} · ${vsCell(vsPct(rec.pe_h, M.pe_h))}${isNum(rec.peh_vs_hist) ? ` · LS ${vsCell(rec.peh_vs_hist)}` : ""}</span></div>` : ""}
       <div class="big"><small>P/E so với lịch sử</small><b>${isNum(rec.pe_pctl_hist) ? pctlChip(rec.pe_pctl_hist) : "—"}</b><span>TB ${nf(rec.pe_hist_med, 1)} · vùng ${nf(rec.pe_hist_lo, 1)}–${nf(rec.pe_hist_hi, 1)}</span></div>
       <div class="big"><small>P/B gia quyền / TV</small><b>${nf(rec.pb_w)} <small>/ ${nf(rec.pb_med)}</small></b><span>TT ${nf(M.pb_w)} / ${nf(M.pb_med)}${isNum(rec.pb_vs_hist) ? ` · LS ${vsCell(rec.pb_vs_hist)}` : ""}</span></div>
       <div class="big"><small>ROE gia quyền</small><b>${pct(rec.roe_w, 1, false)}</b><span>TT ${pct(M.roe_w, 1, false)} · TV ${pct(rec.roe_med, 1, false)}</span></div>
@@ -1563,6 +1571,7 @@ async function viewSector(name, lvArg) {
           ${rec.val_hist ? (() => { const mm = Object.fromEntries(((secs.market || {}).val_hist || []).map((x) => [x.p, x.pe])); return lineSvg([
               { name: "Ngành – trung vị", color: css("--brand"), width: 2.2, pts: rec.val_hist.map((x) => ({ x: x.p, y: x.pe })) },
               { name: "Ngành – gia quyền", color: css("--floor"), pts: rec.val_hist.map((x) => ({ x: x.p, y: x.pe_w })) },
+              ...(rec.val_hist.some((x) => isNum(x.pe_h)) ? [{ name: "Ngành – điều hoà", color: css("--up"), dash: "2 2", pts: rec.val_hist.map((x) => ({ x: x.p, y: x.pe_h })) }] : []),
               { name: "Thị trường – trung vị", color: css("--ink-3"), dash: "4 3", pts: rec.val_hist.map((x) => ({ x: x.p, y: mm[x.p] })) }],
             { h: 200, hlines: [{ y: rec.pe_hist_med, label: "TB ngành " + nf(rec.pe_hist_med, 1), color: css("--ref") }], label: "P/E ngành" }); })()
             + `<p class="faint" style="font-size:.74rem">P/E trung vị hiện tại cao hơn ${nf(rec.pe_pctl_hist, 0)}% số quý trong lịch sử (dưới 25 = ngành đang rẻ so với chính nó, trên 75 = đắt). <a href="#/sector">So với các ngành khác →</a></p>` : `<p class="muted">Chưa đủ lịch sử P/E.</p>`}</section></div>` : ""}</div>
@@ -1800,7 +1809,7 @@ function viewEtfOne(B, r, etfSym) {
 </section></div>
     ${r.mtf ? `<div class="sec">${mtfPanel(r.mtf, `${esc(r.name)} – đa khung thời gian`)}</div>` : ""}
     ${V.n ? `<section class="panel sec"><div class="ph"><h2>Định giá rổ ${esc(r.name)}</h2><span class="meta">${V.n} mã · tính từ BCTC từng mã trong hệ thống</span></div>
-      ${kpis([["P/E gia quyền", nf(V.pe_w, 1), "", "Tổng vốn hoá ÷ tổng lợi nhuận 12 tháng của các mã có lãi"], ["P/E trung vị", nf(V.pe_med, 1)], ["P/B gia quyền", nf(V.pb_w, 2)], ["ROE trung vị", pct(V.roe_med, 1, false)], ["LN 12T trung vị", pct(V.ni_yoy_med), cls(V.ni_yoy_med)],
+      ${kpis([["P/E gia quyền", nf(V.pe_w, 1), "", "Tổng vốn hoá ÷ tổng lợi nhuận 12 tháng của các mã có lãi"], ["P/E trung vị", nf(V.pe_med, 1)], ["P/E điều hoà", nf(V.pe_h, 1), "", "n ÷ Σ(1/P/E): mỗi mã như nhau"], ["P/B gia quyền", nf(V.pb_w, 2)], ["ROE trung vị", pct(V.roe_med, 1, false)], ["LN 12T trung vị", pct(V.ni_yoy_med), cls(V.ni_yoy_med)],
         ["Cổ tức gia quyền", pct(V.div_w, 1, false)], ["Tiềm năng TV", pct(V.upside_med), cls(V.upside_med), "Trung vị (giá hợp lý − giá)/giá của các mã"], ["% mã xu hướng tăng", isNum(V.up_pct) ? nf(V.up_pct, 0) + "%" : "—"], ["Mã trong DS MUA", (V.in_buy || []).map((s) => `<a href="#/s/${s}">${s}</a>`).join(", ") || "0"]])}</section>
       <section class="panel flush sec"><div class="ph"><h2>Thành phần rổ</h2><span class="meta">tỷ trọng ước theo vốn hoá – sở còn điều chỉnh theo free-float và trần tỷ trọng, nên chỉ để tham khảo</span></div>
         <div class="tw tall"><table><thead><tr><th class="l sym">Mã</th><th class="l">Mâm</th><th>Tỷ trọng ≈</th><th>1 tháng</th><th>P/E</th><th>Tiềm năng</th><th class="l">Xu hướng</th></tr></thead>
@@ -3762,7 +3771,7 @@ function tabVal(d) {
   if (!v.ok || !v.model) return `<div class="empty">${esc(v.reason || "Không đủ số liệu để dự phóng (doanh nghiệp lỗ, vốn chủ âm hoặc thiếu BCTC).")}</div>${bctcPanel(d.bctc, d.symbol)}`;
   const a = v.model.assumptions;
   return `<div class="g g-main"><div class="stack">
-    ${panel("Giá trị hợp lý", `${corpBox(d.fa)}<div id="vOut"></div>`)}
+    ${panel("Giá trị hợp lý", `${corpBox(d.fa)}<div id="vOut"></div><div id="vW"></div>`)}
     ${mktView(d)}
     ${panel("Báo cáo tài chính dự phóng", `<div id="pOut"></div><p class="faint" style="margin-top:6px;font-size:.74rem">Doanh thu tăng theo giả định, giảm dần về mức dài hạn; biên lợi nhuận và chi phí theo tỷ lệ doanh thu; lợi nhuận khác giảm 20%/năm.
       Lãi vay = lãi suất × dư nợ bình quân (dư nợ = nợ/vốn × vốn chủ + vay cho dự án mới); FCFE = LN + khấu hao − đầu tư TSCĐ − tăng vốn lưu động + vay ròng.
@@ -3901,8 +3910,14 @@ function bindReport() {
   $("#rpPrint2")?.addEventListener("click", () => window.print());
   $("#rpPdf2")?.addEventListener("click", () => PDFX.thisPage());
 }
+// ⚖️ tỉ trọng từng phương pháp định giá: anh tự đặt (theo mã, hoặc chung cho mọi mã), có nút về mặc định của hệ thống
+const MW_NAME = { pe: "P/E mâm – trung vị", pe_h: "P/E mâm – điều hoà", pb: "P/B mâm", pbroe: "P/B hợp lý theo ROE", dcf: "DCF – FCFE (dòng tiền cho cổ đông)", fcff: "DCF – FCFF (dòng tiền doanh nghiệp)", ddm: "DDM – chiết khấu cổ tức", sotp: "SOTP – tổng giá trị các phần", pb_fb: "P/B dự phòng", ps_fb: "P/S dự phòng" };
 function bindVal(d) {
   const v = d.valuation, base = v.model.base, a0 = { ...v.model.assumptions };
+  // MWS.w: tỉ trọng đang dùng trên trang (đơn vị %, tính tương đối – tổng không cần = 100); MWS.w0: mặc định của hệ thống
+  const MWS = { w: {}, w0: {}, adj: v.adj_far !== false, own: null, all: null };
+  for (const m of v.methods || []) { MWS.w[m.key] = Math.round((m.w ?? 0) * 1000) / 10; MWS.w0[m.key] = Math.round((m.w0 ?? m.w ?? 0) * 1000) / 10; }
+  const wOf = (m) => (MWS.w[m.key] ?? 0) / 100;
   const calc = () => {
     const a = { ...a0 };
     $$("[data-a]").forEach((el) => { const x = Number(String(el.value).replace(",", ".")); if (!Number.isNaN(x)) a[el.dataset.a] = aUnitPct(el.dataset.u) ? x / 100 : x; });
@@ -3923,14 +3938,14 @@ function bindVal(d) {
       if (m.key === "dcf") { val = res.base.dcf; lo = res.bear.dcf; hi = res.bull.dcf; }
       if (m.key === "fcff") { val = res.base.ff?.per_share; lo = res.bear.ff?.per_share; hi = res.bull.ff?.per_share; }
       if (m.key === "ddm") { val = res.base.ddm; lo = res.bear.ddm; hi = res.bull.ddm; }
-      return { ...m, value: val, lo, hi };
+      return { ...m, w: wOf(m), value: val, lo, hi };
     }).filter((m) => isNum(m.value) && m.value > 0);
     const medOf = (a) => { const x = a.slice().sort((p, q) => p - q), k = x.length; return k ? (k % 2 ? x[(k - 1) / 2] : (x[k / 2 - 1] + x[k / 2]) / 2) : null; };
     const act = ms.filter((m) => m.w > 0);
     const med = medOf(act.map((m) => m.value));
-    ms.forEach((m) => (m.used = m.w > 0 && m.value >= med / 2.5 && m.value <= med * 2.5));
+    ms.forEach((m) => (m.used = m.w > 0 && (!MWS.adj || (m.value >= med / 2.5 && m.value <= med * 2.5))));
     const used = ms.filter((m) => m.used);
-    used.forEach((m) => (m.we = m.w / (1 + 3 * Math.abs(Math.log(m.value / med)))));
+    used.forEach((m) => (m.we = MWS.adj ? m.w / (1 + 3 * Math.abs(Math.log(m.value / med))) : m.w));
     const ws = used.reduce((s, m) => s + m.we, 0) || 1;
     used.forEach((m) => (m.we /= ws));
     const kLiq = 1 - (v.liq?.disc || 0) / 100;            // chiết khấu thanh khoản (mã ít giao dịch) – như phía máy chủ
@@ -3966,18 +3981,45 @@ function bindVal(d) {
     return a;
   };
   $$("[data-a], #as_ke").forEach((el) => (el.oninput = calc));
-  calc();
+  // ---- bảng tỉ trọng phương pháp
+  const drawW = () => {
+    const M = v.methods || [], tot = M.reduce((s_, m) => s_ + (MWS.w[m.key] || 0), 0) || 1, same = M.every((m) => (MWS.w[m.key] || 0) === (MWS.w0[m.key] || 0)) && MWS.adj;
+    const src = MWS.own ? `đang dùng tỉ trọng riêng của ${esc(d.symbol)}` : MWS.all ? "đang dùng tỉ trọng chung anh đặt cho mọi mã" : "đang dùng tỉ trọng mặc định của hệ thống";
+    $("#vW").innerHTML = `<details class="mwbox" ${MWS.open || !same ? "open" : ""}><summary><b>⚖️ Tỉ trọng từng phương pháp</b> <small class="faint">${same ? "mặc định" : "đã chỉnh"} · ${src}</small></summary>
+      <div class="mwl">${M.map((m) => { const w = MWS.w[m.key] || 0, sh = (w / tot) * 100;
+        return `<div class="mwr${w ? "" : " z"}"><label for="mw_${m.key}"><b>${esc(MW_NAME[m.key] || m.key)}</b><small>${nf(m.value)} nghìn đ/cp${m.off ? ` · hệ thống tắt: ${esc(m.off.join("; "))}` : m.ref ? " · tham khảo, chưa kiểm chứng" : ""}</small></label>
+          <input type="range" id="mw_${m.key}" data-mw="${m.key}" min="0" max="100" step="5" value="${w}" aria-label="Tỉ trọng ${esc(MW_NAME[m.key] || m.key)}">
+          <input type="number" class="mwn" data-mwn="${m.key}" min="0" max="100" step="1" value="${w}" inputmode="numeric" aria-label="Tỉ trọng (số)">
+          <span class="mws"><b>${nf(sh, 0)}%</b><small>gốc ${nf(MWS.w0[m.key] || 0, (MWS.w0[m.key] || 0) % 1 ? 1 : 0)}</small></span></div>`; }).join("")}</div>
+      <label class="mwadj"><input type="checkbox" id="mwAdj" ${MWS.adj ? "checked" : ""}> Tự giảm tỉ trọng phương pháp lệch xa trung vị (và bỏ phương pháp lệch &gt; 2,5 lần) – cột "Trọng số" ở bảng trên là tỉ trọng thực sau bước này</label>
+      <div class="mwb"><button class="btn primary" id="mwSave">💾 Lưu cho ${esc(d.symbol)}</button><button class="btn" id="mwAll">Lưu làm tỉ trọng chung mọi mã</button><button class="btn" id="mwReset">↺ Về mặc định hệ thống</button>${MWS.all ? `<button class="btn" id="mwAllDel">Xoá tỉ trọng chung</button>` : ""}</div>
+      <p class="faint" style="font-size:.74rem">Số ở mỗi dòng là tỉ trọng tương đối (tổng không cần bằng 100) – cột % là phần thực của phương pháp đó. Đặt 0 để bỏ một phương pháp. Lưu rồi thì lần chạy kế tiếp hệ thống dùng tỉ trọng này cho giá trị hợp lý, vùng mua và tín hiệu. Tỉ trọng riêng của mã được ưu tiên hơn tỉ trọng chung.</p></details>`;
+    $("#vW details").ontoggle = (e) => { MWS.open = e.target.open; };
+    const set = (k, x) => { MWS.w[k] = Math.max(0, Math.min(100, Math.round(+x || 0))); calc(); const tot2 = M.reduce((s_, m) => s_ + (MWS.w[m.key] || 0), 0) || 1;
+      $$("#vW .mwr").forEach((r, i) => { const m = M[i], w = MWS.w[m.key] || 0; r.classList.toggle("z", !w); r.querySelector(".mws b").textContent = nf((w / tot2) * 100, 0) + "%"; if (+r.querySelector("[data-mw]").value !== w) r.querySelector("[data-mw]").value = w; if (document.activeElement !== r.querySelector("[data-mwn]")) r.querySelector("[data-mwn]").value = w; }); };
+    $$("#vW [data-mw]").forEach((el) => (el.oninput = () => set(el.dataset.mw, el.value)));
+    $$("#vW [data-mwn]").forEach((el) => { el.oninput = () => set(el.dataset.mwn, el.value); el.onblur = () => (el.value = MWS.w[el.dataset.mwn] || 0); });
+    $("#mwAdj").onchange = (e) => { MWS.adj = e.target.checked; calc(); };
+    const pack = () => ({ ...Object.fromEntries(M.map((m) => [m.key, MWS.w[m.key] || 0])), ...(MWS.adj ? {} : { _adj: false }) });
+    const put = async (fn, msg) => { const { data } = await Store.get("assumptions"); const all = data || {}; fn(all); const ok = await Store.put("assumptions", all); toast(ok ? msg : "Đã lưu trên trình duyệt này"); MWS.own = all[d.symbol]?.mw || null; MWS.all = all._all?.mw || null; drawW(); };
+    $("#mwSave").onclick = () => { if (!M.some((m) => (MWS.w[m.key] || 0) > 0)) return toast("Cần ít nhất một phương pháp có tỉ trọng > 0"); put((all) => { all[d.symbol] = { ...(all[d.symbol] || {}), mw: pack() }; }, `Đã lưu tỉ trọng cho ${d.symbol} – áp dụng từ lần chạy kế tiếp`); };
+    $("#mwAll").onclick = () => { if (!M.some((m) => (MWS.w[m.key] || 0) > 0)) return toast("Cần ít nhất một phương pháp có tỉ trọng > 0"); if (!confirm("Dùng tỉ trọng này cho MỌI mã chưa có tỉ trọng riêng?\n\nPhương pháp nào mã khác không có thì bỏ qua; ngân hàng/CTCK/bảo hiểm dùng các phương pháp riêng nên chỉ các khoá trùng mới áp dụng.")) return; put((all) => { all._all = { ...(all._all || {}), mw: pack() }; }, "Đã lưu tỉ trọng chung – áp dụng cho mọi mã từ lần chạy kế tiếp"); };
+    $("#mwReset").onclick = () => { for (const m of M) MWS.w[m.key] = MWS.w0[m.key] || 0; MWS.adj = true; calc(); put((all) => { if (all[d.symbol]) { delete all[d.symbol].mw; if (!Object.keys(all[d.symbol]).length) delete all[d.symbol]; } }, MWS.all ? `Đã bỏ tỉ trọng riêng của ${d.symbol} – lần chạy kế tiếp dùng tỉ trọng chung` : "Đã về tỉ trọng mặc định của hệ thống"); };
+    if ($("#mwAllDel")) $("#mwAllDel").onclick = () => { if (confirm("Xoá tỉ trọng chung cho mọi mã? Các mã sẽ về tỉ trọng mặc định (trừ mã có tỉ trọng riêng).")) put((all) => { if (all._all) { delete all._all.mw; if (!Object.keys(all._all).length) delete all._all; } }, "Đã xoá tỉ trọng chung"); };
+  };
+  drawW(); calc();
+  Store.get("assumptions").then(({ data }) => { MWS.own = data?.[d.symbol]?.mw || null; MWS.all = data?._all?.mw || null; drawW(); }).catch(() => {});
   $("#aSave").onclick = async () => {
     const a = calc();
     const { data } = await Store.get("assumptions");
     const all = data || {};
-    all[d.symbol] = Object.fromEntries(A_FIELDS.map(([k]) => [k, a[k]]).filter(([, x]) => isNum(x)));
+    all[d.symbol] = { ...Object.fromEntries(A_FIELDS.map(([k]) => [k, a[k]]).filter(([, x]) => isNum(x))), ...(all[d.symbol]?.mw ? { mw: all[d.symbol].mw } : {}) };
     const ok = await Store.put("assumptions", all);
     toast(ok ? "Đã lưu – áp dụng từ lần chạy kế tiếp" : "Đã lưu trên trình duyệt này");
   };
   $("#aReset").onclick = async () => {
     const { data } = await Store.get("assumptions");
-    const all = data || {}; delete all[d.symbol]; await Store.put("assumptions", all);
+    const all = data || {}; const keep = all[d.symbol]?.mw; delete all[d.symbol]; if (keep) all[d.symbol] = { mw: keep }; await Store.put("assumptions", all);
     $$("[data-a]").forEach((el) => (el.value = aShow(el.dataset.a, el.dataset.u, a0[el.dataset.a])));
     $("#as_ke").value = String(v.ke); calc(); toast("Đã về giả định mặc định");
   };
@@ -4183,7 +4225,7 @@ async function viewGuide() {
 
 // ================================================================ ĐỊNH GIÁ SO SÁNH (dùng chung)
 let SECS = null;
-const mktPill = (M) => (M && isNum(M.pe_med) ? `<a class="pill brand mktp" href="#/sector" title="Định giá toàn thị trường – bấm để so sánh các ngành">P/E thị trường <b>${nf(M.pe_w_pos ?? M.pe_w, 1)}</b> gia quyền · <b>${nf(M.pe_med, 1)}</b> trung vị · P/B ${nf(M.pb_w)}</a>` : "");
+const mktPill = (M) => (M && isNum(M.pe_med) ? `<a class="pill brand mktp" href="#/sector" title="Định giá toàn thị trường – bấm để so sánh các ngành">P/E thị trường <b>${nf(M.pe_w_pos ?? M.pe_w, 1)}</b> gia quyền · <b>${nf(M.pe_med, 1)}</b> trung vị${isNum(M.pe_h) ? ` · <b>${nf(M.pe_h, 1)}</b> điều hoà` : ""} · P/B ${nf(M.pb_w)}</a>` : "");
 async function secsData() { if (!SECS) SECS = (await tryLoad("data/sectors.json")) || { sector: [], industry: [], market: {} }; return SECS; }
 const vsPct = (a, b) => (isNum(a) && isNum(b) && a > 0 && b > 0 ? (a / b - 1) * 100 : null);
 // thấp hơn là rẻ hơn → xanh
@@ -4241,6 +4283,7 @@ function valCtx(d, S, opts = {}) {
     sec ? [`Ngành<small>${esc(sec.name)}</small>`, sec.pe_med, sec.pb_med, sec.roe_med, sec.div_med, sec.ni_yoy_med, "sec"] : null,
     [`Thị trường<small>trung vị</small>`, mkt.pe_med, mkt.pb_med, mkt.roe_med, mkt.div_med, mkt.ni_yoy_med, "mkt"],
     [`Thị trường<small>gia quyền</small>`, mkt.pe_w_pos ?? mkt.pe_w, mkt.pb_w, mkt.roe_w, null, null, "mktw"],
+    isNum(mkt.pe_h) ? [`Thị trường<small>điều hoà</small>`, mkt.pe_h, null, null, null, null, "mkth"] : null,
   ].filter(Boolean);
   const base = ind || sec;
   const say = [];
@@ -4249,7 +4292,7 @@ function valCtx(d, S, opts = {}) {
     const w = (v, n) => (isNum(v) ? `${v < 0 ? "thấp hơn" : "cao hơn"} ${n} <b class="${v < 0 ? "up" : "down"}">${nf(Math.abs(v), 0)}%</b>` : null);
     say.push([w(a, pm && isNum(pm.pe) ? "mâm so sánh" : ind ? "nhóm ngành" : "ngành"), w(b, "thị trường"), w(c, "trung bình lịch sử của chính mã")].filter(Boolean).join(", "));
   } else say.push(`Mã đang lỗ hoặc chưa có EPS dương nên không có P/E – so sánh bằng P/B.`);
-  return `<section class="panel ctxp ${opts.extra || ""}"><div class="ph"><h2>P/E so với ngành & thị trường</h2><span class="meta">trung vị = DN điển hình · gia quyền = như chỉ số</span></div>
+  return `<section class="panel ctxp ${opts.extra || ""}"><div class="ph"><h2>P/E so với ngành & thị trường</h2><span class="meta">trung vị = DN điển hình · gia quyền = như chỉ số · điều hoà = mỗi DN như nhau</span></div>
     <table class="ctx"><colgroup><col><col style="width:30%"><col style="width:17%"><col style="width:17%"></colgroup><thead><tr><th class="l"></th><th class="hlc">P/E <small>mã so với</small></th><th>P/B</th><th>ROE</th></tr></thead><tbody>
     ${rows.map(([n, a, b, c, e, f, k]) => `<tr class="${k === "self" ? "me" : k.startsWith("mkt") ? "mk" : ""}"><td class="l">${n}</td><td class="hlc"><b>${nf(a, 1)}</b>${k !== "self" && isNum(pe) && isNum(a) ? ` <small>${vsCell(vsPct(pe, a))}</small>` : ""}</td>
       <td>${nf(b)}</td><td>${isNum(c) ? nf(c, 0) + "%" : "—"}</td></tr>`).join("")}</tbody></table>
@@ -4278,6 +4321,8 @@ const MEAS = {
     note: "Tổng vốn hoá ÷ tổng lợi nhuận 12 tháng của các DN có lãi trong ngành – giống cách tính P/E của chỉ số; mã vốn hoá lớn chi phối." },
   pe_med: { n: "P/E trung vị", cur: (s) => s.pe_med, mk: (m) => m.pe_med, med: "pe_hist_med", lo: "pe_hist_lo", hi: "pe_hist_hi", vs: "pe_vs_hist", pc: "pe_pctl_hist", hk: "pe", dec: 1,
     note: "P/E của doanh nghiệp đứng giữa ngành – đại diện cho 'DN điển hình', không bị vài mã lớn chi phối." },
+  pe_h: { n: "P/E điều hoà", cur: (s) => s.pe_h, mk: (m) => m.pe_h, med: "peh_hist_med", lo: "peh_hist_lo", hi: "peh_hist_hi", vs: "peh_vs_hist", pc: "peh_pctl_hist", hk: "pe_h", dec: 1,
+    note: "Trung bình điều hoà = số DN ÷ Σ(1/P/E) (DN có lãi, bỏ mã ngoài 1/3–3 lần trung vị): mỗi DN như nhau, không theo vốn hoá – tương đương lấy bình quân tỷ suất lợi nhuận E/P rồi nghịch đảo. Không bị mã P/E rất cao (lãi mỏng) kéo lên như trung bình cộng." },
   pb_w: { n: "P/B gia quyền", cur: (s) => s.pb_w, mk: (m) => m.pb_w, med: "pbw_hist_med", lo: "pbw_hist_lo", hi: "pbw_hist_hi", vs: "pbw_vs_hist", pc: "pbw_pctl_hist", hk: "pb_w", dec: 2,
     note: "Tổng vốn hoá ÷ tổng vốn chủ sở hữu. Dùng tốt cho ngân hàng, chứng khoán, bất động sản, DN chu kỳ." },
   pb_med: { n: "P/B trung vị", cur: (s) => s.pb_med, mk: (m) => m.pb_med, med: "pb_hist_med", lo: "pb_hist_lo", hi: "pb_hist_hi", vs: "pb_vs_hist", pc: "pb_pctl_hist", hk: "pb", dec: 2,
@@ -5155,6 +5200,7 @@ async function viewSectors() {
         <div class="bigs">
           <div class="big hlb"><small>P/E gia quyền</small><b>${nf(M.pe_w_pos ?? M.pe_w, 1)}</b><span>TB lịch sử ${nf(M.pew_hist_med, 1)} · ${vsCell(M.pew_vs_hist)} · ${pctlChip(M.pew_pctl_hist)}</span></div>
           <div class="big hlb"><small>P/E trung vị</small><b>${nf(M.pe_med, 1)}</b><span>TB lịch sử ${nf(M.pe_hist_med, 1)} · ${vsCell(M.pe_vs_hist)} · ${pctlChip(M.pe_pctl_hist)}</span></div>
+          ${isNum(M.pe_h) ? `<div class="big hlb" title="Trung bình điều hoà: số DN ÷ Σ(1/P/E) – mỗi DN như nhau"><small>P/E điều hoà</small><b>${nf(M.pe_h, 1)}</b><span>TB lịch sử ${nf(M.peh_hist_med, 1)} · ${vsCell(M.peh_vs_hist)} · ${pctlChip(M.peh_pctl_hist)}</span></div>` : ""}
           <div class="big"><small>P/B gia quyền / trung vị</small><b>${nf(M.pb_w)} <small>/ ${nf(M.pb_med)}</small></b><span>TB lịch sử ${nf(M.pbw_hist_med)} / ${nf(M.pb_hist_med)}</span></div>
           <div class="big"><small>Lợi suất LN vs TPCP 10N</small><b>${nf(M.ey_w, 1)}% <small>vs ${nf(M.rf, 1)}%</small></b><span>phần bù rủi ro <b class="${M.erp >= 4 ? "up" : M.erp < 2 ? "down" : ""}">${nf(M.erp, 1)}%</b></span></div>
         </div>
