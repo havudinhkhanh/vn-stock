@@ -16,8 +16,23 @@ from __future__ import annotations
 
 import argparse
 import logging
+import re
 import sys
 
+
+
+class _Redact(logging.Filter):
+    """Log được đẩy lên nhánh status (công khai trên GitHub): che email người dùng – ha***@gmail.com."""
+    RX = re.compile(r"([A-Za-z0-9._%+-]{1,2})[A-Za-z0-9._%+-]*@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})")
+
+    def filter(self, rec: logging.LogRecord) -> bool:
+        try:
+            m = rec.getMessage()
+            if "@" in m:
+                rec.msg, rec.args = self.RX.sub(r"\1***@\2", m), ()
+        except Exception:  # noqa: BLE001
+            pass
+        return True
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="VN-Stock")
@@ -32,6 +47,8 @@ def main() -> None:
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s",
                         datefmt="%H:%M:%S")
+    for _h in logging.getLogger().handlers:
+        _h.addFilter(_Redact())
     only = [s.strip().upper() for s in a.only.split(",") if s.strip()] or None
 
     if a.cmd == "probe":
