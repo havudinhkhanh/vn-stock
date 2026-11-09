@@ -566,8 +566,12 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             peers["sotp"] = so_
         ep = evx.episode(d["df"]["close"])
         _mw = (overrides.get(s) or {}).get("mw") if isinstance((overrides.get(s) or {}).get("mw"), dict) else (overrides.get("_ALL") or {}).get("mw")
-        val = va.value(fa, model, peers, hist, r["beta"], vcfg, mos, event=ep if ep and ep["phase"] == "active" else None,
-                       liq_bn=float(r.get("avg_value_bn") or 0), mkt=mkt_mult, mw=_mw if isinstance(_mw, dict) else None)
+        try:      # 1 mã lỗi định giá (số liệu lạ) không được làm hỏng cả lượt cập nhật – mã đó tạm hiện "chưa định giá được", có cảnh báo trong log
+            val = va.value(fa, model, peers, hist, r["beta"], vcfg, mos, event=ep if ep and ep["phase"] == "active" else None,
+                           liq_bn=float(r.get("avg_value_bn") or 0), mkt=mkt_mult, mw=_mw if isinstance(_mw, dict) else None)
+        except Exception as e:  # noqa: BLE001
+            log.warning("Định giá %s lỗi (%s: %s) – bỏ qua định giá mã này lượt này", s, type(e).__name__, e)
+            val = {"ok": False, "reason": "lỗi khi định giá – sẽ thử lại lượt sau"}
         try:
             val["market"] = va.market_view(fa, hist, val, mkt_pe, so_)
             _mk = val["market"]

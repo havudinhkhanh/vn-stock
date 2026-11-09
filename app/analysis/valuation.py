@@ -95,6 +95,7 @@ def norm_earnings(qs: pd.DataFrame | None) -> dict:
             p2, s2 = ly + ly1, last + l1
             r2 = float(np.clip(s2 / p2, 0.0, 2.0)) if p2 > 0 else (1.0 if s2 > 0 else 0.0)
             out["det"] = {"q": f"Q{int(q['quarter'].iloc[-1])}/{int(q['year'].iloc[-1])}", "ni": _r(last, 1), "ni_ly": _r(ly, 1),
+                          "pct": _r(100 * last / ly, 0) if ly > 0 else None,      # tính trên số chưa làm tròn: LN cùng kỳ rất nhỏ (vd. 0,04 tỷ) làm tròn thành 0 → chia cho 0 làm hỏng cả lượt
                           "s2": _r(s2, 1), "p2": _r(p2, 1), "r2": _r(r2, 2)}
     if "cfo" in q and ttm > 0:
         cf = pd.to_numeric(q["cfo"], errors="coerce").iloc[-4:]
@@ -355,7 +356,8 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
         if (det["ni"] or 0) < 0:
             what = "lỗ " + f"{-det['ni']:,.0f}".replace(",", ".") + " tỷ"
         else:
-            what = f"lãi chỉ bằng {100 * det['ni'] / det['ni_ly']:.0f}% cùng kỳ"
+            pc = det.get("pct") if det.get("pct") is not None else (100 * det["ni"] / det["ni_ly"] if det.get("ni_ly") else None)
+            what = f"lãi chỉ bằng {pc:.0f}% cùng kỳ" if pc is not None else "lãi giảm mạnh so với cùng kỳ"
         w3 = (f"Lợi nhuận đang xấu đi: {det['q']} {what} – EPS 12 tháng bị kéo cao bởi các quý cũ, phần P/E dùng EPS × {dfac:.2f}. "
               "Lịch sử VN: mã \"rẻ\" kiểu này 6 tháng sau kém bình quân ~4%. Không vào lệnh mới cho tới khi BCTC quý sau xác nhận.")
         warning = f"{warning} {w3}" if warning else w3
