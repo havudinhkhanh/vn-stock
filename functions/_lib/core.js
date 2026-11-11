@@ -50,6 +50,9 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, key TEXT NOT NULL, kind TEXT, sev INTEGER DEFAULT 0,
      title TEXT NOT NULL, body TEXT, url TEXT, sym TEXT, created_at TEXT NOT NULL, read_at TEXT, UNIQUE(user_id, key))`,
   `CREATE INDEX IF NOT EXISTS ix_notif_user ON notifications(user_id, id)`,
+  // 11/2026 (cùng lỗi với MyBit): đếm thông báo chưa đọc phải đọc MỌI thông báo của người dùng → tốn hạn mức 5 triệu dòng đọc/ngày của D1 miễn phí
+  `CREATE INDEX IF NOT EXISTS ix_notif_unread ON notifications(user_id) WHERE read_at IS NULL`,
+  `CREATE INDEX IF NOT EXISTS ix_ud_key ON user_data(key)`,
   `CREATE TABLE IF NOT EXISTS push_subs(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, endpoint TEXT UNIQUE NOT NULL, p256dh TEXT NOT NULL,
      auth TEXT NOT NULL, ua TEXT, created_at TEXT, last_ok TEXT, fails INTEGER NOT NULL DEFAULT 0)`,
   `CREATE TABLE IF NOT EXISTS resets(token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL, expires_at TEXT NOT NULL, used INTEGER NOT NULL DEFAULT 0)`,
