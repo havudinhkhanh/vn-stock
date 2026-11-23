@@ -2208,3 +2208,23 @@ a:not([class]):hover{color:color-mix(in srgb,var(--brand) 72%,var(--ink))}
 .pxtag.eu::before,.pxtag.ed::before{content:"↑";margin-right:2px;font-weight:700}.pxtag.ed::before{content:"↓"}.pxtag.eu,.pxtag.ed{opacity:.85;border-left-style:dashed}
 .pxtip{position:absolute;top:0;left:0;z-index:4;pointer-events:none;display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:8px;background:var(--surface);color:var(--ink);font-size:.75rem;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.14),0 0 0 1px var(--line)}
 .pxtip i{width:8px;height:8px;border-radius:2px}.pxtip small{color:var(--ink-3)}
+
+/* 📐 biểu đồ trang mã: cỡ S · M · L, toàn màn hình, xoay ngang (giống MyBit) */
+.cv-ctl{display:inline-flex;align-items:center;gap:4px;margin-left:6px}
+.cv-sz button{min-width:26px;padding-left:6px!important;padding-right:6px!important;font-weight:650}
+.cv-fsb{display:inline-grid;place-items:center;width:30px;height:28px;border:0;border-radius:8px;background:var(--sunk);color:var(--ink-2);cursor:pointer;padding:0}
+.cv-fsb svg{width:15px;height:15px}.cv-fsb:hover{color:var(--ink);background:color-mix(in srgb,var(--ink) 9%,var(--sunk))}
+.cv-fsb.on{background:var(--ink);color:var(--surface)}
+@media (pointer:fine),(orientation:landscape){.cv-rotb{display:none!important}}
+.chartp[data-sz="s"] #pChart{height:320px}.chartp[data-sz="l"] #pChart{height:580px}
+@media (max-width:700px){.chartp[data-sz="s"] #pChart{height:260px}.chartp[data-sz="m"] #pChart{height:340px}.chartp[data-sz="l"] #pChart{height:460px}}
+body.cz-lock{overflow:hidden}
+.chartp.cv-fs{position:fixed!important;inset:0;z-index:95;margin:0!important;border-radius:0!important;display:flex;flex-direction:column;background:var(--bg);padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px))!important;overflow:auto;overscroll-behavior:contain}
+.chartp.cv-fs #pChart{flex:1 1 auto;height:auto!important;min-height:min(60vh,calc(100dvh - 260px))}
+.chartp.cv-fs .ev-strip,.chartp.cv-fs .evh{display:none}
+.rot90{position:fixed!important;top:0!important;left:0!important;right:auto!important;bottom:auto!important;z-index:2100!important;margin:0!important;max-width:none!important;max-height:none!important;min-height:0!important;
+  transform-origin:0 0!important;transform:rotate(90deg) translateY(-100%)!important;transition:none!important;border-radius:0!important;
+  padding:8px calc(10px + env(safe-area-inset-bottom,0px)) 8px calc(10px + env(safe-area-inset-top,0px))!important;box-sizing:border-box;width:var(--rw)!important;height:var(--rh)!important;overflow:hidden!important}
+.chartp.rot90 #pChart{min-height:0!important;flex:1 1 0!important;height:auto!important}
+.chartp.rot90 .toolbar{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.chartp.rot90 .toolbar::-webkit-scrollbar{display:none}
+.chartp.rot90 #scBar,.chartp.rot90 #scInfo{display:none}

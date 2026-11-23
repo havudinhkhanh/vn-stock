@@ -833,6 +833,28 @@ function drawHook(el, c, s, o, dkey) {
   if (lsGet("draw_ap", false)) go(false).then((x) => x && x.ap(true));
   else if ((lsGet(key, []) || []).length) { b.classList.add("has"); go(false); }
 }
+// 📐 biểu đồ trang mã (giống MyBit): cỡ S · M · L (nhớ lựa chọn) · ⛶ toàn màn hình cả khối · ⟳ xoay ngang trên điện thoại (khoá ngang thật nếu máy cho, không thì xoay CSS)
+const cvSz = () => { const v = lsGet("cvSize", "m"); return ["s", "m", "l"].includes(v) ? v : "m"; };
+const cvCtl = () => `<span class="cv-ctl"><span class="seg cv-sz" role="group" aria-label="Cỡ biểu đồ">${[["s", "S"], ["m", "M"], ["l", "L"]].map(([k, t]) => `<button type="button" data-cvsz="${k}" class="${cvSz() === k ? "on" : ""}" title="Cỡ biểu đồ ${t}">${t}</button>`).join("")}</span><button type="button" class="cv-fsb" data-cvfs title="Toàn màn hình (Esc để thoát)" aria-label="Toàn màn hình"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button><button type="button" class="cv-fsb cv-rotb" data-cvrot title="Xoay ngang biểu đồ" aria-label="Xoay ngang"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="11" rx="2"/><path d="M8 3.5h4.5a3 3 0 0 1 3 3"/><path d="m14 5 1.5 1.5L17 5"/></svg></button></span>`;
+const cvBox = (b) => b?.closest(".chartp") || document.querySelector(".chartp");
+function cvFs(on, w = document.querySelector(".chartp.cv-fs") || document.querySelector(".chartp")) {
+  if (!w) return; on = on ?? !w.classList.contains("cv-fs"); if (!on && (w.classList.contains("rot") || w.classList.contains("land"))) cvRot(false, w);
+  w.classList.toggle("cv-fs", on); document.body.classList.toggle("cz-lock", on); w.querySelector("[data-cvfs]")?.classList.toggle("on", on);
+  requestAnimationFrame(() => dispatchEvent(new Event("resize")));
+}
+async function cvRot(on, w = document.querySelector(".chartp")) {
+  if (!w) return; on = on ?? !(w.classList.contains("rot") || w.classList.contains("land")); w.querySelector("[data-cvrot]")?.classList.toggle("on", on);
+  if (!on) { if (ROTB.el === w) rotBox(null); w.classList.remove("rot", "land"); unlockLand(); requestAnimationFrame(() => dispatchEvent(new Event("resize"))); return; }
+  cvFs(true, w); if (await lockLand(w)) { w.classList.add("land"); return; }
+  w.classList.add("rot"); rotBox(w); w.addEventListener("rotoff", () => cvRot(false, w), { once: true });
+}
+document.addEventListener("click", (e) => {
+  const z = e.target.closest?.("[data-cvsz]"); if (z) { e.preventDefault(); lsSet("cvSize", z.dataset.cvsz); const w = cvBox(z); if (w) w.dataset.sz = z.dataset.cvsz; $$("[data-cvsz]").forEach((x) => x.classList.toggle("on", x.dataset.cvsz === z.dataset.cvsz)); if (w?.classList.contains("cv-fs")) cvFs(false, w); requestAnimationFrame(() => dispatchEvent(new Event("resize"))); return; }
+  const f = e.target.closest?.("[data-cvfs]"); if (f) { e.preventDefault(); cvFs(undefined, cvBox(f)); return; }
+  const r = e.target.closest?.("[data-cvrot]"); if (r) { e.preventDefault(); cvRot(undefined, cvBox(r)); }
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && document.querySelector(".chartp.cv-fs")) cvFs(false); });
+addEventListener("hashchange", () => { if (ROTB.el) { rotBox(null); unlockLand(); } $$(".chartp.rot,.chartp.land").forEach((x) => x.classList.remove("rot", "land")); const f = $(".chartp.cv-fs"); if (f) { f.classList.remove("cv-fs"); document.body.classList.remove("cz-lock"); } });
 // 🏷 NHÃN TÊN ĐƯỜNG GIÁ ở cột bên phải trục giá (giống MyBit): mọi đường giá có tên (cắt lỗ, mục tiêu, kháng cự, vùng vào…) – tên nằm NGANG đúng đường, không đè nến;
 //    đường ngoài khung đang xem → nhãn ghim mép trên / dưới kèm ↑ / ↓; rê chuột lên nhãn / đường → hộp nhỏ: tên · giá · cách giá hiện tại bao xa
 function pxAuto(el, c, cs, cur) {
@@ -845,14 +867,14 @@ function pxAuto(el, c, cs, cur) {
 function pxTags(el, c, cs, lines, cur) {
   try { el._ptStop?.(); } catch (e) { /* bỏ qua */ }
   if (!el.isConnected) return;
-  const L = (lines || []).filter((l) => isNum(l.price) && +l.price > 0 && l.title); if (!L.length) { c.applyOptions({ rightPriceScale: { minimumWidth: 0 } }); return; }
+  const L = (lines || []).filter((l) => isNum(l.price) && +l.price > 0 && l.title); if (!L.length) { c.applyOptions({ rightPriceScale: { minimumWidth: 0 } }); el._ptW = 0; el.dispatchEvent(new CustomEvent("ptw")); return; }
   if (getComputedStyle(el).position === "static") el.style.position = "relative";
   const box = document.createElement("div"); box.className = "pxtags"; box.style.width = "200px"; el.appendChild(box);
   const tip = document.createElement("div"); tip.className = "pxtip"; tip.hidden = true; el.appendChild(tip);
   const nar = el.clientWidth < 520;
   const tg = L.map((l) => { const d = document.createElement("span"); d.className = "pxtag"; d.style.setProperty("--c", l.color || css("--ink-3")); d.textContent = nar ? String(l.title).replace(/^\p{Extended_Pictographic}️?\s*/u, "") : l.title; d.title = `${l.title} · ${nf(+l.price)}`; box.appendChild(d); return { l, d, p: +l.price, y: null }; });
   const TW = Math.min(nar ? 64 : 96, Math.ceil(Math.max(...tg.map((t) => t.d.offsetWidth))) + 16); box.style.width = TW + "px";
-  c.applyOptions({ rightPriceScale: { minimumWidth: 64 + TW } });
+  c.applyOptions({ rightPriceScale: { minimumWidth: 64 + TW } }); el._ptW = 64 + TW; el.dispatchEvent(new CustomEvent("ptw"));      // khung chỉ báo bên dưới dùng cùng bề rộng trục → nến thẳng cột thời gian
   let raf = 0, alive = true, last = "", vis = true, EH = 0, EW = 0;
   const place = () => {
     if (!alive) return; if (!el.isConnected) { el._ptStop?.(); return; } if (document.hidden || !vis) return;
@@ -2906,7 +2928,7 @@ async function viewStock(sym, tabArg) {
       ${seasonPanel(d.season, d.season_support, { oos: secs?.season?.oos?.stock })}</div>
   </div>
   <div class="g g-main sec">
-    <section class="panel chartp" data-card="chart" data-title="Biểu đồ giá">
+    <section class="panel chartp" data-card="chart" data-title="Biểu đồ giá" data-sz="${cvSz()}">
       <div class="toolbar" id="tools"></div>
       <div class="scbar" id="scBar"></div>
       <div class="chart" id="pChart"></div>
@@ -3093,7 +3115,7 @@ async function viewStock(sym, tabArg) {
   };
   $("#tools").innerHTML = tfSeg("tfSel", tf) + chartModeSeg() + Object.keys(overlays).map((k) => `<button class="chip ${active.has(k) ? "on" : ""}" data-ov="${k}">${k}</button>`).join("") +
     `<span class="faint">|</span>` + [["lv", "Mức giá"], ["tr", "Lệnh của tôi"], ["dv", "Cổ tức"], ...(EVH.length ? [["ev", "Sự kiện"]] : []), ["smc", "SMC"], ["vsa", "VSA"], ["wy", "Wyckoff"], ["el", "Elliott"]].map(([k, n]) => `<button class="chip ${L[k] ? "on" : ""}" data-l="${k}">${n}</button>`).join("") +
-    `<span style="margin-left:auto" class="seg" id="osc"><button class="on" data-o="rsi">RSI</button><button data-o="macd">MACD</button><button data-o="vol">KL</button><button data-o="obv">OBV</button>${of.history?.length && tf === "D" ? '<button data-o="delta">Delta</button>' : ""}</span>`;
+    `<span style="margin-left:auto" class="seg" id="osc"><button class="on" data-o="rsi">RSI</button><button data-o="macd">MACD</button><button data-o="vol">KL</button><button data-o="obv">OBV</button>${of.history?.length && tf === "D" ? '<button data-o="delta">Delta</button>' : ""}</span>` + cvCtl();
   Object.keys(overlays).forEach(drawOv);
   redraw();
   setTimeout(drawScen, 0);
@@ -3110,6 +3132,7 @@ async function viewStock(sym, tabArg) {
     $("#pChart")?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
   const oc = mkChart($("#oChart"), { timeScale: { visible: false } });
+  { const pc = $("#pChart"), sync = () => { try { oc.applyOptions({ rightPriceScale: { minimumWidth: pc?._ptW || 0 } }); } catch (e) { /* đã huỷ */ } }; sync(); pc?.addEventListener("ptw", sync); }
   curCharts.push(c, oc);
   let oser = [];
   const drawOsc = (k) => {
