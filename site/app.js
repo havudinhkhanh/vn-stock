@@ -5992,16 +5992,87 @@ async function palette(q0 = "") {
   el.onclick = (e) => { if (e.target === el) el.remove(); };
   build(); $("#palQ").focus();
 }
-// thanh điều hướng dọc (máy tính): nhãn hiệu ở đầu, nút thu gọn ở cuối
+// thanh điều hướng dọc (máy tính, giống MyBit): KHÔNG còn logo ở đầu – thanh trên cùng trải hết bề ngang; nhóm 📌 Lối tắt ở đầu; nút thu gọn ở cuối
+const RAILQ = matchMedia("(min-width:1180px)");
 function initRail() {
-  const nv = $("#tabs"); if (!nv || nv.querySelector(".rail-brand")) return;
-  nv.insertAdjacentHTML("afterbegin", `<a class="rail-brand" href="#/" aria-label="VN-Stock – về trang Hôm nay"><span class="brand-dot"></span><b>VN-Stock</b></a>`);
+  const nv = $("#tabs"); if (!nv || nv.querySelector(".rail-fold")) return;
   nv.insertAdjacentHTML("beforeend", `<button class="rail-fold" type="button" aria-label="Thu gọn / mở rộng thanh điều hướng" title="Thu gọn / mở rộng"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 6l-6 6 6 6"/></svg><span>Thu gọn</span></button>`);
   const set = (f) => { document.body.classList.toggle("rail-min", f); lsSet("railMin", f); window.dispatchEvent(new Event("resize")); };
   document.body.classList.toggle("rail-min", !!lsGet("railMin", false));
   nv.querySelector(".rail-fold").onclick = () => set(!document.body.classList.contains("rail-min"));
   $$("a[data-r]", nv).forEach((a) => (a.title = a.textContent.trim()));
+  pinDraw(); boardDock();
+  RAILQ.addEventListener?.("change", () => { pinDraw(); boardDock(); });
+  addEventListener("hashchange", () => setTimeout(pinMark, 0));
 }
+// 📟 máy tính: đèn thị trường + dải bảng điện chạy chữ + ngày dữ liệu nằm TRÊN THANH TRÊN CÙNG (đỡ 1 hàng); điện thoại giữ dải bảng điện riêng như cũ
+function boardDock() {
+  const top = $(".top-in"), bd = $("#board"), up = $("#upd"); if (!top || !bd || !up) return;
+  const desk = RAILQ.matches, els = ["#bdLight", "#ticker", "#bdDate"].map((q) => $(q)).filter(Boolean);
+  if (desk) { let ref = up; for (const e of els) { if (ref.nextElementSibling !== e) ref.after(e); ref = e; } }
+  else els.forEach((e) => { if (e.parentElement !== bd) bd.appendChild(e); });
+  document.documentElement.classList.toggle("bd-top", desk);
+  const hd = $("header.top"); let lastH = -1;
+  const setH = () => { const h = Math.round(Math.max(hd?.offsetHeight || 52, hd?.getBoundingClientRect().bottom || 0)); if (h !== lastH) { lastH = h; document.documentElement.style.setProperty("--toph", h + "px"); } };      // thanh bên bắt đầu ngay dưới thanh trên (kể cả khi có dải thông báo phía trên, cuộn đi thì theo)
+  setH(); if (hd && !hd.__ro) { if ("ResizeObserver" in window) { hd.__ro = new ResizeObserver(setH); hd.__ro.observe(hd); const dm = $("#demo"); if (dm) hd.__ro.observe(dm); } let rq = 0; addEventListener("scroll", () => { if (!rq && RAILQ.matches) rq = requestAnimationFrame(() => { rq = 0; setH(); }); }, { passive: true }); }
+}
+// 📌 LỐI TẮT (máy tính): ghim trang hay dùng lên đầu thanh bên – tối đa 10; "+" để chọn (kể cả trang mã đang xem), ✕ để bỏ, kéo-thả để xếp lại,
+//    chuột phải lên mục bất kỳ của thanh bên = ghim / bỏ ghim. Lưu trên máy này.
+const PIN_MAX = 10;
+const pinList = () => { const L = lsGet("navpins", null); return (Array.isArray(L) ? L : ["#/watch", "#/portfolio"]).filter((x, i, a) => x && a.indexOf(x) === i).slice(0, PIN_MAX); };
+const pinSave = (L) => { lsSet("navpins", L.slice(0, PIN_MAX)); pinDraw(); };
+const PIN_SVG_S = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19l5-6 4 3 7-9"/><circle cx="20" cy="7" r="1.5"/></svg>';
+function pinOpt(h) {
+  const a = [...$$("#tabs > a[href]")].find((x) => x.getAttribute("href") === h);
+  if (a) return { h, t: a.textContent.trim(), svg: a.querySelector("svg")?.outerHTML || "" };
+  const m = /^#\/s\/([A-Z0-9]+)/.exec(h); if (m) return { h, t: m[1], svg: PIN_SVG_S };
+  return null;
+}
+function pinMark() { const h = location.hash || "#/"; $$("#navPins a[data-pin]").forEach((a) => a.classList.toggle("on", a.dataset.pin === h || (a.dataset.pin !== "#/" && h.startsWith(a.dataset.pin + "/") && !/^#\/s\//.test(a.dataset.pin)))); }
+function pinDraw() {
+  const nav = $("#tabs"); if (!nav) return;
+  let g = $("#navPinsG"), box = $("#navPins");
+  if (!RAILQ.matches) { if (g) g.hidden = true; if (box) box.hidden = true; return; }
+  if (!box) {
+    nav.insertAdjacentHTML("afterbegin", `<span class="nav-g nav-pg" id="navPinsG"><b>Lối tắt</b><button type="button" class="nav-addpin" data-addpin title="Ghim trang hay dùng lên Lối tắt (hoặc chuột phải lên mục bất kỳ của thanh bên)" aria-label="Ghim lối tắt">+</button></span><div class="nav-pins" id="navPins"></div>`);
+    g = $("#navPinsG"); box = $("#navPins");
+    g.addEventListener("click", (e) => { if (e.target.closest("[data-addpin]")) { e.preventDefault(); pinPick(e.target.closest("[data-addpin]")); } });
+    box.addEventListener("click", (e) => { const un = e.target.closest("[data-unpin]"); if (un) { e.preventDefault(); e.stopPropagation(); pinSave(pinList().filter((k) => k !== un.dataset.unpin)); } });
+    box.addEventListener("dragstart", (e) => { const a = e.target.closest("[data-pin]"); if (!a) return; box.__drag = a.dataset.pin; e.dataTransfer.effectAllowed = "move"; a.classList.add("drag"); });
+    box.addEventListener("dragend", (e) => { e.target.closest?.("[data-pin]")?.classList.remove("drag"); $$(".nav-pin.over", box).forEach((x) => x.classList.remove("over")); box.__drag = null; });
+    box.addEventListener("dragover", (e) => { const a = e.target.closest("[data-pin]"); if (!a || !box.__drag) return; e.preventDefault(); $$(".nav-pin.over", box).forEach((x) => x !== a && x.classList.remove("over")); a.classList.add("over"); });
+    box.addEventListener("drop", (e) => { const a = e.target.closest("[data-pin]"); if (!a || !box.__drag) return; e.preventDefault(); const L = pinList().filter((x) => x !== box.__drag), i = L.indexOf(a.dataset.pin); L.splice(i < 0 ? L.length : i, 0, box.__drag); box.__drag = null; pinSave(L); });
+  }
+  g.hidden = box.hidden = false;
+  const L = pinList();
+  box.innerHTML = L.map((h) => { const o = pinOpt(h); if (!o) return "";
+    return `<a class="nav-pin" draggable="true" data-pin="${esc(h)}" href="${esc(h)}" title="${esc(o.t)} · kéo để xếp lại">${o.svg}<span class="nav-t">${esc(o.t)}</span><button type="button" class="nav-unpin" data-unpin="${esc(h)}" title="Bỏ ghim" aria-label="Bỏ ghim ${esc(o.t)}">✕</button></a>`; }).join("")
+    + (L.length ? "" : `<button type="button" class="nav-addpin-row" data-addpin2><span>＋</span><span class="nav-t">Ghim lối tắt</span></button>`);
+  box.querySelector("[data-addpin2]")?.addEventListener("click", (e) => pinPick(e.currentTarget));
+  pinMark();
+}
+function pinPick(anchor) {
+  $("#pinPop")?.remove();
+  const cur = new Set(pinList()), h0 = location.hash || "#/", here = /^#\/s\/[A-Z0-9]+/.exec(h0)?.[0];
+  const opts = [...$$("#tabs > a[href]")].map((a) => ({ h: a.getAttribute("href"), t: a.textContent.trim(), svg: a.querySelector("svg")?.outerHTML || "" }));
+  if (here && !opts.some((o) => o.h === here)) opts.unshift({ h: here, t: `Trang mã ${here.slice(4)} (đang xem)`, svg: PIN_SVG_S });
+  const r = anchor.getBoundingClientRect(), m = document.createElement("div"); m.id = "pinPop"; m.className = "pin-pop"; m.setAttribute("role", "menu");
+  m.style.left = Math.round(Math.min(innerWidth - 276, r.right + 8)) + "px"; m.style.top = Math.round(Math.max(8, Math.min(innerHeight - 460, r.top - 8))) + "px";
+  m.innerHTML = `<div class="pin-pop-h">Ghim lối tắt <small>${cur.size}/${PIN_MAX}</small></div>` + opts.map((o) => `<button type="button" role="menuitemcheckbox" aria-checked="${cur.has(o.h)}" data-pk="${esc(o.h)}">${o.svg}<span>${esc(o.t)}</span><i>${cur.has(o.h) ? "📌" : ""}</i></button>`).join("");
+  document.body.appendChild(m);
+  const close = (e) => { if (e && (m.contains(e.target) || anchor.contains(e.target))) return; m.remove(); document.removeEventListener("pointerdown", close, true); document.removeEventListener("keydown", esc_); };
+  const esc_ = (e) => { if (e.key === "Escape") close(); };
+  setTimeout(() => { document.addEventListener("pointerdown", close, true); document.addEventListener("keydown", esc_); }, 0);
+  m.addEventListener("click", (e) => { const b = e.target.closest("[data-pk]"); if (!b) return; const k = b.dataset.pk, P = pinList(), on = P.includes(k);
+    if (!on && P.length >= PIN_MAX) { toast(`Đã đủ ${PIN_MAX} lối tắt – bỏ bớt trước`); return; }
+    pinSave(on ? P.filter((x) => x !== k) : [...P, k]); b.setAttribute("aria-checked", String(!on)); b.querySelector("i").textContent = on ? "" : "📌"; m.querySelector(".pin-pop-h small").textContent = `${pinList().length}/${PIN_MAX}`; });
+}
+document.addEventListener("contextmenu", (e) => {
+  if (!RAILQ.matches) return; const a = e.target.closest?.("#tabs > a[href^='#']"); if (!a) return;
+  e.preventDefault(); const k = a.getAttribute("href"), P = pinList(), on = P.includes(k);
+  if (!on && P.length >= PIN_MAX) { toast(`Đã đủ ${PIN_MAX} lối tắt`); return; }
+  pinSave(on ? P.filter((x) => x !== k) : [...P, k]); toast(on ? "Đã bỏ ghim khỏi Lối tắt" : "📌 Đã ghim vào Lối tắt (kéo để xếp lại)");
+});
 function initGlobal() {
   document.addEventListener("click", async (e) => {
     const b = e.target.closest("[data-star],[data-qt],[data-cmp],[data-alert],[data-pal]");
