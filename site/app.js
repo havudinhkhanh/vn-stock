@@ -35,6 +35,45 @@ const QUAD_COLOR = { "Dẫn dắt": "--up", "Suy yếu": "--ref", "Tụt hậu":
 const qcol = (q) => css(QUAD_COLOR[q] || "--ink-3");
 const lsGet = (k, d) => { try { const v = localStorage.getItem("vnstock_" + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } };
 const lsSet = (k, v) => { try { localStorage.setItem("vnstock_" + k, JSON.stringify(v)); } catch (e) { /* bỏ qua */ } };
+// 🔄 xoay ngang biểu đồ bằng CSS (máy không khoá được hướng ngang, vd. iPhone) – chép từ MyBit: đổi toạ độ đo / chạm cho phần tử trong khối xoay
+const ROTB = { el: null };
+(() => {
+  const R0 = Element.prototype.getBoundingClientRect;
+  Element.prototype.getBoundingClientRect = function () {
+    const B = ROTB.el; if (!B || !B.isConnected || !B.contains(this)) return R0.call(this);
+    const r = R0.call(this), W = innerWidth; return new DOMRect(r.top, W - r.right, r.height, r.width);
+  };
+  const C0 = Element.prototype.getClientRects;      // Safari (không có device-pixel-content-box): thư viện biểu đồ đo KHUNG VẼ bằng getClientRects → phải đổi y hệt, không thì nét vẽ bị kéo giãn / mờ
+  Element.prototype.getClientRects = function () {
+    const B = ROTB.el; if (!B || !B.isConnected || !B.contains(this)) return C0.call(this);
+    const W = innerWidth; return Array.from(C0.call(this), (r) => new DOMRect(r.top, W - r.right, r.height, r.width));
+  };
+  // toạ độ chạm / chuột: ĐỔI NGAY Ở KHUÔN MẪU (prototype) của MouseEvent & Touch – mỗi lần đọc clientX… đều đi qua đây.
+  //   (trước: gắn vào từng đối tượng sự kiện → Safari mỗi lần đọc danh sách chạm lại trả về 1 đối tượng Touch MỚI chưa đổi → kéo bị "ngược chiều")
+  //   chỉ đổi khi đang xoay VÀ điểm chạm / sự kiện nằm trong khối xoay; còn lại trả toạ độ thật
+  const inB = (o) => { const B = ROTB.el, t = o && o.target; return !!(B && t instanceof Node && B.contains(t)); };
+  for (const P of [window.MouseEvent?.prototype, window.Touch?.prototype]) {
+    if (!P) continue; const d = (k) => { for (let q = P; q; q = Object.getPrototypeOf(q)) { const x = Object.getOwnPropertyDescriptor(q, k); if (x && x.get) return x.get; } return null; };
+    const gx = d("clientX"), gy = d("clientY"), px0 = d("pageX"), py0 = d("pageY"); if (!gx || !gy) continue;
+    const def = (k, f) => { try { Object.defineProperty(P, k, { get: f, configurable: true, enumerable: true }); } catch (e) { /* bỏ qua */ } };
+    def("clientX", function () { return inB(this) ? gy.call(this) : gx.call(this); });
+    def("clientY", function () { return inB(this) ? innerWidth - gx.call(this) : gy.call(this); });
+    if (px0) def("pageX", function () { return inB(this) ? gy.call(this) + scrollX : px0.call(this); });
+    if (py0) def("pageY", function () { return inB(this) ? innerWidth - gx.call(this) + scrollY : py0.call(this); });
+    if (P === window.MouseEvent?.prototype) { def("x", function () { return this.clientX; }); def("y", function () { return this.clientY; }); }
+  }
+})();
+// bật / tắt xoay 1 khối (null = tắt): kích thước khối = màn hình đảo chiều, đặt lại khi đổi cỡ màn hình
+function rotBox(el) {
+  const old = ROTB.el; if (old && old !== el) { old.classList.remove("rot90"); old.style.removeProperty("--rw"); old.style.removeProperty("--rh"); }
+  ROTB.el = el || null; document.documentElement.classList.toggle("rot-on", !!el);
+  if (el) { el.classList.add("rot90"); el.style.setProperty("--rw", innerHeight + "px"); el.style.setProperty("--rh", innerWidth + "px"); }
+  requestAnimationFrame(() => dispatchEvent(new Event("resize")));
+}
+addEventListener("resize", () => { const B = ROTB.el; if (!B) return; if (innerWidth > innerHeight) { B.dispatchEvent(new CustomEvent("rotoff")); return; } B.style.setProperty("--rw", innerHeight + "px"); B.style.setProperty("--rh", innerWidth + "px"); });      // máy đã tự xoay ngang → bỏ xoay CSS (không xoay 2 lần)
+// 📐 khoá hướng ngang thật (Android / trình duyệt hỗ trợ): toàn màn hình + khoá ngang · không được thì trả về false để dùng xoay CSS
+async function lockLand(el) { try { if (!screen.orientation?.lock || !document.fullscreenEnabled) return false; if (!document.fullscreenElement) await el.requestFullscreen({ navigationUI: "hide" }); await screen.orientation.lock("landscape"); return true; } catch (e) { try { if (document.fullscreenElement) await document.exitFullscreen(); } catch (x) { /* bỏ qua */ } return false; } }
+async function unlockLand() { try { screen.orientation?.unlock?.(); } catch (e) { /* bỏ qua */ } try { if (document.fullscreenElement) await document.exitFullscreen(); } catch (e) { /* bỏ qua */ } }
 
 const cache = {};
 async function load(path) {
@@ -794,6 +833,60 @@ function drawHook(el, c, s, o, dkey) {
   if (lsGet("draw_ap", false)) go(false).then((x) => x && x.ap(true));
   else if ((lsGet(key, []) || []).length) { b.classList.add("has"); go(false); }
 }
+// 🏷 NHÃN TÊN ĐƯỜNG GIÁ ở cột bên phải trục giá (giống MyBit): mọi đường giá có tên (cắt lỗ, mục tiêu, kháng cự, vùng vào…) – tên nằm NGANG đúng đường, không đè nến;
+//    đường ngoài khung đang xem → nhãn ghim mép trên / dưới kèm ↑ / ↓; rê chuột lên nhãn / đường → hộp nhỏ: tên · giá · cách giá hiện tại bao xa
+function pxAuto(el, c, cs, cur) {
+  const L = []; let tm = 0;
+  const kick = () => { clearTimeout(tm); tm = setTimeout(() => pxTags(el, c, cs, L.slice(), cur), 30); };
+  const cp = cs.createPriceLine.bind(cs), rp = cs.removePriceLine.bind(cs);
+  cs.createPriceLine = (o) => { const ln = cp({ ...o, title: "" }); if (o && o.title && isNum(o.price)) { L.push({ ln, price: +o.price, title: o.title, color: o.color }); kick(); } return ln; };
+  cs.removePriceLine = (ln) => { const i = L.findIndex((x) => x.ln === ln); if (i >= 0) { L.splice(i, 1); kick(); } return rp(ln); };
+}
+function pxTags(el, c, cs, lines, cur) {
+  try { el._ptStop?.(); } catch (e) { /* bỏ qua */ }
+  if (!el.isConnected) return;
+  const L = (lines || []).filter((l) => isNum(l.price) && +l.price > 0 && l.title); if (!L.length) { c.applyOptions({ rightPriceScale: { minimumWidth: 0 } }); return; }
+  if (getComputedStyle(el).position === "static") el.style.position = "relative";
+  const box = document.createElement("div"); box.className = "pxtags"; box.style.width = "200px"; el.appendChild(box);
+  const tip = document.createElement("div"); tip.className = "pxtip"; tip.hidden = true; el.appendChild(tip);
+  const nar = el.clientWidth < 520;
+  const tg = L.map((l) => { const d = document.createElement("span"); d.className = "pxtag"; d.style.setProperty("--c", l.color || css("--ink-3")); d.textContent = nar ? String(l.title).replace(/^\p{Extended_Pictographic}️?\s*/u, "") : l.title; d.title = `${l.title} · ${nf(+l.price)}`; box.appendChild(d); return { l, d, p: +l.price, y: null }; });
+  const TW = Math.min(nar ? 64 : 96, Math.ceil(Math.max(...tg.map((t) => t.d.offsetWidth))) + 16); box.style.width = TW + "px";
+  c.applyOptions({ rightPriceScale: { minimumWidth: 64 + TW } });
+  let raf = 0, alive = true, last = "", vis = true, EH = 0, EW = 0;
+  const place = () => {
+    if (!alive) return; if (!el.isConnected) { el._ptStop?.(); return; } if (document.hidden || !vis) return;
+    if (!EH) EH = el.clientHeight; let H = EH; try { H -= c.timeScale().height(); } catch (e) { /* bỏ qua */ }
+    const V = tg.map((t) => { const y0 = cs.priceToCoordinate(t.p); t.y = y0; if (!isNum(y0)) return null; const e = y0 < 0 ? -1 : y0 > H ? 1 : 0; return { t, e, y: e < 0 ? 8 : e > 0 ? H - 8 : y0 }; }).filter(Boolean).sort((a, b) => a.y - b.y || a.e - b.e);
+    const key = V.map((v) => v.y.toFixed(1) + v.e).join() + H; if (key === last) return; last = key;
+    const G = 16, Q = V.map((v) => ({ y: v.y }));
+    for (let k = 1; k < Q.length; k++) Q[k].y = Math.max(Q[k].y, Q[k - 1].y + G);
+    for (let k = Q.length - 1; k >= 0; k--) { const mx = k === Q.length - 1 ? H - 8 : Q[k + 1].y - G; if (Q[k].y > mx) Q[k].y = mx; }
+    tg.forEach((t) => (t.d.hidden = true));
+    V.forEach((v, i) => { const d = v.t.d, y = Q[i].y; d.hidden = false; d.style.transform = `translateY(${Math.round(y - 8)}px)`; d.classList.toggle("off", !v.e && Math.abs(y - v.y) > 3); d.classList.toggle("eu", v.e < 0); d.classList.toggle("ed", v.e > 0); });
+  };
+  const kick = () => { if (!raf && alive) raf = requestAnimationFrame(() => { raf = 0; place(); }); };
+  const io = "IntersectionObserver" in window ? new IntersectionObserver((es) => { vis = es[es.length - 1].isIntersecting; if (vis) kick(); }) : null; io?.observe(el);
+  const ro = "ResizeObserver" in window ? new ResizeObserver(() => { EH = EW = 0; kick(); }) : null; ro?.observe(el);
+  const drg = (e) => { if (e.buttons) kick(); }; el.addEventListener("pointermove", drg, { passive: true }); el.addEventListener("wheel", kick, { passive: true });
+  const iv = setInterval(place, 400); try { c.timeScale().subscribeVisibleLogicalRangeChange(kick); } catch (e) { /* bỏ qua */ }
+  place();
+  let curT = null, tipXY = "";
+  const hv = (pm) => {
+    const pt = pm?.point; let best = null;
+    if (pt) for (const t of tg) { const y = t.y; if (isNum(y) && Math.abs(y - pt.y) <= 6 && (!best || Math.abs(y - pt.y) < best.dy)) best = { t, dy: Math.abs(y - pt.y) }; }
+    const nt = best?.t || null;
+    if (nt !== curT) { curT?.d.classList.remove("on"); nt?.d.classList.add("on"); curT = nt;
+      if (!nt) { tip.hidden = true; tipXY = ""; return; }
+      const cp = typeof cur === "function" ? cur() : cur, d = cp ? (nt.p / cp - 1) * 100 : null;
+      tip.innerHTML = `<i style="background:${nt.l.color || css("--ink-3")}"></i><b>${esc(nt.l.title)}</b> ${nf(nt.p)}${isNum(d) ? ` <small>cách giá ${d >= 0 ? "+" : ""}${nf(d, 2)}%</small>` : ""}`; tip.hidden = false; }
+    if (!nt) return;
+    if (!EW) EW = el.clientWidth; const fl = pt.x > EW * 0.55, x = fl ? pt.x - 12 : Math.max(4, pt.x + 12), y = Math.max(2, nt.y - 30), xy = `${Math.round(x / 4)}|${Math.round(y)}|${fl}`;
+    if (xy !== tipXY) { tipXY = xy; tip.style.transform = `translate(${Math.round(x / 4) * 4}px,${Math.round(y)}px)${fl ? " translateX(-100%)" : ""}`; }
+  };
+  c.subscribeCrosshairMove(hv);
+  el._ptStop = () => { if (!alive) return; alive = false; cancelAnimationFrame(raf); clearInterval(iv); io?.disconnect(); ro?.disconnect(); el.removeEventListener("pointermove", drg); el.removeEventListener("wheel", kick); try { c.unsubscribeCrosshairMove(hv); c.timeScale().unsubscribeVisibleLogicalRangeChange(kick); } catch (e) { /* đã huỷ */ } box.remove(); tip.remove(); };
+}
 function candleChart(el, o, opts = {}) {
   const c = mkChart(el);
   let cs;
@@ -811,6 +904,8 @@ function candleChart(el, o, opts = {}) {
     vs.setData(o.t.map((d, i) => ({ time: d, value: o.v[i], color: o.c[i] >= (o.c[i - 1] ?? o.c[i]) ? css("--up") + "55" : css("--down") + "55" })));
   }
   if (opts.dkey) drawHook(el, c, cs, o, opts.dkey);
+  try { el._ptStop?.(); } catch (e) { /* biểu đồ cũ */ }
+  if (opts.tags !== false) pxAuto(el, c, cs, () => o.c[o.c.length - 1]);      // tên đường giá ra cột bên phải trục
   return { c, cs };
 }
 

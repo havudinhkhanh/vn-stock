@@ -2198,3 +2198,13 @@ a:not([class]):hover{color:color-mix(in srgb,var(--brand) 72%,var(--ink))}
   .top-in .kbtn,.top-in .pdfbtn{font-size:0!important;gap:0!important;width:34px;min-width:34px;padding:0!important;justify-content:center}      /* nút chỉ còn biểu tượng (chữ trong chú thích) – thêm chỗ cho dải bảng điện */
   .top-in .kbtn svg,.top-in .pdfbtn svg{margin:0}
 }
+
+/* 🏷 nhãn tên đường giá ở cột phải trục (giống MyBit) */
+.pxtags{position:absolute;top:0;right:0;bottom:0;pointer-events:none;z-index:3}
+.pxtag{position:absolute;top:0;left:1px;max-width:calc(100% - 3px);height:16px;box-sizing:border-box;padding:0 5px 0 4px;border-left:2px solid var(--c);border-radius:0 4px 4px 0;font-size:10.5px;font-weight:600;line-height:16px;letter-spacing:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  color:var(--c);background:color-mix(in srgb,var(--c) 13%,var(--surface));pointer-events:auto;cursor:default;transition:transform .12s ease-out}
+.pxtag.off{outline:1px dashed color-mix(in srgb,var(--c) 45%,transparent);outline-offset:-1px}
+.pxtag.on{background:var(--c);color:#fff}
+.pxtag.eu::before,.pxtag.ed::before{content:"↑";margin-right:2px;font-weight:700}.pxtag.ed::before{content:"↓"}.pxtag.eu,.pxtag.ed{opacity:.85;border-left-style:dashed}
+.pxtip{position:absolute;top:0;left:0;z-index:4;pointer-events:none;display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:8px;background:var(--surface);color:var(--ink);font-size:.75rem;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.14),0 0 0 1px var(--line)}
+.pxtip i{width:8px;height:8px;border-radius:2px}.pxtip small{color:var(--ink-3)}
