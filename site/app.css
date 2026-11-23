@@ -2228,3 +2228,9 @@ body.cz-lock{overflow:hidden}
 .chartp.rot90 #pChart{min-height:0!important;flex:1 1 0!important;height:auto!important}
 .chartp.rot90 .toolbar{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.chartp.rot90 .toolbar::-webkit-scrollbar{display:none}
 .chartp.rot90 #scBar,.chartp.rot90 #scInfo{display:none}
+/* nút cỡ / toàn màn hình nổi trong khung nến, sát trái trục giá */
+.chart>.cv-ctl{position:absolute;top:6px;right:calc(var(--axw,66px) + 8px);z-index:4;margin:0;padding:3px;border-radius:10px;background:color-mix(in srgb,var(--surface) 78%,transparent);box-shadow:0 1px 2px rgba(0,0,0,.08),0 0 0 .5px color-mix(in srgb,var(--ink) 10%,transparent)}
+.chart>.cv-ctl .seg{margin:0}
+.chart>.cv-ctl .cv-sz button{height:24px;min-width:24px;font-size:.72rem}
+.chart>.cv-ctl .cv-fsb{width:26px;height:24px;background:transparent}
+.chart>.cv-ctl .cv-fsb:hover{background:var(--sunk)}

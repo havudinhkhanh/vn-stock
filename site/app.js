@@ -833,6 +833,45 @@ function drawHook(el, c, s, o, dkey) {
   if (lsGet("draw_ap", false)) go(false).then((x) => x && x.ap(true));
   else if ((lsGet(key, []) || []).length) { b.classList.add("has"); go(false); }
 }
+// 🫧 thanh chọn kiểu kính iOS (chép từ MyBit): 1 viên kính trượt mượt tới nút đang chọn
+const GSEL = ".seg, .bseg, .dseg, .subtabs";
+const GPOS = new Map();
+const gOn = (g) => [...g.querySelectorAll(":scope > button, :scope > a")].find((b) => b.offsetParent && (b.classList.contains("on") || b.getAttribute("aria-selected") === "true" || b.getAttribute("aria-current") === "page"));
+const gKey = (g) => `${location.hash.split("?")[0]}|${g.className.split(/\s+/).filter((c) => c && !/^(gseg|on|pv|ovx-.*)$/.test(c)).join(" ")}|${g.getAttribute("aria-label") || ""}|${g.querySelectorAll(":scope > button, :scope > a").length}`;      // bỏ lớp thay đổi theo trạng thái (gseg, bóng cuộn ovx-…) – không thì thanh vẽ lại có khoá khác → kính nhảy về chỗ cũ rồi mới trượt
+function gPlaceAll(list) {
+  const R = [];
+  const G = [...list].filter((g) => g.isConnected && !g.classList.contains("czseg") && !g.closest(".cbt"));
+  G.forEach((g) => { if (!g.classList.contains("gseg")) g.classList.add("gseg"); });      // ghi 1 lượt (khung thành gốc toạ độ) …
+  for (const g of G) {      // … rồi đọc hết, rồi mới ghi tiếp. Thanh 1 hàng: viên kính cao đúng lòng thanh (không lòi ra khi nút cao hơn thanh)
+    const on = gOn(g); if (!on) { R.push([g, null, null]); continue; }
+    if (!on.offsetWidth || !g.offsetParent) continue;      // thanh chưa được dựng bố cục (vừa gắn, đang ẩn) → đo ra 0 sai: để lượt sau (khung hình kế) đặt, không ghi vị trí sai
+    const its = [...g.querySelectorAll(":scope > button, :scope > a")].filter((b) => b.offsetParent), one = its.every((b) => Math.abs(b.offsetTop - its[0].offsetTop) < 4);
+    const cs = getComputedStyle(g), pt = parseFloat(cs.paddingTop) || 0, pb = parseFloat(cs.paddingBottom) || 0, inner = g.clientHeight - pt - pb;
+    R.push([g, on, one && inner > 8 ? { x: Math.max(on.offsetLeft, 3), y: 0, w: Math.min(on.offsetWidth - Math.max(0, 3 - on.offsetLeft), g.scrollWidth - 3 - Math.max(on.offsetLeft, 3)), h: 0, one: 1, pt, pb } : { x: on.offsetLeft, y: on.offsetTop, w: on.offsetWidth, h: on.offsetHeight }]);
+  }
+  for (const [g, on, p] of R) {
+    if (p) { const W = g.clientWidth, SW = Math.max(W, g.scrollWidth); p.bw = W; if (W > 8) { p.x = Math.max(0, Math.min(p.x, SW - 6)); p.w = Math.max(4, Math.min(p.w, SW - 3 - p.x)); } }      // viên kính nằm trong lòng thanh – kẹp theo CẢ chiều dài cuộn (trước kẹp theo phần đang hiện → thanh cuộn ngang trên điện thoại: chọn "Ngày" nằm ngoài khung → viên kính co còn 4px, lệch sang nút khác)
+    // vị trí cũ đo lúc thanh rộng khác (đổi sàn → đổi nhãn / số đếm) → đặt thẳng chỗ mới, không trượt từ chỗ sai
+    let th = g.querySelector(":scope > .gthumb");
+    if (!p) { if (th) th.style.opacity = "0"; continue; }
+    if (!th) { th = document.createElement("i"); th.className = "gthumb"; th.setAttribute("aria-hidden", "true"); th.setAttribute("data-nd", ""); g.prepend(th); g.classList.add("gseg"); }
+    const k = gKey(g), prev = GPOS.get(k), put = (q) => {
+      // thanh 1 hàng: viên kính neo trên + dưới theo lề trong của thanh (luôn nằm gọn trong lòng thanh, kể cả khi thanh đổi cao sau đó), chỉ trượt ngang
+      if (q.one) { g.dataset.one = 1; g.style.setProperty("--gpt", q.pt + "px"); g.style.setProperty("--gpb", q.pb + "px"); th.style.height = ""; th.style.transform = `translateX(${q.x}px)`; }
+      else { delete g.dataset.one; th.style.height = q.h + "px"; th.style.transform = `translate(${q.x}px,${q.y}px)`; }
+      th.style.width = q.w + "px"; };
+    if (!th._set) { th._set = 1; th.style.transition = "none"; put(prev && Math.abs(prev.y - p.y) < 2 && !!prev.one === !!p.one && Math.abs((prev.bw || 0) - p.bw) < 2 && prev.x + prev.w <= p.bw ? prev : p); th.style.opacity = "1"; void th.offsetWidth; th.style.transition = ""; }
+    put(p); GPOS.set(k, p);
+  }
+}
+let gRq = 0; const gAll = () => { if (!gRq) gRq = requestAnimationFrame(() => { gRq = 0; gPlaceAll(document.querySelectorAll(GSEL)); }); };
+// thanh mới vừa gắn vào trang (vẽ lại khi đổi tab / vuốt đổi tab / tự làm mới) → đặt viên kính NGAY trong cùng lượt (trước khi trình duyệt vẽ),
+// bắt đầu từ chỗ cũ rồi trượt sang chỗ mới – trước đây chờ tới khung hình sau nên có 1 khung KHÔNG có kính (nhấp nháy "mất rồi hiện lên")
+new MutationObserver((M) => { const S = new Set(); for (const m of M) for (const n of m.addedNodes) if (n.nodeType === 1) { if (n.matches?.(GSEL)) S.add(n); n.querySelectorAll?.(GSEL).forEach((x) => S.add(x)); }
+  if (S.size) { try { gPlaceAll(S); } catch (e) { /* bỏ qua */ } gAll(); } }).observe(document.documentElement, { childList: true, subtree: true });
+document.addEventListener("click", (e) => { const b = e.target.closest?.("button, a"); const g = b?.parentElement; if (g?.matches?.(GSEL)) { requestAnimationFrame(() => gPlaceAll([g])); setTimeout(gAll, 60); } }, true);
+addEventListener("resize", () => { clearTimeout(gAll._t); gAll._t = setTimeout(gAll, 120); });
+document.fonts?.ready?.then(gAll);
 // 📐 biểu đồ trang mã (giống MyBit): cỡ S · M · L (nhớ lựa chọn) · ⛶ toàn màn hình cả khối · ⟳ xoay ngang trên điện thoại (khoá ngang thật nếu máy cho, không thì xoay CSS)
 const cvSz = () => { const v = lsGet("cvSize", "m"); return ["s", "m", "l"].includes(v) ? v : "m"; };
 const cvCtl = () => `<span class="cv-ctl"><span class="seg cv-sz" role="group" aria-label="Cỡ biểu đồ">${[["s", "S"], ["m", "M"], ["l", "L"]].map(([k, t]) => `<button type="button" data-cvsz="${k}" class="${cvSz() === k ? "on" : ""}" title="Cỡ biểu đồ ${t}">${t}</button>`).join("")}</span><button type="button" class="cv-fsb" data-cvfs title="Toàn màn hình (Esc để thoát)" aria-label="Toàn màn hình"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button><button type="button" class="cv-fsb cv-rotb" data-cvrot title="Xoay ngang biểu đồ" aria-label="Xoay ngang"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="11" rx="2"/><path d="M8 3.5h4.5a3 3 0 0 1 3 3"/><path d="m14 5 1.5 1.5L17 5"/></svg></button></span>`;
@@ -879,6 +918,7 @@ function pxTags(el, c, cs, lines, cur) {
   const place = () => {
     if (!alive) return; if (!el.isConnected) { el._ptStop?.(); return; } if (document.hidden || !vis) return;
     if (!EH) EH = el.clientHeight; let H = EH; try { H -= c.timeScale().height(); } catch (e) { /* bỏ qua */ }
+    try { const aw = c.priceScale("right").width(); if (aw && aw !== el._aw) { el._aw = aw; el.style.setProperty("--axw", aw + "px"); } } catch (e) { /* bỏ qua */ }
     const V = tg.map((t) => { const y0 = cs.priceToCoordinate(t.p); t.y = y0; if (!isNum(y0)) return null; const e = y0 < 0 ? -1 : y0 > H ? 1 : 0; return { t, e, y: e < 0 ? 8 : e > 0 ? H - 8 : y0 }; }).filter(Boolean).sort((a, b) => a.y - b.y || a.e - b.e);
     const key = V.map((v) => v.y.toFixed(1) + v.e).join() + H; if (key === last) return; last = key;
     const G = 16, Q = V.map((v) => ({ y: v.y }));
@@ -2973,6 +3013,7 @@ async function viewStock(sym, tabArg) {
   const tf = TFO[lsGet("tf", "D")] ? lsGet("tf", "D") : "D", o = TFO[tf], kf = TF_KEY[tf];
   const { c, cs } = candleChart($("#pChart"), o, { dkey: sym });
   chartPlus($("#pChart"), c, o, { sym });
+  if (!$("#pChart > .cv-ctl")) $("#pChart").insertAdjacentHTML("beforeend", cvCtl());      // S · M · L · ⛶ · ⟳ nổi góc trên phải trong khung nến (đỡ 1 hàng thanh công cụ)
   const C = o.c;
   const tset = new Set(o.t);
   const overlays = {
@@ -3115,7 +3156,7 @@ async function viewStock(sym, tabArg) {
   };
   $("#tools").innerHTML = tfSeg("tfSel", tf) + chartModeSeg() + Object.keys(overlays).map((k) => `<button class="chip ${active.has(k) ? "on" : ""}" data-ov="${k}">${k}</button>`).join("") +
     `<span class="faint">|</span>` + [["lv", "Mức giá"], ["tr", "Lệnh của tôi"], ["dv", "Cổ tức"], ...(EVH.length ? [["ev", "Sự kiện"]] : []), ["smc", "SMC"], ["vsa", "VSA"], ["wy", "Wyckoff"], ["el", "Elliott"]].map(([k, n]) => `<button class="chip ${L[k] ? "on" : ""}" data-l="${k}">${n}</button>`).join("") +
-    `<span style="margin-left:auto" class="seg" id="osc"><button class="on" data-o="rsi">RSI</button><button data-o="macd">MACD</button><button data-o="vol">KL</button><button data-o="obv">OBV</button>${of.history?.length && tf === "D" ? '<button data-o="delta">Delta</button>' : ""}</span>` + cvCtl();
+    `<span style="margin-left:auto" class="seg" id="osc"><button class="on" data-o="rsi">RSI</button><button data-o="macd">MACD</button><button data-o="vol">KL</button><button data-o="obv">OBV</button>${of.history?.length && tf === "D" ? '<button data-o="delta">Delta</button>' : ""}</span>`;
   Object.keys(overlays).forEach(drawOv);
   redraw();
   setTimeout(drawScen, 0);
