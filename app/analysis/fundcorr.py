@@ -1,6 +1,6 @@
 """Giá chạy theo LỢI NHUẬN hay theo DOANH THU? – tương quan giữa thay đổi giá và thay đổi kết quả kinh doanh, cho từng mã / ngành / toàn thị trường.
 
-Cách đo (mỗi quý một điểm, từ 2014):
+Cách đo (mỗi quý một điểm; BCTC quý hiện có từ khoảng 2019):
   • Kết quả kinh doanh: lợi nhuận sau thuế cổ đông mẹ 12 tháng (TTM) và doanh thu 12 tháng (ngân hàng: tổng thu nhập hoạt động).
     Tăng trưởng so cùng kỳ = (TTM_q − TTM_{q−4}) ÷ trung bình |TTM_q|, |TTM_{q−4}| → nằm trong [−200%, +200%], dùng được cả khi lỗ ↔ lãi
     (tăng trưởng % thường nổ tung khi lợi nhuận gốc gần 0).
@@ -21,8 +21,9 @@ import pandas as pd
 log = logging.getLogger(__name__)
 
 REPORT_LAG_D = 45          # cuối quý + 45 ngày ≈ ngày cuối cùng phải công bố BCTC quý hợp nhất
-MIN_Q = 12                 # tối thiểu 12 quý có cả giá & tăng trưởng (≈ 3 năm "độc lập") mới tính cho 1 mã
-LAGS = (-1, 0, 1, 2)       # k quý: >0 giá đi trước
+MIN_Q = 20                 # tối thiểu 20 quý có cả giá & tăng trưởng (≈ 5 năm "độc lập") mới tính cho 1 mã
+MIN_HALF = 10              # mỗi nửa giai đoạn ≥ 10 quý mới so 2 nửa
+LAGS = (-1, 0, 1, 2, 3, 4)  # k quý: >0 cửa sổ giá kết thúc sớm hơn (k ≥ 2 với TTM mới thật sự là "giá đi trước")
 GCLIP = 2.0
 
 
@@ -38,8 +39,9 @@ def sym_growth(a, b):
     return np.clip(g, -GCLIP, GCLIP)
 
 
-def ttm_frame(fin_q: pd.DataFrame) -> pd.DataFrame:
-    """symbol, qend, np_ttm, rev_ttm (+ tăng trưởng so cùng kỳ). Chỉ cộng 4 quý LIÊN TIẾP."""
+def ttm_frame(fin_q: pd.DataFrame, ctype: dict | None = None) -> pd.DataFrame:
+    """symbol, qend, np_ttm, rev_ttm (+ tăng trưởng so cùng kỳ, + tăng trưởng riêng quý so cùng quý năm trước). Chỉ cộng 4 quý LIÊN TIẾP.
+    ctype: {mã: "NH" | "CK" | "CT"} – ngân hàng luôn dùng TỔNG THU NHẬP HOẠT ĐỘNG làm doanh thu."""
     if fin_q is None or fin_q.empty:
         return pd.DataFrame()
     f = fin_q.copy()
@@ -48,9 +50,12 @@ def ttm_frame(fin_q: pd.DataFrame) -> pd.DataFrame:
     if "net_income" in f:
         prof = prof.fillna(f["net_income"])
     rev = f["revenue"] if "revenue" in f else pd.Series(np.nan, index=f.index)
-    for alt in ("toi", "nii"):      # ngân hàng: doanh thu = tổng thu nhập hoạt động (hoặc thu nhập lãi thuần)
+    for alt in ("toi", "nii"):      # thiếu doanh thu → tổng thu nhập hoạt động (hoặc thu nhập lãi thuần)
         if alt in f:
             rev = rev.where(rev.notna() & (rev != 0), f[alt])
+    if ctype and "toi" in f:        # ngân hàng: nguồn có khi điền "doanh thu" = thu nhập lãi gộp → luôn dùng tổng thu nhập hoạt động
+        bank = f["symbol"].map(ctype).eq("NH") & f["toi"].notna() & (f["toi"] != 0)
+        rev = rev.where(~bank, f["toi"])
     f = pd.DataFrame({"symbol": f["symbol"], "qi": f["year"].astype(int) * 4 + f["quarter"].astype(int) - 1, "np": prof.astype(float), "rev": rev.astype(float)})
     f = f.drop_duplicates(["symbol", "qi"], keep="last").sort_values(["symbol", "qi"])
     out = []
@@ -62,6 +67,14 @@ def ttm_frame(fin_q: pd.DataFrame) -> pd.DataFrame:
         o = pd.DataFrame({"symbol": s, "qi": d.index, "np_ttm": npt.values, "rev_ttm": rvt.values})
         o["g_np"] = sym_growth(o["np_ttm"], o["np_ttm"].shift(4))
         o["g_rev"] = sym_growth(o["rev_ttm"], o["rev_ttm"].shift(4))
+        o["g_np1"] = sym_growth(d["np"].values, d["np"].shift(4).values)          # riêng quý vs cùng quý năm trước
+        rq = d["rev"].where(d["rev"] > 0)
+        o["g_rev1"] = sym_growth(rq.values, rq.shift(4).values)
+        # nhảy đơn vị (×1000) do nguồn: TTM đổi > 50 lần trong 1 năm → bỏ điểm đó
+        for c_ in ("np_ttm", "rev_ttm"):
+            with np.errstate(invalid="ignore", divide="ignore"):
+                ra = (o[c_] / o[c_].shift(4)).abs()
+            o.loc[(ra > 50) | (ra < 1 / 50), "g_" + c_.split("_")[0]] = np.nan
         # log-tăng trưởng chỉ khi cả 2 đầu cùng dương (cho độ co giãn)
         with np.errstate(invalid="ignore", divide="ignore"):
             o["l_np"] = np.where((o["np_ttm"] > 0) & (o["np_ttm"].shift(4) > 0), np.log(o["np_ttm"] / o["np_ttm"].shift(4)), np.nan)
@@ -108,7 +121,7 @@ def panel(wide: pd.DataFrame, idx_close: pd.Series, ttm: pd.DataFrame, lags=LAGS
         D = pd.DataFrame(dp, index=ok, columns=syms).stack(future_stack=True).rename("dp").to_frame()
         D.index.names = ["qi", "symbol"]
         D["dpx"] = D["dp"] - pd.Series(di, index=ok).reindex(D.index.get_level_values(0)).to_numpy()
-        D = D.join(T[["g_np", "g_rev", "l_np", "l_rev"]], how="inner")
+        D = D.join(T[["g_np", "g_rev", "l_np", "l_rev", "g_np1", "g_rev1"]], how="inner")
         D["lag"] = k
         rows.append(D.reset_index())
     p = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
@@ -153,7 +166,7 @@ def stats(d: pd.DataFrame, pcol: str = "dp") -> dict:
             g = dk["g_" + f].to_numpy(float)
             r["c_" + f] = _sp(g, y)
             h = len(dk) // 2
-            r["c1_" + f], r["c2_" + f] = (_sp(g[:h], y[:h]), _sp(g[h:], y[h:])) if h >= 6 else (np.nan, np.nan)
+            r["c1_" + f], r["c2_" + f] = (_sp(g[:h], y[:h]), _sp(g[h:], y[h:])) if h >= MIN_HALF else (np.nan, np.nan)
             r["e_" + f] = _slope(dk["l_" + f].to_numpy(float), y)
         out[int(k)] = r
     return out
@@ -198,26 +211,14 @@ def summarize(st: dict, n_min: int = MIN_Q) -> dict | None:
 
 
 def group_series(p: pd.DataFrame, ttm: pd.DataFrame, members: list[str]) -> pd.DataFrame:
-    """Chuỗi của 1 nhóm: giá = TB log-thay-đổi các mã (cùng trọng số), tăng trưởng = tổng TTM các mã có đủ 2 đầu (không bị mã lớn lỗ/lãi đột biến…
-    nhưng phản ánh cả ngành như một doanh nghiệp)."""
+    """Chuỗi của 1 nhóm: giá = TB log-thay-đổi các mã (cùng trọng số), tăng trưởng = TRUNG VỊ tăng trưởng các mã (cùng trọng số với giá –
+    trước cộng tổng TTM nên vài mã rất lớn quyết định cả nhóm, lệch với giá bình quân đều)."""
     m = p[p["symbol"].isin(members)]
     if m.empty:
         return m
-    T = ttm[ttm["symbol"].isin(members)][["symbol", "qi", "np_ttm", "rev_ttm"]].copy()
-    T0 = T.assign(qi=T["qi"] + 4).rename(columns={"np_ttm": "np0", "rev_ttm": "rev0"})
-    TT = T.merge(T0, on=["symbol", "qi"], how="inner")
-    agg = []
-    for f in ("np", "rev"):
-        x = TT.dropna(subset=[f + "_ttm", f + "0"]).groupby("qi").agg(a=(f + "_ttm", "sum"), b=(f + "0", "sum"), k=("symbol", "size"))
-        x = x[x["k"] >= 3]
-        x["g_" + f] = sym_growth(x["a"], x["b"])
-        with np.errstate(invalid="ignore", divide="ignore"):
-            x["l_" + f] = np.where((x["a"] > 0) & (x["b"] > 0), np.log(x["a"] / x["b"]), np.nan)
-        agg.append(x[["g_" + f, "l_" + f]])
-    G = agg[0].join(agg[1], how="outer")
-    P = m.groupby(["lag", "qi"]).agg(dp=("dp", "mean"), dpx=("dpx", "mean"), k=("symbol", "size")).reset_index()
-    P = P[P["k"] >= 3]
-    return P.merge(G.reset_index(), on="qi", how="inner")
+    P = m.groupby(["lag", "qi"]).agg(dp=("dp", "mean"), dpx=("dpx", "mean"), g_np=("g_np", "median"), g_rev=("g_rev", "median"),
+                                      l_np=("l_np", "median"), l_rev=("l_rev", "median"), k=("symbol", "size")).reset_index()
+    return P[P["k"] >= 3]
 
 
 def chart_series(p: pd.DataFrame, sym_or_none=None, g: pd.DataFrame | None = None) -> list:
