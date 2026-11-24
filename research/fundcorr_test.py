@@ -123,6 +123,28 @@ for lv, col in (("peer", "peer_label"), ("parent", "peer_parent"), ("sector", "s
 G = fc.group_series(P, ttm, list(per))
 grp["market|Toàn thị trường"] = {"m": len(per), "raw": fc.summarize(fc.stats(G, "dp")), "x": None, "med_stock_np": np.nan, "med_stock_rev": np.nan}
 OUT["groups"] = grp
+# ---------- 3b) TRONG từng nhóm, cắt ngang từng quý: mã tăng LN/DT mạnh hơn bạn cùng nhóm thì giá 12T tăng hơn? (không bị chu kỳ cả thị trường chi phối)
+wic = {}
+for lv, col in (("peer", "peer_label"), ("sector", "sector")):
+    P2 = P.merge(lst[[col]].rename(columns={col: "grp"}), left_on="symbol", right_index=True, how="left")
+    for (name, k), d in P2.groupby(["grp", "lag"]):
+        if k not in (0, 1):
+            continue
+        r = {}
+        for f in ("np", "rev"):
+            v = []
+            for q, dq in d.groupby("qi"):
+                if len(dq) >= 5:
+                    v.append(fc._sp(dq["g_" + f].to_numpy(float), dq["dp"].to_numpy(float)))
+            v = np.array([x for x in v if np.isfinite(x)])
+            if len(v) >= 8:
+                h = len(v) // 2
+                r[f] = {"q": int(len(v)), "mean": round(float(v.mean()), 3), "pos": round(float((v > 0).mean()), 2), "h1": round(float(v[:h].mean()), 3), "h2": round(float(v[h:].mean()), 3)}
+        if r:
+            wic[f"{lv}|{name}|k{k}"] = r
+OUT["within_ic"] = wic
+for k_, v in sorted(wic.items(), key=lambda t: -(t[1].get("np", {}).get("mean", -9))):
+    print("WIC", f"{k_:50s}", "LN", v.get("np"), "DT", v.get("rev"), flush=True)
 for k_, v in sorted(grp.items(), key=lambda t: -(t[1]["raw"]["c_np"] or -9)):
     r = v["raw"]
     print(f"{k_:45s} m={v['m']:3d} LN={r['c_np']} DT={r['c_rev']} e_LN={r['e_np']} e_DT={r['e_rev']} 2nửa LN {r['c1_np']}/{r['c2_np']} best={r['best']} v={r['v']} | TV mã LN={v['med_stock_np']:.2f} DT={v['med_stock_rev']:.2f}", flush=True)
