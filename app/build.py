@@ -556,7 +556,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
         peers = {"pe_ind_med": _nn(r.get("pe_ind_med")), "pe_h_ind_med": _nn(r.get("pe_h_ind_med")), "pb_ind_med": _nn(r.get("pb_ind_med")), "roe_ind_med": _nn(r.get("roe_ind_med")),
                  "ps_ind_med": _nn(_ps_peer.get(r.get("peer_used"))) if isinstance(r.get("peer_used"), str) else None,
                  "label": r.get("peer_used_label"),
-                 "conglo": ("tập đoàn đa ngành, không có mâm tương đồng" if r.get("peer") == "conglomerate" else
+                 "conglo": ("tập đoàn đa ngành, không có nhóm tương đồng" if r.get("peer") == "conglomerate" else
                             None)}
         try:
             so_ = va.sotp(s, _own, org_map, u, float(vcfg.get("sotp_min_pct", 0.2)), float(vcfg.get("sotp_discount", 20)) / 100)

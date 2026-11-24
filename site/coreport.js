@@ -236,8 +236,8 @@
     const s1 = sec("co-s1", "1 Định giá", `${checks(K.val, "Tiêu chí định giá")}
       ${big([[isNum(v.fair) ? nf(v.fair, 2) : "—", "giá trị hợp lý (nghìn đ)"], [nf(r.price, 2), "giá hiện tại"], [isNum(v.up) ? pct(v.up, 1) : "—", isNum(v.up) && v.up >= 0 ? "thấp hơn giá trị" : "cao hơn giá trị", isNum(v.up) ? (v.up >= 0 ? "up" : "down") : ""]])}
       ${v.reliable === false && isNum(v.fair) ? `<p class="faint co-note">Mô hình định giá ghi chú độ tin cậy thấp cho mã này – xem tab "Dự phóng & định giá".</p>` : ""}
-      <div class="g g2">${sub("1.1 Giá so với giá trị hợp lý", chart("fair", 120))}${sub("1.2 P/E so với mâm, ngành, thị trường", chart("pe", 170), "P/E thấp hơn nghĩa là trả ít tiền hơn cho mỗi đồng lợi nhuận – so cùng ngành mới có ý nghĩa.")}</div>
-      ${sub("1.3 P/B so với mâm, ngành, thị trường", chart("pb", 170))}`);
+      <div class="g g2">${sub("1.1 Giá so với giá trị hợp lý", chart("fair", 120))}${sub("1.2 P/E so với nhóm, ngành, thị trường", chart("pe", 170), "P/E thấp hơn nghĩa là trả ít tiền hơn cho mỗi đồng lợi nhuận – so cùng ngành mới có ý nghĩa.")}</div>
+      ${sub("1.3 P/B so với nhóm, ngành, thị trường", chart("pb", 170))}`);
     const s2 = sec("co-s2", "2 Tăng trưởng tương lai", `${checks(K.fut, "Tiêu chí tương lai")}
       ${f.g != null || f.rg != null ? big([[pct(f.g, 1), "LN tăng / năm (dự phóng)"], [pct(f.rg, 1), "doanh thu tăng / năm"], [pp(f.roe), "ROE dự phóng"], [pp(co.savings, 0), "lãi tiết kiệm (mốc)"]]) : ""}
       <p class="faint co-note">Dự phóng theo kịch bản cơ sở của mô hình định giá trên trang (${f.n || "—"} năm) – không phải dự báo của công ty chứng khoán. Sửa giả định ở tab "Dự phóng & định giá".</p>
@@ -297,8 +297,8 @@
   // ---------------------------------------------------------------- bộ vẽ
   DRAW.radar = (el, w, h, d) => radar(Math.min(w, 330), h, d.co.score || {});
   DRAW.fair = (el, w, h, d) => { const v = d.co.val || {}, p = d.row?.price; return hbars(w, [["Giá hiện tại", p, col().brand], ["Giá trị hợp lý", v.fair, isNum(v.fair) && v.fair >= p ? col().up : col().down, isNum(v.up) ? pct(v.up, 1) : ""]], (x) => nf(x, 2)); };
-  DRAW.pe = (el, w, h, d) => { const v = d.co.val || {}; return vbars(w, h, [[d.symbol, v.pe, col().brand], ["Mâm so sánh", v.pe_peer, col().ink3], ["Ngành", v.pe_ind, col().floor], ["Thị trường", v.pe_mkt, col().ceil]], (x) => nf(x, 1) + "×"); };
-  DRAW.pb = (el, w, h, d) => { const v = d.co.val || {}; return vbars(w, h, [[d.symbol, v.pb, col().brand], ["Mâm so sánh", v.pb_peer, col().ink3], ["Ngành", v.pb_ind, col().floor], ["Thị trường", v.pb_mkt, col().ceil]], (x) => nf(x, 2) + "×"); };
+  DRAW.pe = (el, w, h, d) => { const v = d.co.val || {}; return vbars(w, h, [[d.symbol, v.pe, col().brand], ["Nhóm so sánh", v.pe_peer, col().ink3], ["Ngành", v.pe_ind, col().floor], ["Thị trường", v.pe_mkt, col().ceil]], (x) => nf(x, 1) + "×"); };
+  DRAW.pb = (el, w, h, d) => { const v = d.co.val || {}; return vbars(w, h, [[d.symbol, v.pb, col().brand], ["Nhóm so sánh", v.pb_peer, col().ink3], ["Ngành", v.pb_ind, col().floor], ["Thị trường", v.pb_mkt, col().ceil]], (x) => nf(x, 2) + "×"); };
   DRAW.fut = (el, w, h, d) => {
     const co = d.co, f = co.fwd || {}, S = (co.sk || []).filter((x) => !x.p.startsWith("12T")), y0 = +(S[S.length - 1]?.p || new Date().getFullYear());
     const xs = [...S.map((x) => x.p), ...(f.ni || []).map((_, i) => String(y0 + 1 + i))], n0 = S.length;

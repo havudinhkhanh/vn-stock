@@ -259,7 +259,7 @@ def build(sym: str, r: pd.Series, qs, ys, divs, fa: dict, val: dict | None, clos
     C["val"] = [
         _chk(price < fair if fair and price else None, "Giá dưới giá trị hợp lý", f"Giá {price:g} so với giá trị hợp lý {fair:g} (nghìn đồng) của mô hình định giá trên trang{'' if vmeth else ' – mô hình ghi chú độ tin cậy thấp'}." if fair and price else "Chưa đủ số liệu để định giá."),
         _chk(price < 0.8 * fair if fair and price else None, "Giá thấp hơn giá trị hợp lý trên 20%", f"Biên an toàn {up:+.1f}%." if up is not None else "Chưa đủ số liệu."),
-        _chk(pe < pm.get("pe") if pe and pe > 0 and pm.get("pe") else None, "P/E thấp hơn mâm so sánh", f"P/E {pe:.1f} so với trung vị mâm {pm.get('pe'):.1f}." if pe and pm.get("pe") else "Chưa có P/E dương hoặc mâm so sánh."),
+        _chk(pe < pm.get("pe") if pe and pe > 0 and pm.get("pe") else None, "P/E thấp hơn nhóm so sánh", f"P/E {pe:.1f} so với trung vị nhóm {pm.get('pe'):.1f}." if pe and pm.get("pe") else "Chưa có P/E dương hoặc nhóm so sánh."),
         _chk(pe < ind.get("pe") if pe and pe > 0 and ind.get("pe") else None, "P/E thấp hơn ngành", f"P/E {pe:.1f} so với trung vị ngành {ind.get('pe'):.1f}." if pe and ind.get("pe") else "Chưa đủ số liệu."),
         _chk(pe < mkt.get("pe") if pe and pe > 0 and mkt.get("pe") else None, "P/E thấp hơn thị trường", f"P/E {pe:.1f} so với trung vị thị trường {mkt.get('pe'):.1f}." if pe and mkt.get("pe") else "Chưa đủ số liệu."),
         _chk(pb < ind.get("pb") if pb and pb > 0 and ind.get("pb") else None, "P/B thấp hơn ngành", f"P/B {pb:.2f} so với trung vị ngành {ind.get('pb'):.2f}." if pb and ind.get("pb") else "Chưa đủ số liệu."),

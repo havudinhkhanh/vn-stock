@@ -202,7 +202,7 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
     dfac = float(np.clip(det["r2"], 0.3, 1.0)) if det and det.get("r2") is not None else 1.0
     if pe_t and eps and eps > 0:
         e = eps * min(nfac, dfac)
-        mam = f"mâm {peers['label']}" if peers.get("label") else "ngành"
+        mam = f"nhóm {peers['label']}" if peers.get("label") else "ngành"
         src = (f"{mam}{f' ×{adj:.2f} theo ROE' if adj != 1 else ''}" if pe_ind else
                f"lịch sử của mã – {peers['conglo']}" if peers.get("conglo") else "lịch sử của mã (thiếu số liệu ngành)")
         lo_m, hi_m = (pe_ind * adj * 0.85, pe_ind * adj * 1.15) if pe_ind else (hist.get("pe_lo") or pe_t * 0.85, hist.get("pe_hi") or pe_t * 1.15)
@@ -221,7 +221,7 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
     if peh and eps and eps > 0 and 3 < peh * adj < 40:
         e = eps * min(nfac, dfac)
         pht = peh * adj
-        methods.append({"key": "pe_h", "mult": pht, "name": f"P/E điều hoà {pht:.1f}x ({('mâm ' + peers['label']) if peers.get('label') else 'ngành'}{f' ×{adj:.2f} theo ROE' if adj != 1 else ''}; mỗi DN như nhau) × EPS",
+        methods.append({"key": "pe_h", "mult": pht, "name": f"P/E điều hoà {pht:.1f}x ({('nhóm ' + peers['label']) if peers.get('label') else 'ngành'}{f' ×{adj:.2f} theo ROE' if adj != 1 else ''}; mỗi DN như nhau) × EPS",
                         "value": _r(pht * e / 1000), "w": 0.0, "ref": True,
                         "range": [_r(pht * 0.85 * e / 1000), _r(pht * 1.15 * e / 1000)]})
     # 4) P/B mục tiêu (cùng logic: mặt bằng ngành điều chỉnh theo ROE)
@@ -230,7 +230,7 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
     adj_b = float(np.clip(roe_m / roe_i, 0.5, 2.5)) if roe_m and roe_i and roe_i > 0 and roe_m > 0 else 1.0
     pb_t = pb_ind * adj_b if pb_ind and 0.3 < pb_ind * adj_b < 8 else (hist.get("pb_med") if hist.get("pb_med") and 0.3 < hist["pb_med"] < 8 else None)
     if pb_t and bvps and bvps > 0:
-        methods.append({"key": "pb", "mult": pb_t, "name": f"P/B mục tiêu {pb_t:.2f}x ({(('mâm ' + peers['label']) if peers.get('label') else 'ngành') + (f' ×{adj_b:.2f} theo ROE' if adj_b != 1 else '') if pb_ind else 'lịch sử của mã'}) × BVPS",
+        methods.append({"key": "pb", "mult": pb_t, "name": f"P/B mục tiêu {pb_t:.2f}x ({(('nhóm ' + peers['label']) if peers.get('label') else 'ngành') + (f' ×{adj_b:.2f} theo ROE' if adj_b != 1 else '') if pb_ind else 'lịch sử của mã'}) × BVPS",
                         "value": _r(pb_t * bvps / 1000), "w": 0.15 if ctype == "CT" else 0.25,
                         "range": [_r(pb_t * 0.85 * bvps / 1000), _r(pb_t * 1.15 * bvps / 1000)]})
     # 5) P/B hợp lý theo ROE (ngân hàng, CTCK, bảo hiểm)
@@ -275,7 +275,7 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
             if pbx and pbx > 0:
                 k_ = 0.7 if (fa.get("ni_ttm") or 0) <= 0 else 1.0      # đang lỗ: chiết khấu 30% so với mặt bằng
                 pbx = float(np.clip(pbx * k_, 0.2, 5))
-                src_ = "mâm ngành" if pb_ind else ("lịch sử của mã" if hist.get("pb_med") else "trung vị thị trường")
+                src_ = "nhóm ngành" if pb_ind else ("lịch sử của mã" if hist.get("pb_med") else "trung vị thị trường")
                 methods.append({"key": "pb_fb", "mult": pbx, "name": f"P/B dự phòng {pbx:.2f}x ({src_}{' × 0,7 vì đang lỗ' if k_ < 1 else ''}) × BVPS",
                                 "value": _r(pbx * bvps / 1000), "w": 0.5, "range": [_r(pbx * 0.8 * bvps / 1000), _r(pbx * 1.2 * bvps / 1000)]})
         else:
@@ -285,7 +285,7 @@ def value(fa: dict, model: dict | None, peers: dict, hist: dict, b: float, cfg: 
             if psx and psx > 0:
                 psx = float(np.clip(psx * (0.6 if (fa.get("ni_ttm") or 0) <= 0 else 1.0), 0.05, 10))
                 rps = rev * 1000 / shares
-                methods.append({"key": "ps_fb", "mult": psx, "name": f"P/S dự phòng {psx:.2f}x ({'mâm ngành' if peers.get('ps_ind_med') else 'trung vị thị trường'}{' × 0,6 vì đang lỗ' if (fa.get('ni_ttm') or 0) <= 0 else ''}) × doanh thu/CP",
+                methods.append({"key": "ps_fb", "mult": psx, "name": f"P/S dự phòng {psx:.2f}x ({'nhóm ngành' if peers.get('ps_ind_med') else 'trung vị thị trường'}{' × 0,6 vì đang lỗ' if (fa.get('ni_ttm') or 0) <= 0 else ''}) × doanh thu/CP",
                                 "value": _r(psx * rps / 1000), "w": 0.5, "range": [_r(psx * 0.8 * rps / 1000), _r(psx * 1.2 * rps / 1000)]})
         elif not rev or rev <= 0:
             why.append("không có doanh thu")
