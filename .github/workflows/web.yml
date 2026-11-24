@@ -51,6 +51,17 @@ jobs:
           fi
           git status --short --ignored site | head -20
 
+      - name: Lấy dữ liệu đã lưu (chỉ đọc – cho phần dựng nhanh bên dưới)
+        uses: actions/cache/restore@v4
+        with:
+          path: data
+          key: data-web-${{ github.run_id }}
+          restore-keys: data-
+
+      - name: Dựng bảng "Giá theo lợi nhuận / doanh thu" nếu lượt đầy đủ gần nhất chưa có (không tải dữ liệu, không gửi thông báo)
+        run: |
+          if [ -f data/prices.parquet ] && [ ! -f site/data/fundcorr_s.json ]; then python -m app.fundcorr_site || echo "Bỏ qua – lỗi khi dựng"; fi
+
       - name: Kết nối Cloudflare
         run: |
           mkdir -p data
