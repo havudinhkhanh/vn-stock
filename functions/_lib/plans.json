@@ -9,7 +9,7 @@
     "pro": {
       "name": "Pro",
       "features": ["digest", "market", "sector", "screener", "calendar", "portfolio", "watch", "notify_web",
-                   "today", "stock_full", "swing", "live", "flow", "pairs", "backtest", "pdf", "notify_push", "notify_email", "scorecard", "weekly"],
+                   "today", "stock_full", "swing", "live", "flow", "pairs", "backtest", "pdf", "notify_push", "notify_email", "scorecard", "weekly", "fundcorr"],
       "limits": {"holdings": 100, "watch": 300, "alerts": 200}
     }
   },
@@ -19,16 +19,18 @@
     "notify_web": "Thông báo trên web", "today": "Danh sách MUA & kế hoạch theo phong cách", "stock_full": "Phân tích đầy đủ từng mã (vùng mua, sóng, SMC, mã liên quan…)",
     "swing": "Biến động & đảo chiều", "live": "Bảng trong phiên", "flow": "Dòng tiền lớn & tâm lý", "pairs": "Mã liên quan",
     "backtest": "Kiểm chứng & tối ưu khẩu vị", "pdf": "Xuất báo cáo PDF", "notify_push": "Thông báo đẩy", "notify_email": "Thông báo qua email",
-    "scorecard": "So sánh với \"nếu làm theo hệ thống\" theo tháng", "weekly": "Báo cáo tuần (thứ 7) qua email & trang in PDF"
+    "scorecard": "So sánh với \"nếu làm theo hệ thống\" theo tháng", "weekly": "Báo cáo tuần (thứ 7) qua email & trang in PDF",
+    "fundcorr": "Giá theo lợi nhuận / doanh thu của từng mã"
   },
   "paths": [
     {"re": "^/data/swing\\.json$", "feature": "swing"},
     {"re": "^/data/flow\\.json$", "feature": "flow"},
     {"re": "^/data/pairs\\.json$", "feature": "pairs"},
+    {"re": "^/data/fundcorr_s\\.json$", "feature": "fundcorr"},
     {"re": "^/data/(fwd|fb|backtest|styles_bt|profile_grid)\\.json$", "feature": "backtest"}
   ],
   "strip": [
     {"re": "^/data/today\\.json$", "feature": "today", "keys": ["plan", "styles", "post_event"]},
-    {"re": "^/data/stocks/[^/]+\\.json$", "feature": "stock_full", "keys": ["levels", "style_levels", "rel", "swing", "fb", "mos", "season", "season_support", "mtf", "waves", "timing", "in_plan"]}
+    {"re": "^/data/stocks/[^/]+\\.json$", "feature": "stock_full", "keys": ["levels", "style_levels", "rel", "swing", "fb", "mos", "season", "season_support", "mtf", "waves", "timing", "in_plan", "fc"]}
   ]
 }

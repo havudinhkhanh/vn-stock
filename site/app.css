@@ -2234,3 +2234,18 @@ body.cz-lock{overflow:hidden}
 .chart>.cv-ctl .cv-sz button{height:24px;min-width:24px;font-size:.72rem}
 .chart>.cv-ctl .cv-fsb{width:26px;height:24px;background:transparent}
 .chart>.cv-ctl .cv-fsb:hover{background:var(--sunk)}
+
+/* 📈 giá theo lợi nhuận / doanh thu */
+.fcb{display:inline-flex;align-items:center;gap:6px;min-width:92px;font-variant-numeric:tabular-nums}
+.fcb i{display:block;height:6px;flex:0 0 auto;border-radius:3px;background:var(--ink-3);opacity:.55}
+.fcb.hi i{background:var(--up);opacity:1}.fcb.lo i{background:var(--ink-3);opacity:.35}.fcb i.neg{background:var(--down);opacity:.8}
+.fcb b{font-weight:600;font-size:.8rem}
+.fcp .ph.sm{margin:0 0 4px;gap:6px;flex-wrap:wrap}.fcp .ph.sm h3{font-size:.86rem;margin:0}
+.fcp table td,.fcp table th{white-space:nowrap}
+.fc-g td small{font-size:.7rem}
+.fc-lag td,.fc-lag th{text-align:center;font-variant-numeric:tabular-nums}
+.fc-f{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 6px}
+.fc-f input[type=search]{height:30px;padding:0 10px;border-radius:8px;border:1px solid var(--line-2);background:var(--surface);color:var(--ink);font:inherit;font-size:.82rem;width:130px}
+.fc-f .seg small{opacity:.6;font-size:.7rem}
+.fc-sum{margin:0 0 8px;font-size:.86rem;color:var(--ink-2)}
+.fcp .bigs .big>b{font-size:1.2rem;white-space:nowrap}

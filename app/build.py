@@ -39,6 +39,7 @@ from .analysis import peers as pr_
 from .analysis import stance as stn
 from .analysis import forecast as fc
 from .analysis import coreport as cr_
+from .analysis import fundcorr as fcr_
 from . import swing_build as swb
 from . import pairs_build as pab
 from . import personal as per_
@@ -930,6 +931,16 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
     dump(out_dir / "sectors.json", {"sector": sec_l2, "industry": sec_l3, "peer": sec_pm, "peer_parents": list(pr_.PARENT), "market": mkt_val, "outlook": outlook, "season": season,
                                     "backtest": (backtest or {}).get("sectors", {}),
                                     "backtest_range": [backtest.get("start"), backtest.get("end")] if backtest.get("ok") else None})
+    # 📈 giá chạy theo lợi nhuận hay doanh thu (trang Ngành: thị trường + từng mâm/ngành – miễn phí; bảng từng mã – gói Pro; khung ở trang mã)
+    fcr_det = {}
+    try:
+        fcr_pub, fcr_rows, fcr_det = fcr_.build(wide, idx["close"], fin_q, u)
+        if fcr_pub:
+            fcr_pub["asof"] = str(last_date.date())
+            dump(out_dir / "fundcorr.json", fcr_pub)
+            dump(out_dir / "fundcorr_s.json", {"asof": str(last_date.date()), "cols": fcr_rows[0], "rows": fcr_rows[1:], "rel": fcr_pub.get("rel")})
+    except Exception as e:  # noqa: BLE001
+        log.exception("Tương quan giá – lợi nhuận/doanh thu lỗi: %s", e)
 
     sw_per = {}
     wl_syms = watch_all
@@ -1177,6 +1188,7 @@ def run(skip_backtest: bool = False, force_backtest: bool = False, only: list[st
             "scen": _scen(d["df"]),
             "charts": fu.chart_pack(fq_s, fy_by.get(s), str(r.get("ctype") or "CT"), d["df"]["close"], dv_by.get(s), (d.get("fa") or {}).get("shares_mn")),
             "bctc": fh.block(s, fq_s, fy_by.get(s), _news_cat(s), last_date.date(), str(r.get("ctype") or "CT")),
+            "fc": fcr_det.get(s),
         }
         try:
             detail["co"] = cr_.build(s, r, fq_s, fy_by.get(s), dv_by.get(s), d.get("fa") or {}, d.get("val"), d["df"]["close"], cr_prof.get(s), cr_stats,

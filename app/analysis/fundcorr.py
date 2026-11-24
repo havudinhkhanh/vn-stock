@@ -74,7 +74,7 @@ def ttm_frame(fin_q: pd.DataFrame, ctype: dict | None = None) -> pd.DataFrame:
         for c_ in ("np_ttm", "rev_ttm"):
             with np.errstate(invalid="ignore", divide="ignore"):
                 ra = (o[c_] / o[c_].shift(4)).abs()
-            o.loc[(ra > 50) | (ra < 1 / 50), "g_" + c_.split("_")[0]] = np.nan
+            o.loc[(ra > 50) | (ra < 1 / 50), ["g_" + c_.split("_")[0], "l_" + c_.split("_")[0]]] = np.nan
         # log-tăng trưởng chỉ khi cả 2 đầu cùng dương (cho độ co giãn)
         with np.errstate(invalid="ignore", divide="ignore"):
             o["l_np"] = np.where((o["np_ttm"] > 0) & (o["np_ttm"].shift(4) > 0), np.log(o["np_ttm"] / o["np_ttm"].shift(4)), np.nan)
@@ -222,12 +222,157 @@ def group_series(p: pd.DataFrame, ttm: pd.DataFrame, members: list[str]) -> pd.D
 
 
 def chart_series(p: pd.DataFrame, sym_or_none=None, g: pd.DataFrame | None = None) -> list:
-    """Chuỗi cho biểu đồ (lệch 0): [quý 'YYYY-Qn', giá 12T %, LN 12T %, DT 12T %]."""
+    """Chuỗi cho biểu đồ (lệch 0): [quý 'YYYY-Qn', giá 12T %, LN 12T %, DT 12T %].
+    Tăng trưởng: % thật khi cả 2 năm cùng dương, không thì thang đối xứng (±200%) để lỗ ↔ lãi vẫn vẽ được."""
     d = g if g is not None else p[p["symbol"] == sym_or_none]
     d = d[d["lag"] == 0].sort_values("qi")
-    out = []
-    for r in d.itertuples():
-        pr = (np.exp(r.dp) - 1) * 100 if np.isfinite(r.dp) else None
-        out.append([f"{r.qi // 4}-Q{r.qi % 4 + 1}", None if pr is None else round(pr, 1),
-                    None if not np.isfinite(r.g_np) else round(r.g_np * 100, 1), None if not np.isfinite(r.g_rev) else round(r.g_rev * 100, 1)])
+    rd = lambda v: None if v is None or not np.isfinite(v) else round(float(v), 1)  # noqa: E731
+    gp = lambda l_, g_: rd((np.exp(l_) - 1) * 100) if np.isfinite(l_) else rd(g_ * 100)  # noqa: E731
+    return [[f"{r.qi // 4}-Q{r.qi % 4 + 1}", rd((np.exp(r.dp) - 1) * 100), gp(r.l_np, r.g_np), gp(r.l_rev, r.g_rev)] for r in d.itertuples()]
+
+
+def _ic(d: pd.DataFrame, gcol: str, pcol: str, minn: int) -> np.ndarray:
+    v = []
+    for _, dq in d.groupby("qi"):
+        if len(dq) >= minn:
+            v.append(_sp(dq[gcol].to_numpy(float), dq[pcol].to_numpy(float)))
+    return np.array([x for x in v if np.isfinite(x)])
+
+
+def _ics(v: np.ndarray, qmin: int = 8) -> dict | None:
+    if len(v) < qmin:
+        return None
+    h = len(v) // 2
+    return {"ic": round(float(v.mean()), 3), "pos": round(float((v > 0).mean()), 2), "q": int(len(v)), "h1": round(float(v[:h].mean()), 3), "h2": round(float(v[h:].mean()), 3)}
+
+
+def _r(v, n=3):
+    return None if v is None or not np.isfinite(v) else round(float(v), n)
+
+
+def _tscorr(d: pd.DataFrame, pcol: str = "dp") -> dict:
+    """Tương quan chuỗi thời gian theo từng lệch k: {k: [LN, DT, số quý]}."""
+    out = {}
+    for k, dk in d.groupby("lag"):
+        y = dk[pcol].to_numpy(float)
+        out[int(k)] = [_r(_sp(dk["g_np"].to_numpy(float), y)), _r(_sp(dk["g_rev"].to_numpy(float), y)), int(np.isfinite(y).sum())]
     return out
+
+
+def verdict2(s_np, s_rev) -> str:
+    """Kết luận trên ước tính ĐÃ CO về ngành (số thô của 1 mã nhiễu quá, xem module docstring)."""
+    a = s_np if s_np is not None and np.isfinite(s_np) else -9
+    b = s_rev if s_rev is not None and np.isfinite(s_rev) else -9
+    if max(a, b) < 0.1:
+        return "weak"
+    if a >= 0.2 and b >= 0.2 and abs(a - b) < 0.06:
+        return "both"
+    if a >= 0.25 and a - b >= 0.06:
+        return "np"
+    if b >= 0.2 and b - a >= 0.06:
+        return "rev"
+    return "peer"
+
+
+def build(wide: pd.DataFrame, idx_close: pd.Series, fin_q: pd.DataFrame, u: pd.DataFrame) -> tuple[dict, list, dict]:
+    """→ (bảng chung cho trang Ngành: thị trường + từng mâm / ngành, các dòng từng mã cho bảng Pro, chi tiết từng mã cho trang mã).
+    u: chỉ mục = mã, cột peer_label, sector, ctype/com_type."""
+    ct_col = "ctype" if "ctype" in u else "com_type" if "com_type" in u else None
+    ctype = u[ct_col].fillna("CT").to_dict() if ct_col else None
+    ttm = ttm_frame(fin_q, ctype)
+    P = panel(wide, idx_close, ttm)
+    if P.empty:
+        return {}, [], {}
+    P = P.merge(u[["peer_label", "sector"]], left_on="symbol", right_index=True, how="inner")
+    key = ["lag", "qi", "peer_label"]
+    P["dpp"] = P["dp"] - P.groupby(key)["dp"].transform("mean")
+    for f in ("np", "rev"):
+        P["gx_" + f] = P["g_" + f] - P.groupby(key)["g_" + f].transform("median")
+    P0 = P[P["lag"] == 0]
+
+    # --- thị trường: cắt ngang từng quý (giá vượt VN-Index ~ tăng trưởng) theo lệch; riêng quý ở k ≥ 1 = phần thị trường đoán trước
+    mk = {"ic": {}, "ic_q": {}}
+    for k, d in P.groupby("lag"):
+        mk["ic"][int(k)] = {f: _ics(_ic(d, "g_" + f, "dpx", 30)) for f in ("np", "rev")}
+        mk["ic_q"][int(k)] = {f: _ics(_ic(d, "g_" + f + "1", "dpx", 30)) for f in ("np", "rev")}
+    # doanh thu thêm gì ngoài lợi nhuận: IC phần dư hạng DT sau khi bỏ hạng LN (lệch 0)
+    pic = []
+    for _, dq in P0.dropna(subset=["g_np", "g_rev", "dpx"]).groupby("qi"):
+        if len(dq) >= 50:
+            x0, x1 = dq["g_np"].rank(pct=True).to_numpy(), dq["g_rev"].rank(pct=True).to_numpy()
+            pic.append(_sp(x1 - np.polyval(np.polyfit(x0, x1, 1), x0), dq["dpx"].to_numpy(float)))
+    mk["rev_extra"] = _ics(np.array([x for x in pic if np.isfinite(x)]))
+    w_mkt = _ic(P0, "gx_np", "dpp", 30), _ic(P0, "gx_rev", "dpp", 30)      # TRONG mâm, gộp cả thị trường
+    mk["within"] = {"np": _ics(w_mkt[0]), "rev": _ics(w_mkt[1])}
+    G = group_series(P, ttm, list(P["symbol"].unique()))
+    mk["ts"] = _tscorr(G)
+    mk["chart"] = chart_series(None, None, G)
+    mk["n"] = int(P0["symbol"].nunique())
+    mk["q_from"] = f"{int(P0['qi'].min()) // 4}-Q{int(P0['qi'].min()) % 4 + 1}"
+
+    # --- từng mâm / ngành: IC TRONG nhóm (vững, ổn định giữa 2 nửa) + chuỗi thời gian (ít điểm – chỉ tham khảo)
+    prior = {f: (mk["within"][f] or {}).get("ic") or 0.0 for f in ("np", "rev")}
+    groups = {"peer": [], "sector": []}
+    w_of = {}
+    for lv, col in (("peer", "peer_label"), ("sector", "sector")):
+        for name, d in P.groupby(col):
+            mem = sorted(d["symbol"].unique())
+            if len(mem) < 3:
+                continue
+            d0 = d[d["lag"] == 0]
+            wi = {f: _ics(_ic(d0, "g_" + f, "dp", 5)) for f in ("np", "rev")}
+            Gs = group_series(P, ttm, mem)
+            rec = {"name": name, "m": len(mem), "w_np": wi["np"], "w_rev": wi["rev"], "ts": _tscorr(Gs) if not Gs.empty else {}, "chart": chart_series(None, None, Gs) if not Gs.empty else []}
+            # IC trong nhóm co về mức chung của thị trường theo cỡ nhóm (nhóm nhỏ ít tin)
+            for f in ("np", "rev"):
+                v = (wi[f] or {}).get("ic")
+                wt = len(mem) / (len(mem) + 10)
+                rec["s_" + f] = _r(prior[f] + wt * (v - prior[f])) if v is not None else _r(prior[f])
+                rec["st_" + f] = bool(wi[f] and wi[f]["h1"] > 0.05 and wi[f]["h2"] > 0.05)
+            groups[lv].append(rec)
+            if lv == "peer":
+                w_of[name] = {f: rec["s_" + f] for f in ("np", "rev")}
+
+    # --- từng mã: tương quan chuỗi của riêng mã (thô, vượt VN-Index, so với mâm), độ bền giữa 2 nửa → hệ số co về mâm
+    per, halves = {}, {"np": [], "rev": []}
+    for s, d in P.groupby("symbol"):
+        d0 = d[d["lag"] == 0].sort_values("qi")
+        if len(d0) < MIN_Q:
+            continue
+        r = {"n": int(len(d0)), "peer": d0["peer_label"].iloc[0]}
+        for f in ("np", "rev"):
+            g, gx = d0["g_" + f].to_numpy(float), d0["gx_" + f].to_numpy(float)
+            r["c_" + f] = _r(_sp(g, d0["dp"].to_numpy(float)))
+            r["x_" + f] = _r(_sp(g, d0["dpx"].to_numpy(float)))
+            y = d0["dpp"].to_numpy(float)
+            r["p_" + f] = _r(_sp(gx, y))
+            h = len(d0) // 2
+            if h >= MIN_HALF:
+                a_, b_ = _sp(gx[:h], y[:h]), _sp(gx[h:], y[h:])
+                r["p1_" + f], r["p2_" + f] = _r(a_), _r(b_)
+                if np.isfinite(a_) and np.isfinite(b_):
+                    halves[f].append((a_, b_))
+        r["lags"] = _tscorr(d)
+        per[s] = r
+    rel = {}
+    for f in ("np", "rev"):
+        hv = np.array(halves[f]) if halves[f] else np.zeros((0, 2))
+        rho = _sp(hv[:, 0], hv[:, 1]) if len(hv) > 30 else np.nan
+        rho = max(0.0, rho) if np.isfinite(rho) else 0.0
+        rel[f] = {"rho": _r(rho), "w": _r(min(0.35, 2 * rho / (1 + rho)))}      # Spearman–Brown: độ tin của cả chuỗi từ độ bền 2 nửa
+    rows, detail = [], {}
+    for s, r in per.items():
+        pw = w_of.get(r["peer"]) or {}
+        for f in ("np", "rev"):
+            pr_ = pw.get(f) if pw.get(f) is not None else prior[f]
+            r["s_" + f] = _r(pr_ + rel[f]["w"] * ((r["p_" + f] if r["p_" + f] is not None else pr_) - pr_))
+        r["v"] = verdict2(r["s_np"], r["s_rev"])
+        rows.append([s, r["peer"], r["n"], r["c_np"], r["c_rev"], r["p_np"], r["p_rev"], r["s_np"], r["s_rev"], r["v"], r["x_np"], r["x_rev"]])
+        detail[s] = {**r, "chart": chart_series(P, s), "peer_w": pw}
+    vc = pd.Series([x[9] for x in rows]).value_counts().to_dict() if rows else {}
+    log.info("Giá ~ LN/DT: %d mã, %d quý từ %s · độ bền 2 nửa LN %.2f DT %.2f (hệ số co %.2f / %.2f) · kết luận %s · IC cắt ngang LN %.3f DT %.3f",
+             len(rows), P0["qi"].nunique(), mk["q_from"], rel["np"]["rho"] or 0, rel["rev"]["rho"] or 0, rel["np"]["w"] or 0, rel["rev"]["w"] or 0, vc,
+             ((mk["ic"].get(0) or {}).get("np") or {}).get("ic") or 0, ((mk["ic"].get(0) or {}).get("rev") or {}).get("ic") or 0)
+    pub = {"market": mk, "groups": groups, "rel": rel, "verdicts": {k: int(v) for k, v in vc.items()}, "min_q": MIN_Q, "lag_days": REPORT_LAG_D}
+    cols = ["s", "peer", "n", "c_np", "c_rev", "p_np", "p_rev", "s_np", "s_rev", "v", "x_np", "x_rev"]
+    return pub, [cols] + rows, detail

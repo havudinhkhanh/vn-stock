@@ -1763,6 +1763,7 @@ async function viewSector(name, lvArg) {
               { name: "Thị trường – trung vị", color: css("--ink-3"), dash: "4 3", pts: rec.val_hist.map((x) => ({ x: x.p, y: mm[x.p] })) }],
             { h: 200, hlines: [{ y: rec.pe_hist_med, label: "TB ngành " + nf(rec.pe_hist_med, 1), color: css("--ref") }], label: "P/E ngành" }); })()
             + `<p class="faint" style="font-size:.74rem">P/E trung vị hiện tại cao hơn ${nf(rec.pe_pctl_hist, 0)}% số quý trong lịch sử (dưới 25 = ngành đang rẻ so với chính nó, trên 75 = đắt). <a href="#/sector">So với các ngành khác →</a></p>` : `<p class="muted">Chưa đủ lịch sử P/E.</p>`}</section></div>` : ""}</div>
+          ${!isGroup && (level === "peer" || level === "sector") ? `<div class="o" style="--o:10"><div id="fcSecBox"></div></div>` : ""}
           <div class="o" style="--o:11"><section class="panel"><div class="ph"><h2>Kiểm chứng chọn mã trong ngành</h2><span class="meta">${bt ? `${esc(secs.backtest_range?.[0] || "")} → ${esc(secs.backtest_range?.[1] || "")}` : ""}</span></div>
           ${bt ? `${kpis([["Top 3 / năm", pct(bt.top.cagr), cls(bt.top.cagr)], ["Cả ngành / năm", pct(bt.all.cagr), cls(bt.all.cagr)], ["Vượt trội (alpha)", pct(bt.alpha), cls(bt.alpha)],
             ["Sụt tối đa top 3", pct(bt.top.max_dd), "down"], ["Sụt tối đa ngành", pct(bt.all.max_dd), "down"], ["Sharpe top / ngành", `${nf(bt.top.sharpe)} / ${nf(bt.all.sharpe)}`], ["Số mã TB trong ngành", nf(bt.avg_n, 0)], ["Số tháng", bt.months]])}
@@ -1781,6 +1782,7 @@ async function viewSector(name, lvArg) {
   </div>`;
 
   bindSectorAside(secs, rows, GROUPS, asideCtx);
+  if (!isGroup && (level === "peer" || level === "sector")) fcSectorFill(name, level);
   const save = () => lsSet("secState", { preset: st.preset, minVal: st.minVal, uptrend: st.uptrend, exch: st.exch, x: st.x, y: st.y, relative: st.relative });
   const weights = () => (st.preset === "custom" ? customW : PRESETS[st.preset].w);
 
@@ -3205,7 +3207,7 @@ async function viewStock(sym, tabArg) {
     $("#tab").innerHTML = tabs[k](d);
     if (jump) { const st = $("#stabs"); const y = st.getBoundingClientRect().top + window.scrollY - stickTop(); if (window.scrollY > y) window.scrollTo({ top: y }); }
     if (k === "vl") bindVal(d);
-    if (k === "fa") finChartsBind(d);
+    if (k === "fa") { finChartsBind(d); fcStockBindP(d); }
     if (k === "rp") bindReport();
     if (k === "co" && window.CO_BIND) window.CO_BIND(d);
     if (k === "pe") bindPeerGroup(d);
@@ -3766,7 +3768,7 @@ function tabFund(d) {
   const dv = fa.dividend || {};
   const k1 = isBank ? ["toi", "ni_parent"] : ["revenue", "ni_parent"], n1 = isBank ? ["Tổng thu nhập HĐ", "LN cổ đông mẹ"] : ["Doanh thu", "LN cổ đông mẹ"];
   const fcp = finChartsPanel(d);
-  return `${fcp}${bctcPanel(d.bctc, d.symbol)}<div class="g g2">
+  return `${fcp}${fcStockPanel(d)}${bctcPanel(d.bctc, d.symbol)}<div class="g g2">
     ${fcp ? "" : `${panel("Kết quả kinh doanh theo quý", barsSvg(h.quarterly || [], k1, [css("--brand"), css("--up")], n1), "tỷ đồng")}
     ${panel("Theo năm", barsSvg(h.annual || [], k1, [css("--brand"), css("--up")], n1), "tỷ đồng")}
     ${panel("Dòng tiền theo năm", barsSvg(h.annual || [], ["cfo", "capex", "fcf"], [css("--floor"), css("--down"), css("--up")], ["Dòng tiền KD", "Đầu tư TSCĐ", "Dòng tiền tự do"]), "tỷ đồng")}`}
@@ -5392,6 +5394,7 @@ async function viewSectors() {
   <div class="ph"><h1>Toàn cảnh các ngành</h1><span class="meta">${(S.peer || []).length} mâm so sánh · ${(S.sector || []).length} ngành ICB · ${nf(M.n_fin, 0)} DN có BCTC</span></div>
   <div id="oBox">${outlookSection(S, lsGet("oLv2", "peer"), lsGet("oHz", "m3"))}</div>
   ${seasonMatrix(S)}
+  <div id="fcOvBox"></div>
   <section class="panel hero sec">
     <div class="ph"><h2>Định giá toàn thị trường</h2><span class="meta">so với ${mh.length} quý gần nhất</span></div>
     <div class="g g-main">
@@ -5427,6 +5430,7 @@ async function viewSectors() {
   <section class="panel flush sec"><div class="ph"><h2>Bảng so sánh tất cả ngành</h2><span class="meta">bấm tiêu đề để sắp xếp · dòng đầu = toàn thị trường</span></div><div class="tw tall"><table id="cmp" class="cmp"></table></div></section>
   <section class="panel sec"><div class="ph"><h2>P/E từng ngành theo thời gian</h2><span class="meta">đường xanh = ngành (trung vị) · xám = thị trường · dải = 10–90% lịch sử · vòng tròn = hiện tại</span></div><div class="multi" id="multi"></div></section></div></div>`;
   bindSectorAside(S, rows, groups, { level: "overview" });
+  fcData().then((F) => { const b = $("#fcOvBox"); if (!F || !b) return; b.innerHTML = fcOverviewHtml(F); fcOverviewBind(F); });
 
   const curList = () => listOf(st.lv);
   const draw = () => {
@@ -7022,6 +7026,139 @@ async function lockView(feature) {
   app().innerHTML = lockBox(feature) + `<section class="panel sec">${planTable()}</section>`;
 }
 const ROUTE_FEATURE = { swing: (a) => (a === "live" ? "live" : a === "flow" || a === "mood" ? "flow" : a === "pairs" ? "pairs" : "swing"), backtest: () => "backtest", report: () => "weekly" };
+
+// ================================================================ 📈 GIÁ CHẠY THEO LỢI NHUẬN HAY DOANH THU (app/analysis/fundcorr.py)
+//   Toàn thị trường & từng mâm/ngành: miễn phí (trang Ngành). Từng mã: gói Pro (bảng mọi mã, khung ở tab Cơ bản trang mã).
+//   Số của RIÊNG 1 mã rất nhiễu (≈ 5–7 năm độc lập) → kết luận dùng ước tính đã CO về mâm; số thô hiện kèm để đối chiếu.
+let FCD = null, FCR_S = null;
+async function fcData() { if (FCD === null) FCD = (await tryLoad("data/fundcorr.json")) || false; return FCD || null; }
+async function fcRowsData() { if (FCR_S === null) FCR_S = (await tryLoad("data/fundcorr_s.json")) || false; return FCR_S || null; }
+const FCVD = { np: ["Theo lợi nhuận", "buy", "Giá đi theo lợi nhuận rõ hơn doanh thu"], rev: ["Theo doanh thu", "brand", "Giá đi theo doanh thu (top line) rõ hơn lợi nhuận"],
+  both: ["Theo cả LN & DT", "buy", "Giá đi theo cả lợi nhuận lẫn doanh thu"], peer: ["Như mặt bằng mâm", "", "Không khác rõ so với các mã cùng mâm – dùng mức của mâm"],
+  weak: ["Ít theo KQKD", "sell", "Giá ít đi theo kết quả kinh doanh (chạy theo yếu tố khác: dòng tiền, câu chuyện, tài sản…)"] };
+const fcVerd = (a, b) => { const x = isNum(a) ? a : -9, y = isNum(b) ? b : -9; if (Math.max(x, y) < 0.1) return "weak"; if (x >= 0.2 && y >= 0.2 && Math.abs(x - y) < 0.06) return "both"; if (x >= 0.25 && x - y >= 0.06) return "np"; if (y >= 0.2 && y - x >= 0.06) return "rev"; return "peer"; };
+const fcChip = (v) => { const x = FCVD[v]; return x ? `<span class="pill ${x[1]}" title="${esc(x[2])}">${x[0]}</span>` : "—"; };
+const fcBar = (v, max = 0.5) => (isNum(v) ? `<span class="fcb${v >= 0.2 ? " hi" : v < 0.05 ? " lo" : ""}"><i style="width:${Math.max(2, Math.min(52, (Math.abs(v) / max) * 52)).toFixed(0)}px"${v < 0 ? ' class="neg"' : ""}></i><b>${nf(v, 2)}</b></span>` : `<span class="faint">—</span>`);
+const fcR = (v) => (isNum(v) ? `<span class="${v >= 0.3 ? "up" : v < 0 ? "down" : ""}">${nf(v, 2)}</span>` : "—");
+// k tốt nhất trong chuỗi thời gian (0..3 quý) – chỉ để tham khảo
+const fcLead = (ts, i) => { let b = null; for (const k of [0, 1, 2, 3]) { const v = ts?.[k]?.[i]; if (isNum(v) && (!b || v > b[1])) b = [k, v]; } return b; };
+// biểu đồ: giá 12T so với tăng trưởng LN / DT 12T; "dời giá" k quý = so giá k quý TRƯỚC với kết quả quý này (giá đi trước)
+function fcChart(ch, k = 0, h = 200) {
+  if (!ch?.length) return `<p class="muted">Chưa đủ số liệu.</p>`;
+  const pts = (i, sh = 0) => ch.map((r, j) => ({ x: r[0].replace("-", " "), y: ch[j - sh]?.[i] ?? null }));
+  return lineSvg([{ name: k ? `Giá 12 tháng (dời sớm ${k} quý)` : "Giá 12 tháng", color: css("--ink"), width: 2.2, pts: pts(1, k) },
+    { name: "Lợi nhuận 12T so cùng kỳ", color: css("--up"), pts: pts(2) }, { name: "Doanh thu 12T so cùng kỳ", color: css("--brand"), dash: "4 3", pts: pts(3) }],
+  { h, zero: true, dec: 0, hlines: [{ y: 0, color: css("--line-2") }], label: "Giá và kết quả kinh doanh 12 tháng" });
+}
+const fcShiftSeg = (id, k) => `<span class="seg" id="${id}" title="Dời đường giá sớm hơn k quý: nếu 2 đường khớp hơn khi dời, giá thường chạy TRƯỚC kết quả kinh doanh">${[0, 1, 2, 3].map((x) => `<button data-k="${x}" class="${x === k ? "on" : ""}">${x ? `giá sớm ${x}Q` : "cùng lúc"}</button>`).join("")}</span>`;
+function fcShiftBind(id, box, ch, h) { const s = $("#" + id); if (!s) return; s.onclick = (e) => { const b = e.target.closest("button[data-k]"); if (!b) return; $$("button", s).forEach((x) => x.classList.toggle("on", x === b)); $(box).innerHTML = fcChart(ch, +b.dataset.k, h); }; }
+const fcLagRow = (ts) => `<div class="tw"><table class="fc-lag"><thead><tr><th class="l">Giá đi trước</th>${[-1, 0, 1, 2, 3, 4].map((k) => `<th>${k < 0 ? "đi sau 1Q" : k ? k + " quý" : "cùng lúc"}</th>`).join("")}</tr></thead><tbody>
+  ${[["Lợi nhuận", 0], ["Doanh thu", 1]].map(([n, i]) => `<tr><td class="l">${n}</td>${[-1, 0, 1, 2, 3, 4].map((k) => `<td>${fcR(ts?.[k]?.[i])}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+
+// ---- trang Toàn cảnh ngành: thị trường + bảng mâm/ngành + (Pro) bảng từng mã
+function fcOverviewHtml(F) {
+  if (!F?.market) return "";
+  const M = F.market, I0 = M.ic?.[0] || {}, Q1 = M.ic_q?.[1] || {}, ln = fcLead(M.ts, 0), lr = fcLead(M.ts, 1);
+  const big = (t, v, s, x = "") => `<div class="big ${x}"><small>${t}</small><b>${v}</b><span>${s}</span></div>`;
+  const ok = (o) => (o ? `đúng hướng ${Math.round(o.pos * o.q)}/${o.q} quý` : "");
+  return `<section class="panel sec fcp" id="fcOv"><div class="ph"><h2>Giá chạy theo lợi nhuận hay doanh thu?</h2><span class="meta">${nf(M.n, 0)} mã · mỗi quý từ ${esc(M.q_from || "")} · giá 12 tháng tới hạn công bố BCTC</span></div>
+    <div class="bigs">
+      ${big("Mã tăng lợi nhuận mạnh hơn", `IC ${nf(I0.np?.ic, 2)}`, `→ giá 12T tốt hơn · ${ok(I0.np)}`, "hlb")}
+      ${big("Mã tăng doanh thu mạnh hơn", `IC ${nf(I0.rev?.ic, 2)}`, `${ok(I0.rev)}${isNum(M.rev_extra?.ic) ? ` · riêng phần DT ngoài LN ${nf(M.rev_extra.ic, 2)}` : ""}`)}
+      ${big("Thị trường đoán trước (LN / DT)", `${nf(Q1.np?.ic, 2)} / ${nf(Q1.rev?.ic, 2)}`, "IC của kết quả quý CHƯA công bố – giá đã phản ánh 1 quý trước")}
+      ${ln ? big("Giá đi trước (LN / DT)", `${ln[0]} / ${lr ? lr[0] : "?"} quý`, `chuỗi cả thị trường ${M.ts?.[0]?.[2] ?? "—"} quý – tham khảo`) : ""}
+    </div>
+    <p class="faint" style="font-size:.74rem;margin:6px 0 2px">IC = tương quan thứ hạng mỗi quý giữa tăng trưởng 12 tháng và thay đổi giá 12 tháng (đã trừ VN-Index) của mọi mã; 0 = không liên quan, 0,2–0,3 đã là mạnh với cổ phiếu.
+      Doanh thu vẫn có ích riêng ngoài lợi nhuận và được thị trường "đoán" sớm hơn.</p>
+    <div class="sec"><div class="ph sm"><h3>Toàn thị trường theo thời gian</h3>${fcShiftSeg("fcMk", 0)}</div><div id="fcMkC">${fcChart(M.chart, 0, 210)}</div></div>
+    <div class="sec"><div><div class="ph sm"><h3>Từng nhóm</h3><span class="seg" id="fcLv">${[["peer", "Mâm so sánh"], ["sector", "Ngành ICB"]].map(([k, n]) => `<button data-v="${k}" class="${k === lsGet("fcLv", "peer") ? "on" : ""}">${n}</button>`).join("")}</span>
+        <span class="seg" id="fcSo">${[["np", "Theo LN"], ["rev", "Theo DT"]].map(([k, n]) => `<button data-v="${k}" class="${k === lsGet("fcSo", "np") ? "on" : ""}">${n}</button>`).join("")}</span></div>
+        <div class="tw tall" id="fcGrp"></div></div>
+    </div>
+    <p class="faint" style="font-size:.72rem">Cột LN / DT: trong cùng nhóm, mã tăng lợi nhuận (doanh thu) nhanh hơn bạn cùng nhóm thì giá có tăng hơn không – trung bình các quý, nhóm nhỏ được kéo về mức chung.
+      ✓ = đúng ở cả nửa đầu và nửa sau giai đoạn. "Giá đi trước" = độ lệch khớp nhất của chuỗi cả nhóm (ít điểm – chỉ tham khảo).</p>
+    <div id="fcStk" class="sec"></div></section>`;
+}
+function fcGroupTable(F) {
+  const lv = lsGet("fcLv", "peer"), so = lsGet("fcSo", "np"), L = [...(F.groups?.[lv] || [])].sort((a, b) => (b["s_" + so] ?? -9) - (a["s_" + so] ?? -9));
+  const cell = (g, f) => { const w = g["w_" + f]; return `<td>${fcBar(g["s_" + f])}${w ? `<small class="faint"> ${Math.round(w.pos * 100)}%${g["st_" + f] ? " ✓" : ""}</small>` : ""}</td>`; };
+  return `<table class="fc-g"><thead><tr><th class="l">${lv === "peer" ? "Mâm" : "Ngành"}</th><th>Số mã</th><th>Theo LN</th><th>Theo DT</th><th title="Chuỗi cả nhóm: dời giá sớm bao nhiêu quý thì khớp lợi nhuận nhất">Giá đi trước</th><th>Kết luận</th></tr></thead><tbody>
+    ${L.map((g) => { const ld = fcLead(g.ts, 0); return `<tr><td class="l"><a href="${secHref(g.name, lv)}">${esc(g.name)}</a></td><td>${g.m}</td>${cell(g, "np")}${cell(g, "rev")}
+      <td class="faint">${ld && ld[1] >= 0.3 ? `${ld[0] ? ld[0] + "Q" : "cùng lúc"} <small>(${nf(ld[1], 2)})</small>` : "—"}</td><td>${fcChip(fcVerd(g.s_np, g.s_rev)).replace("mâm", lv === "peer" ? "mâm" : "ngành")}</td></tr>`; }).join("")}</tbody></table>`;
+}
+function fcStockTable(S, group = null) {
+  const C = S.cols, ix = Object.fromEntries(C.map((c, i) => [c, i])), st = (window.__fcT ||= { q: "", v: "", so: "s_np", n: 40 });
+  let R = S.rows.filter((r) => (!group || r[ix.peer] === group) && (!st.v || r[ix.v] === st.v) && (!st.q || r[ix.s].includes(st.q.toUpperCase())));
+  R = R.sort((a, b) => (b[ix[st.so]] ?? -9) - (a[ix[st.so]] ?? -9));
+  const cnt = Object.fromEntries(Object.keys(FCVD).map((k) => [k, S.rows.filter((r) => (!group || r[ix.peer] === group) && r[ix.v] === k).length]));
+  return `<div class="ph sm"><h3>${group ? "Từng mã trong mâm" : "Từng mã"}</h3><span class="meta">${R.length} mã · sắp theo ước tính</span></div>
+    <div class="fc-f">${group ? "" : `<input id="fcQ" type="search" placeholder="Tìm mã…" value="${esc(st.q)}" aria-label="Tìm mã">`}
+      <span class="seg" id="fcV"><button data-v="" class="${!st.v ? "on" : ""}">Tất cả</button>${Object.entries(FCVD).map(([k, x]) => cnt[k] ? `<button data-v="${k}" class="${st.v === k ? "on" : ""}">${x[0]} <small>${cnt[k]}</small></button>` : "").join("")}</span>
+      <span class="seg" id="fcSs">${[["s_np", "Theo LN"], ["s_rev", "Theo DT"], ["c_np", "Lịch sử LN"], ["c_rev", "Lịch sử DT"]].map(([k, n]) => `<button data-v="${k}" class="${st.so === k ? "on" : ""}">${n}</button>`).join("")}</span></div>
+    <div class="tw tall"><table class="fc-s"><thead><tr><th class="l">Mã</th>${group ? "" : `<th class="l">Mâm</th>`}<th>Kết luận</th><th title="Ước tính đã co về mâm – dùng cái này">Ước tính LN</th><th>Ước tính DT</th>
+      <th title="Tương quan thô giá 12T ~ LN 12T của riêng mã">Lịch sử LN</th><th>Lịch sử DT</th><th title="Lợi nhuận tăng hơn mâm thì giá chạy hơn mâm?">So với mâm LN</th><th>So với mâm DT</th><th>Số quý</th></tr></thead><tbody>
+      ${R.slice(0, st.n).map((r) => `<tr><td class="l"><a href="#/s/${r[ix.s]}/fa">${r[ix.s]}</a></td>${group ? "" : `<td class="l faint">${esc(r[ix.peer] || "")}</td>`}<td>${fcChip(r[ix.v])}</td>
+        <td>${fcBar(r[ix.s_np], 0.4)}</td><td>${fcBar(r[ix.s_rev], 0.4)}</td><td>${fcR(r[ix.c_np])}</td><td>${fcR(r[ix.c_rev])}</td><td>${fcR(r[ix.p_np])}</td><td>${fcR(r[ix.p_rev])}</td><td class="faint">${r[ix.n]}</td></tr>`).join("")}</tbody></table></div>
+    ${R.length > st.n ? `<button class="btn sm sec" id="fcMore">Xem thêm ${Math.min(60, R.length - st.n)} mã</button>` : ""}
+    <p class="faint" style="font-size:.72rem;margin-top:4px">Ước tính = mức của mâm + ${Math.round((S.rel?.np?.w ?? 0.25) * 100)}% (LN) / ${Math.round((S.rel?.rev?.w ?? 0.15) * 100)}% (DT) phần chênh của riêng mã – vì kiểm chứng cho thấy mã "theo lợi nhuận" ở nửa đầu giai đoạn ít khi còn giữ ở nửa sau (độ bền ${nf(S.rel?.np?.rho, 2)}). Số lịch sử chỉ để đối chiếu.</p>`;
+}
+function fcStockBind(S, box, group) {
+  const re = () => { $(box).innerHTML = fcStockTable(S, group); fcStockBind(S, box, group); }, st = window.__fcT;
+  const q = $("#fcQ"); if (q) q.oninput = () => { st.q = q.value.trim(); st.n = 40; const p = q.selectionStart; re(); const q2 = $("#fcQ"); q2.focus(); q2.setSelectionRange(p, p); };
+  [["#fcV", "v"], ["#fcSs", "so"]].forEach(([id, k]) => { const s = $(id); if (s) s.onclick = (e) => { const b = e.target.closest("button[data-v]"); if (!b) return; st[k] = b.dataset.v; st.n = 40; re(); }; });
+  const m = $("#fcMore"); if (m) m.onclick = () => { st.n += 60; re(); };
+}
+async function fcOverviewBind(F) {
+  if (!F?.market || !$("#fcOv")) return;
+  fcShiftBind("fcMk", "#fcMkC", F.market.chart, 210);
+  const draw = () => { $("#fcGrp").innerHTML = fcGroupTable(F); };
+  draw();
+  [["#fcLv", "fcLv"], ["#fcSo", "fcSo"]].forEach(([id, k]) => { $(id).onclick = (e) => { const b = e.target.closest("button[data-v]"); if (!b) return; lsSet(k, b.dataset.v); $$("button", $(id)).forEach((x) => x.classList.toggle("on", x === b)); draw(); }; });
+  if (!can("fundcorr")) { $("#fcStk").innerHTML = lockBox("fundcorr", "Từng mã: giá theo lợi nhuận hay doanh thu", true); return; }
+  const S = await fcRowsData(); if (!S || !$("#fcStk")) return;
+  window.__fcT = { q: "", v: "", so: "s_np", n: 40 }; $("#fcStk").innerHTML = fcStockTable(S); fcStockBind(S, "#fcStk");
+}
+
+// ---- trang 1 ngành / mâm
+async function fcSectorFill(name, level) {
+  const box = $("#fcSecBox"); if (!box) return;
+  const F = await fcData(); const lv = level === "peer" ? "peer" : level === "sector" ? "sector" : null;
+  const g = lv && (F?.groups?.[lv] || []).find((x) => x.name === name); if (!g || !$("#fcSecBox")) return;
+  const W = (f) => g["w_" + f], line = (f, n) => { const w = W(f); return w ? `<tr><td class="l">${n}</td><td>${fcBar(g["s_" + f])}</td><td>${nf(w.ic, 2)}</td><td>${Math.round(w.pos * 100)}%</td><td>${nf(w.h1, 2)} / ${nf(w.h2, 2)}${g["st_" + f] ? " ✓" : ""}</td></tr>` : ""; };
+  box.innerHTML = `<section class="panel fcp"><div class="ph"><h2>Giá chạy theo lợi nhuận hay doanh thu?</h2>${fcChip(fcVerd(g.s_np, g.s_rev))}<span class="meta">${g.m} mã · <a href="#/sector" onclick="setTimeout(()=>$('#fcOv')?.scrollIntoView(),400)">so với các nhóm khác</a></span></div>
+    <div class="g g2"><div><div class="ph sm"><h3>Cả nhóm theo thời gian</h3>${fcShiftSeg("fcSg", 0)}</div><div id="fcSgC">${fcChart(g.chart, 0, 190)}</div></div>
+    <div><div class="tw"><table class="fc-g"><thead><tr><th class="l">Trong nhóm</th><th>Ước tính</th><th>IC</th><th>Đúng hướng</th><th>Nửa đầu / sau</th></tr></thead><tbody>${line("np", "Lợi nhuận")}${line("rev", "Doanh thu")}</tbody></table></div>
+      <p class="faint" style="font-size:.72rem">Mỗi quý: mã tăng LN (DT) nhanh hơn bạn cùng nhóm thì giá 12T có hơn không. Ước tính = IC kéo về mức chung của thị trường theo cỡ nhóm.</p>
+      <div class="ph sm sec"><h3>Chuỗi cả nhóm theo độ lệch</h3></div>${fcLagRow(g.ts)}
+      <p class="faint" style="font-size:.72rem">Tương quan giá 12T (TB các mã) với tăng trưởng 12T (trung vị) khi dời giá sớm k quý. Chỉ ~${g.ts?.[0]?.[2] ?? "—"} quý, cửa sổ chồng nhau → tham khảo.</p></div></div>
+    <div id="fcSecStk" class="sec"></div></section>`;
+  fcShiftBind("fcSg", "#fcSgC", g.chart, 190);
+  if (lv !== "peer") return;
+  if (!can("fundcorr")) { $("#fcSecStk").innerHTML = lockBox("fundcorr", "Từng mã trong mâm", true); return; }
+  const S = await fcRowsData(); if (!S || !$("#fcSecStk")) return;
+  window.__fcT = { q: "", v: "", so: "s_np", n: 40 }; $("#fcSecStk").innerHTML = fcStockTable(S, name); fcStockBind(S, "#fcSecStk", name);
+}
+
+// ---- trang mã (tab Cơ bản)
+function fcStockPanel(d) {
+  const f = d.fc;
+  if (!f) return !can("fundcorr") ? lockBox("fundcorr", "Giá chạy theo lợi nhuận hay doanh thu?", true) : "";
+  const pw = f.peer_w || {}, v = FCVD[f.v] || FCVD.peer, yrs = Math.round(f.n / 4);
+  const row = (n, a, b, t = "") => `<tr${t ? ` title="${esc(t)}"` : ""}><td class="l">${n}</td><td>${a}</td><td>${b}</td></tr>`;
+  return `<section class="panel fcp sec"><div class="ph"><h2>Giá chạy theo lợi nhuận hay doanh thu?</h2>${fcChip(f.v)}<span class="meta">${f.n} quý ≈ ${yrs} năm độc lập · mâm ${esc(f.peer || "")}</span></div>
+    <p class="fc-sum">${esc(v[2])}.</p>
+    <div class="g g2"><div><div class="tw"><table class="fc-g"><thead><tr><th class="l"></th><th>Lợi nhuận</th><th>Doanh thu</th></tr></thead><tbody>
+      ${row("<b>Ước tính dùng được</b>", fcBar(f.s_np, 0.4), fcBar(f.s_rev, 0.4), "Mức của mâm + phần chênh của riêng mã đã giảm theo độ tin")}
+      ${row("Lịch sử của riêng mã", fcR(f.c_np), fcR(f.c_rev), "Tương quan thứ hạng giá 12T ~ tăng trưởng 12T của mã, mỗi quý 1 điểm")}
+      ${row("Đã trừ VN-Index", fcR(f.x_np), fcR(f.x_rev))}
+      ${row("So với mã cùng mâm", fcR(f.p_np), fcR(f.p_rev), "LN/DT tăng hơn trung vị mâm thì giá chạy hơn bình quân mâm?")}
+      ${row("Nửa đầu / nửa sau", `${fcR(f.p1_np)} / ${fcR(f.p2_np)}`, `${fcR(f.p1_rev)} / ${fcR(f.p2_rev)}`, "So với mâm, chia đôi giai đoạn – trái dấu là chưa bền")}
+      ${row("Mặt bằng mâm", fcR(pw.np), fcR(pw.rev))}</tbody></table></div>
+      <div class="ph sm sec"><h3>Giá đi trước hay đi sau?</h3></div>${fcLagRow(f.lags)}
+      <p class="faint" style="font-size:.72rem">Dời giá sớm k quý rồi đo lại. Số của 1 mã dao động mạnh giữa các giai đoạn nên kết luận dùng "Ước tính" (kéo về mâm), không dùng số lịch sử.</p></div>
+      <div><div class="ph sm"><h3>Giá và kết quả kinh doanh 12 tháng</h3>${fcShiftSeg("fcSt", 0)}</div><div id="fcStC">${fcChart(f.chart, 0, 210)}</div></div></div></section>`;
+}
+const fcStockBindP = (d) => d?.fc && fcShiftBind("fcSt", "#fcStC", d.fc.chart, 210);
 
 // ---- chuông thông báo – GIỐNG HỆT ở MyBit & VN-Stock: máy tính = bảng thả xuống dưới chuông, điện thoại = bảng trượt từ dưới lên
 //      (chiều cao theo phần màn hình ĐANG THẤY – không khuất sau thanh địa chỉ Safari). Lọc theo nhóm / chưa đọc, gom theo ngày,
