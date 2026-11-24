@@ -4206,9 +4206,9 @@ function bindVal(d) {
     const pack = () => ({ ...Object.fromEntries(M.map((m) => [m.key, MWS.w[m.key] || 0])), ...(MWS.adj ? {} : { _adj: false }) });
     const put = async (fn, msg) => { const { data } = await Store.get("assumptions"); const all = data || {}; fn(all); const ok = await Store.put("assumptions", all); toast(ok ? msg : "Đã lưu trên trình duyệt này"); MWS.own = all[d.symbol]?.mw || null; MWS.all = all._all?.mw || null; drawW(); };
     $("#mwSave").onclick = () => { if (!M.some((m) => (MWS.w[m.key] || 0) > 0)) return toast("Cần ít nhất một phương pháp có tỉ trọng > 0"); put((all) => { all[d.symbol] = { ...(all[d.symbol] || {}), mw: pack() }; }, `Đã lưu tỉ trọng cho ${d.symbol} – áp dụng từ lần chạy kế tiếp`); };
-    $("#mwAll").onclick = () => { if (!M.some((m) => (MWS.w[m.key] || 0) > 0)) return toast("Cần ít nhất một phương pháp có tỉ trọng > 0"); if (!confirm("Dùng tỉ trọng này cho MỌI mã chưa có tỉ trọng riêng?\n\nPhương pháp nào mã khác không có thì bỏ qua; ngân hàng/CTCK/bảo hiểm dùng các phương pháp riêng nên chỉ các khoá trùng mới áp dụng.")) return; put((all) => { all._all = { ...(all._all || {}), mw: pack() }; }, "Đã lưu tỉ trọng chung – áp dụng cho mọi mã từ lần chạy kế tiếp"); };
+    $("#mwAll").onclick = () => { if (!M.some((m) => (MWS.w[m.key] || 0) > 0)) return toast("Cần ít nhất một phương pháp có tỉ trọng > 0"); if (!confirmTap($("#mwAll"), "Dùng tỉ trọng này cho MỌI mã chưa có tỉ trọng riêng?\n\nPhương pháp nào mã khác không có thì bỏ qua; ngân hàng/CTCK/bảo hiểm dùng các phương pháp riêng nên chỉ các khoá trùng mới áp dụng.")) return; put((all) => { all._all = { ...(all._all || {}), mw: pack() }; }, "Đã lưu tỉ trọng chung – áp dụng cho mọi mã từ lần chạy kế tiếp"); };
     $("#mwReset").onclick = () => { for (const m of M) MWS.w[m.key] = MWS.w0[m.key] || 0; MWS.adj = true; calc(); put((all) => { if (all[d.symbol]) { delete all[d.symbol].mw; if (!Object.keys(all[d.symbol]).length) delete all[d.symbol]; } }, MWS.all ? `Đã bỏ tỉ trọng riêng của ${d.symbol} – lần chạy kế tiếp dùng tỉ trọng chung` : "Đã về tỉ trọng mặc định của hệ thống"); };
-    if ($("#mwAllDel")) $("#mwAllDel").onclick = () => { if (confirm("Xoá tỉ trọng chung cho mọi mã? Các mã sẽ về tỉ trọng mặc định (trừ mã có tỉ trọng riêng).")) put((all) => { if (all._all) { delete all._all.mw; if (!Object.keys(all._all).length) delete all._all; } }, "Đã xoá tỉ trọng chung"); };
+    if ($("#mwAllDel")) $("#mwAllDel").onclick = () => { if (confirmTap($("#mwAllDel"), "Xoá tỉ trọng chung cho mọi mã? Các mã sẽ về tỉ trọng mặc định (trừ mã có tỉ trọng riêng).")) put((all) => { if (all._all) { delete all._all.mw; if (!Object.keys(all._all).length) delete all._all; } }, "Đã xoá tỉ trọng chung"); };
   };
   drawW(); calc();
   Store.get("assumptions").then(({ data }) => { MWS.own = data?.[d.symbol]?.mw || null; MWS.all = data?._all?.mw || null; drawW(); }).catch(() => {});
@@ -6619,7 +6619,7 @@ function initSearch() {
 }
 
 // ================================================================ MENU THẢ XUỐNG ĐỒNG NHẤT – thay bảng gợi ý của <datalist> và hộp chọn mặc định của trình duyệt
-// (trình duyệt vẽ 2 loại này theo kiểu riêng của hệ điều hành – nền trắng, chữ khác font). Điện thoại / màn cảm ứng: giữ bánh xe chọn gốc của máy.
+// (trình duyệt vẽ 2 loại này theo kiểu riêng của hệ điều hành – nền trắng, chữ khác font). Ô <select> & ô ngày: xem selMenu / datePop (mọi thiết bị).
 const POP = { el: null, host: null, items: [], sel: 0, pick: null };
 const fold = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").toLowerCase();
 function popClose() { if (POP.el) POP.el.remove(); if (POP.host) POP.host.removeAttribute("aria-expanded"); POP.el = POP.host = POP.pick = null; POP.items = []; }
@@ -6637,11 +6637,6 @@ function popOpen(host, items, pick, sel = 0) {
   el.querySelector(".pop-i.on")?.scrollIntoView({ block: "nearest" });
   el.addEventListener("mousedown", (e) => e.preventDefault());           // giữ con trỏ trong ô nhập
   el.addEventListener("click", (e) => { const b = e.target.closest(".pop-i"); if (b) { const it = POP.items[+b.dataset.i], f = POP.pick; popClose(); f?.(it); } });
-}
-const coarse = () => matchMedia("(pointer:coarse)").matches;
-function popSelect(s) {
-  const items = [...s.options].filter((o) => !o.hidden).map((o) => ({ v: o.value, label: o.textContent.trim(), cur: o.selected, dis: o.disabled, g: o.parentElement?.tagName === "OPTGROUP" ? o.parentElement.label : "" }));
-  popOpen(s, items.filter((x) => !x.dis), (it) => { if (s.value === it.v) return; s.value = it.v; s.dispatchEvent(new Event("input", { bubbles: true })); s.dispatchEvent(new Event("change", { bubbles: true })); }, items.filter((x) => !x.dis).findIndex((x) => x.cur));
 }
 function popList(inp) {
   const dl = document.getElementById(inp.dataset.dl); if (!dl) return popClose();
@@ -6666,13 +6661,12 @@ function initPop() {
   document.addEventListener("input", (e) => { const i = e.target.closest?.("input[data-dl]"); if (i && e.isTrusted) popList(i); });
   document.addEventListener("focusout", (e) => { if (POP.host && e.target === POP.host) setTimeout(() => { if (document.activeElement !== POP.host) popClose(); }, 0); });
   document.addEventListener("mousedown", (e) => {
-    const s = e.target.closest?.("select");
-    if (s && !s.multiple && !(s.size > 1) && !s.disabled && !coarse() && e.button === 0) { e.preventDefault(); s.focus(); if (POP.host === s) popClose(); else popSelect(s); return; }
+    // ô <select> do selMenu lo cho MỌI thiết bị (chuột, chạm, bàn phím) – ở đây chỉ còn gợi ý của ô nhập (datalist)
     if (POP.el && !POP.el.contains(e.target) && e.target !== POP.host) popClose();
   }, true);
   document.addEventListener("keydown", (e) => {
     const a = document.activeElement;
-    if (a?.tagName === "SELECT" && !coarse() && !a.multiple && POP.host !== a && (e.key === " " || e.key === "Enter" || (e.altKey && e.key === "ArrowDown") || e.key === "F4")) { e.preventDefault(); popSelect(a); return; }
+    if (selOk(a) && !$("#iosMenu") && (e.key === " " || e.key === "Enter" || (e.altKey && e.key === "ArrowDown") || e.key === "F4")) { e.preventDefault(); selMenu(a, true); return; }
     if (!POP.el || a !== POP.host) return;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); e.stopPropagation(); popMove(e.key === "ArrowDown" ? 1 : -1); }
     else if (e.key === "Enter" || (e.key === " " && a.tagName === "SELECT")) { e.preventDefault(); e.stopPropagation(); const it = POP.items[POP.sel], f = POP.pick; popClose(); f?.(it); }
@@ -6682,6 +6676,129 @@ function initPop() {
   addEventListener("resize", () => popClose()); addEventListener("hashchange", () => popClose());
 }
 
+
+// ================================================================ 🔽 Ô CHỌN & Ô NGÀY KIỂU APP – thay bảng chọn mặc định của máy (bánh xe iPhone, danh sách trắng Android/trình duyệt)
+//    GIỐNG HỆT MyBit: menu cùng kiểu menu giao diện, mở ngay cả khi bàn phím đang bật (menu bám ô trong lúc bàn phím cất), ô lún nhẹ khi chạm
+function selMenuClose() { const m = $("#iosMenu"); if (!m) return; m.classList.add("out"); setTimeout(() => m.remove(), 180); $$("[aria-expanded=true][data-iosm]").forEach((b) => b.setAttribute("aria-expanded", "false")); }
+// đặt menu thả xuống cạnh ô: đo chiều cao thật rồi chọn trên / dưới trong VÙNG ĐANG THẤY (visualViewport – iPhone đang mở bàn phím thì vùng thấy
+//    ngắn lại & lệch khỏi khung trang; trước tính theo innerHeight + bottom nên menu bật lên lơ lửng xa ô chọn)
+function menuPlace(box, a) {
+  const vv = window.visualViewport, r = a.getBoundingClientRect(), vt = vv ? vv.offsetTop : 0, vb = vv ? vv.offsetTop + vv.height : innerHeight;
+  box.style.bottom = "auto"; box.style.top = "0px"; box.style.maxHeight = "";
+  const h = box.offsetHeight, below = vb - r.bottom - 10, above = r.top - vt - 10, up = h > below && above > below, room = Math.max(140, up ? above : below);
+  const hh = Math.min(h, room); if (h > room) box.style.maxHeight = Math.round(room) + "px";
+  box.style.top = Math.round(up ? r.top - 6 - hh : r.bottom + 6) + "px"; box.style.transformOrigin = up ? "24px calc(100% + 6px)" : "24px -6px";
+}
+// menu vừa mở: 0,8 giây đầu khung nhìn còn đổi (bàn phím cất, trang tự cuộn lại) → đặt lại chỗ theo ô thay vì đóng
+function menuFollow(m, box, a) {
+  const t0 = Date.now(), vv = window.visualViewport, re = () => { if (!m.isConnected || Date.now() - t0 > 800) return off(); menuPlace(box, a); };
+  const off = () => { vv?.removeEventListener("resize", re); vv?.removeEventListener("scroll", re); };
+  vv?.addEventListener("resize", re); vv?.addEventListener("scroll", re); setTimeout(off, 900); return t0;
+}
+const selOk = (t) => t && t.tagName === "SELECT" && !t.multiple && !t.disabled && !(t.size > 1) && !t.hasAttribute("data-native") && !t.closest("[data-native]");
+function selMenu(sel, kb = false) {
+  if ($("#iosMenu")) { const was = $("#iosMenu").__sel === sel; selMenuClose(); if (was) return; }
+  const r = sel.getBoundingClientRect(), vw = document.documentElement.clientWidth;
+  const W = Math.min(Math.max(r.width, 260), 360, vw - 16), left = Math.max(8, Math.min(vw - W - 8, r.left));
+  const item = (o) => {
+    let t = o.dataset.mt || o.textContent.trim(), sub = o.dataset.sub || "";
+    if (!sub && t.length > 30 && t.includes(" · ")) { const i = t.indexOf(" · "); sub = t.slice(i + 3); t = t.slice(0, i); }
+    return `<button type="button" role="menuitemradio" aria-checked="${o.selected}" data-i="${o.index}"${o.disabled ? " disabled" : ""}><span class="ios-t">${esc(t)}${sub ? `<small>${esc(sub)}</small>` : ""}</span></button>`;
+  };
+  let html = "";
+  for (const c of sel.children) {
+    if (c.tagName === "OPTGROUP") { const os = [...c.children].filter((o) => !o.hidden); if (os.length) html += `<div class="ios-menu-h">${esc(c.label)}</div>` + os.map(item).join(""); }      // nhóm rỗng: không hiện tiêu đề trơ trọi
+    else if (c.tagName === "OPTION" && !c.hidden) html += item(c);
+  }
+  const hd = sel.dataset.mh || sel.getAttribute("aria-label") || "";
+  const m = document.createElement("div"); m.id = "iosMenu"; m.className = "ios-menu sel-menu"; m.__sel = sel;
+  m.innerHTML = `<div class="ios-menu-bg" data-x></div><div class="ios-menu-in" role="menu" aria-label="${esc(hd)}" style="left:${left}px;width:${W}px;max-height:420px">${hd ? `<div class="ios-menu-h">${esc(hd)}</div>` : ""}${html}</div>`;
+  document.body.appendChild(m); sel.setAttribute("aria-expanded", "true"); sel.dataset.iosm = "1";
+  const box = m.querySelector(".ios-menu-in"), cur = box.querySelector('[aria-checked="true"]'); menuPlace(box, sel); const tF = menuFollow(m, box, sel);
+  if (cur && cur.offsetTop + cur.offsetHeight > box.clientHeight) box.scrollTop = cur.offsetTop - box.clientHeight / 2 + cur.offsetHeight / 2;
+  if (kb) (cur || box.querySelector("button:not([disabled])"))?.focus({ preventScroll: true });      // mở bằng bàn phím: ↑ ↓ chọn, Enter / Space chốt, Esc đóng
+  m.querySelector("[data-x]").onclick = selMenuClose;
+  box.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-i]"); if (!b || b.disabled) return;
+    const o = sel.options[+b.dataset.i]; selMenuClose(); try { sel.focus({ preventScroll: true }); } catch { /* bỏ qua */ }
+    if (o && !o.selected) { sel.selectedIndex = o.index; sel.dispatchEvent(new Event("input", { bubbles: true })); sel.dispatchEvent(new Event("change", { bubbles: true })); }
+  });
+  const k = (e) => { if (!m.isConnected) { removeEventListener("keydown", k, true); return; }
+    if (e.key === "Escape" || e.key === "Tab") { if (e.key === "Escape") e.preventDefault(); e.stopPropagation(); selMenuClose(); removeEventListener("keydown", k, true); try { sel.focus({ preventScroll: true }); } catch { /* bỏ qua */ } return; }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); const bs = [...box.querySelectorAll("button:not([disabled])")], i = bs.indexOf(document.activeElement); const j = i < 0 ? Math.max(0, bs.indexOf(cur)) : Math.max(0, Math.min(bs.length - 1, i + (e.key === "ArrowDown" ? 1 : -1))); bs[j]?.focus(); } };
+  addEventListener("keydown", k, true);
+  let y0 = r.top; setTimeout(() => { y0 = sel.getBoundingClientRect().top; }, 820); const sc = (e) => { if (!m.isConnected) { removeEventListener("scroll", sc, true); return; }      // trang cuộn làm ô chọn trôi xa → đóng menu (cuộn nhẹ / cuộn trong menu thì giữ)
+    if (box.contains(e.target)) return; if (Date.now() - tF < 800) { menuPlace(box, sel); return; }
+    if (Math.abs(sel.getBoundingClientRect().top - y0) > 24) { selMenuClose(); removeEventListener("scroll", sc, true); } };
+  addEventListener("scroll", sc, { capture: true, passive: true });
+  addEventListener("hashchange", selMenuClose, { once: true }); addEventListener("resize", () => { if (!m.isConnected) return; if (Date.now() - tF > 800) selMenuClose(); else menuPlace(box, sel); });
+}
+// 📅 ô ngày (<input type=date / datetime-local>) → lịch nhỏ kiểu app thay bánh xe iPhone / lịch trắng của trình duyệt
+//    ô nhập vẫn là nguồn dữ liệu: chọn xong gán .value + bắn input/change · bàn phím (Tab rồi gõ số) vẫn dùng kiểu gốc
+const dtOk = (t) => t && t.tagName === "INPUT" && (t.type === "date" || t.type === "datetime-local") && !t.disabled && !t.readOnly && !t.hasAttribute("data-native") && !t.closest("[data-native]");
+const DT_WD = () => ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
+function datePop(inp) {
+  if ($("#iosMenu")) { const was = $("#iosMenu").__sel === inp; selMenuClose(); if (was) return; }
+  const dt = inp.type === "datetime-local", p2 = (n) => String(n).padStart(2, "0"), ymd = (d) => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+  const v0 = inp.value || "", today = ymd(new Date()), mn = (inp.min || "").slice(0, 10), mx = (inp.max || "").slice(0, 10), secs = dt && +inp.step && +inp.step < 60;
+  let pick = v0.slice(0, 10) || "", tm = dt ? (v0.slice(11) || (() => { const n = new Date(); return `${p2(n.getHours())}:${p2(n.getMinutes())}${secs ? ":" + p2(n.getSeconds()) : ""}`; })()) : "";
+  const base = pick || (mx && today > mx ? mx : mn && today < mn ? mn : today);
+  let Y = +base.slice(0, 4), M = +base.slice(5, 7) - 1;
+  const r = inp.getBoundingClientRect(), vw = document.documentElement.clientWidth, W = Math.min(300, vw - 16), left = Math.max(8, Math.min(vw - W - 8, r.left));
+  const m = document.createElement("div"); m.id = "iosMenu"; m.className = "ios-menu sel-menu dt-menu"; m.__sel = inp;
+  m.innerHTML = `<div class="ios-menu-bg" data-x></div><div class="ios-menu-in dt-in" role="dialog" aria-label="${"Chọn ngày"}" style="left:${left}px;width:${W}px"></div>`;
+  document.body.appendChild(m); inp.setAttribute("aria-expanded", "true"); inp.dataset.iosm = "1";
+  const box = m.querySelector(".dt-in"), ok = (d) => (!mn || d >= mn) && (!mx || d <= mx);
+  const apply = (val) => { selMenuClose(); if (inp.value === val) return; inp.value = val; inp.dispatchEvent(new Event("input", { bubbles: true })); inp.dispatchEvent(new Event("change", { bubbles: true })); };
+  const draw = () => {
+    const f = new Date(Y, M, 1), off = (f.getDay() + 6) % 7, st = new Date(Y, M, 1 - off), cells = [];
+    for (let i = 0; i < 42; i++) { const d = new Date(st.getFullYear(), st.getMonth(), st.getDate() + i), k = ymd(d);
+      cells.push(`<button type="button" class="dt-d${d.getMonth() !== M ? " o" : ""}${k === today ? " t" : ""}${k === pick ? " on" : ""}" data-d="${k}"${ok(k) ? "" : " disabled"} aria-pressed="${k === pick}">${d.getDate()}</button>`); }
+    const prevOk = !mn || ymd(new Date(Y, M, 0)) >= mn, nextOk = !mx || ymd(new Date(Y, M + 1, 1)) <= mx;
+    const tp = tm.split(":");
+    box.innerHTML = `<div class="dt-h"><button type="button" class="dt-nv" data-mv="-1"${prevOk ? "" : " disabled"} aria-label="${"Tháng trước"}">‹</button><b>Tháng ${M + 1}, ${Y}</b><button type="button" class="dt-nv" data-mv="1"${nextOk ? "" : " disabled"} aria-label="${"Tháng sau"}">›</button></div>
+      <div class="dt-g">${DT_WD().map((w) => `<i>${w}</i>`).join("")}${cells.join("")}</div>
+      ${dt ? `<div class="dt-t"><span>${"Giờ"}</span><input inputmode="numeric" maxlength="2" data-tp="0" value="${esc(tp[0] || "00")}" aria-label="${"giờ"}">:<input inputmode="numeric" maxlength="2" data-tp="1" value="${esc(tp[1] || "00")}" aria-label="${"phút"}">${secs ? `:<input inputmode="numeric" maxlength="2" data-tp="2" value="${esc(tp[2] || "00")}" aria-label="${"giây"}">` : ""}</div>` : ""}
+      <div class="dt-f">${inp.required ? "" : `<button type="button" class="btn ghost sm" data-dclr>${"Xoá"}</button>`}<span></span><button type="button" class="btn ghost sm" data-dnow${ok(today) ? "" : " disabled"}>${dt ? "Bây giờ" : "Hôm nay"}</button>${dt ? `<button type="button" class="btn primary sm" data-dok${pick ? "" : " disabled"}>${"Xong"}</button>` : ""}</div>`;
+  };
+  const rdT = () => { const v = [...box.querySelectorAll("[data-tp]")].map((x, i) => p2(Math.max(0, Math.min(i ? 59 : 23, parseInt(x.value, 10) || 0)))); tm = v.join(":"); };
+  draw(); menuPlace(box, inp); menuFollow(m, box, inp);
+  box.addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b || b.disabled) return;
+    if (b.dataset.mv) { if (dt) rdT(); M += +b.dataset.mv; if (M < 0) { M = 11; Y--; } if (M > 11) { M = 0; Y++; } draw(); return; }
+    if (b.dataset.d) { pick = b.dataset.d; if (!dt) return apply(pick); rdT(); const [y, mo] = pick.split("-"); Y = +y; M = +mo - 1; draw(); return; }
+    if (b.hasAttribute("data-dclr")) return apply("");
+    if (b.hasAttribute("data-dnow")) { const n = new Date(); return apply(dt ? `${ymd(n)}T${p2(n.getHours())}:${p2(n.getMinutes())}${secs ? ":" + p2(n.getSeconds()) : ""}` : today); }
+    if (b.hasAttribute("data-dok") && pick) { rdT(); return apply(`${pick}T${tm}`); }
+  });
+  box.addEventListener("focusin", (e) => { if (e.target.matches?.("[data-tp]")) e.target.select(); });
+  m.querySelector("[data-x]").onclick = selMenuClose;
+  const k = (e) => { if (!m.isConnected) { removeEventListener("keydown", k, true); return; } if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); selMenuClose(); removeEventListener("keydown", k, true); }
+    else if (e.key === "Enter" && e.target.matches?.("[data-tp]")) { e.preventDefault(); box.querySelector("[data-dok]")?.click(); } };
+  addEventListener("keydown", k, true);
+  addEventListener("hashchange", selMenuClose, { once: true });
+}
+(function selHook() {
+  let tx = 0, ty = 0; const okT = (t) => selOk(t) || dtOk(t), go = (t, kb) => (dtOk(t) ? datePop(t) : selMenu(t, kb));
+  // đang gõ ở ô khác (bàn phím iPhone đang mở): cất bàn phím và MỞ MENU NGAY (trước đợi bàn phím cất xong ~0,4 giây → bấm thấy đơ);
+  //    trong lúc bàn phím trượt xuống, menu bám theo ô chọn (menuFollow)
+  const open = (t, kb) => {
+    const ae = document.activeElement;
+    if (ae && ae !== t && (ae.tagName === "TEXTAREA" || (ae.tagName === "INPUT" && !/^(checkbox|radio|button|submit|range|color|file)$/i.test(ae.type)))) ae.blur();
+    go(t, kb);
+  };
+  // chuột / bút: chặn cả pointerdown lẫn mousedown (Chrome mới mở bảng gốc từ pointerdown) – mở menu 1 lần ở pointerdown
+  document.addEventListener("pointerdown", (e) => { if (e.pointerType === "touch" || e.button !== 0 || !okT(e.target)) return; e.preventDefault(); open(e.target); }, true);
+  document.addEventListener("mousedown", (e) => { if (e.button === 0 && okT(e.target) && !e.sourceCapabilities?.firesTouchEvents) e.preventDefault(); }, true);
+  document.addEventListener("click", (e) => { if (okT(e.target) && e.detail > 0) e.preventDefault(); }, true);
+  // chạm vào ô: lún nhẹ NGAY lúc đặt ngón tay (như nút gốc của iPhone) – trước không có phản hồi gì tới khi nhấc tay, cảm giác đơ
+  let pr = null; const unpr = () => { pr?.classList.remove("tap-on"); pr = null; };
+  document.addEventListener("touchstart", (e) => { const t = e.touches[0]; tx = t.clientX; ty = t.clientY; unpr(); if (okT(e.target)) { pr = e.target; pr.classList.add("tap-on"); } }, { passive: true, capture: true });
+  document.addEventListener("touchmove", (e) => { if (pr && (Math.abs(e.touches[0].clientX - tx) > 10 || Math.abs(e.touches[0].clientY - ty) > 10)) unpr(); }, { passive: true, capture: true });
+  document.addEventListener("touchcancel", unpr, { passive: true, capture: true });
+  document.addEventListener("touchend", (e) => { const P = pr; if (P) setTimeout(() => P.classList.remove("tap-on"), 120); pr = null; if (!okT(e.target) || !e.cancelable) return; const t = e.changedTouches[0]; if (Math.abs(t.clientX - tx) > 10 || Math.abs(t.clientY - ty) > 10) return;
+    e.preventDefault(); try { e.target.blur(); } catch { /* bỏ qua */ } open(e.target); }, { passive: false, capture: true });
+})();
 
 // ================================================================ BẢNG ĐIỆN (dải chạy đầu trang)
 const LIMIT = { HOSE: 7, HNX: 10, UPCOM: 15 };
@@ -7033,8 +7150,10 @@ const ROUTE_FEATURE = { swing: (a) => (a === "live" ? "live" : a === "flow" || a
 //   Toàn thị trường & từng nhóm/ngành: miễn phí (trang Ngành). Từng mã: gói Pro (bảng mọi mã, khung ở tab Cơ bản trang mã).
 //   Số của RIÊNG 1 mã rất nhiễu (≈ 5–7 năm độc lập) → kết luận dùng ước tính đã CO về nhóm; số thô hiện kèm để đối chiếu.
 let FCD = null, FCR_S = null;
-async function fcData() { if (FCD === null) FCD = (await tryLoad("data/fundcorr.json")) || false; return FCD || null; }
-async function fcRowsData() { if (FCR_S === null) FCR_S = (await tryLoad("data/fundcorr_s.json")) || false; return FCR_S || null; }
+// ?v=<phiên bản dữ liệu>.f2: tệp này có thể được dựng thêm SAU lượt đầy đủ (lượt đăng web nhanh) → địa chỉ riêng, không dính bản "không có" đã lưu đệm
+const fcUrl = (f) => `data/${f}?v=${window.__ver || ""}.f2`;
+async function fcData() { if (FCD === null) FCD = (await tryLoad(fcUrl("fundcorr.json"))) || false; return FCD || null; }
+async function fcRowsData() { if (FCR_S === null) FCR_S = (await tryLoad(fcUrl("fundcorr_s.json"))) || false; return FCR_S || null; }
 const FCVD = { np: ["Theo lợi nhuận", "buy", "Giá đi theo lợi nhuận rõ hơn doanh thu"], rev: ["Theo doanh thu", "brand", "Giá đi theo doanh thu (top line) rõ hơn lợi nhuận"],
   both: ["Theo cả LN & DT", "buy", "Giá đi theo cả lợi nhuận lẫn doanh thu"], peer: ["Như mặt bằng nhóm", "", "Không khác rõ so với các mã cùng nhóm – dùng mức của nhóm"],
   weak: ["Ít theo KQKD", "sell", "Giá ít đi theo kết quả kinh doanh (chạy theo yếu tố khác: dòng tiền, câu chuyện, tài sản…)"] };
@@ -7095,7 +7214,7 @@ async function viewFundcorr() {
   const [S, rows, gr, F] = await Promise.all([secsData(), screenerRows(), Store.get("groups"), fcData()]);
   const groups = gr.data && Array.isArray(gr.data.list) ? gr.data.list : [];
   app().innerHTML = `<div class="g g-side">${sectorAside(S, rows, groups, { level: "fc" })}<div class="stack">
-    <div class="ph"><h1>Giá theo lợi nhuận / doanh thu</h1><span class="meta">giá cổ phiếu, nhóm, ngành đi theo lợi nhuận hay doanh thu (top line) tới đâu${F?.asof ? ` · dữ liệu ${esc(F.asof)}` : ""}</span></div>
+    <div class="pg-h"><h1>Giá theo lợi nhuận / doanh thu</h1><p class="muted">Giá cổ phiếu, nhóm, ngành đi theo lợi nhuận hay doanh thu (top line) tới đâu${F?.asof ? ` · dữ liệu ${esc(F.asof)}` : ""}</p></div>
     ${F ? fcOverviewHtml(F) : `<section class="panel"><div class="empty">Số liệu có sau lượt cập nhật kế tiếp (15:35 ngày giao dịch).</div></section>`}</div></div>`;
   bindSectorAside(S, rows, groups, { level: "fc" });
   if (F) fcOverviewBind(F);
@@ -7423,7 +7542,7 @@ async function viewNotifications() {
     bindNtf(app(), items, draw);
     $$("[data-nf]", app()).forEach((b) => (b.onclick = () => { f = b.dataset.nf; lsSet("ntf_f", f); draw(); }));
     $("#nAll").onclick = async () => { await api("notifications/read", "POST", { all: true }); items.forEach((n) => (n.read_at ||= "x")); draw(); bellCount(); };
-    $("#nDel").onclick = async () => { if (!confirm("Xoá mọi thông báo đã đọc?")) return; await api("notifications", "DELETE"); items = items.filter((n) => !n.read_at); draw(); };
+    $("#nDel").onclick = async () => { if (!confirmTap($("#nDel"), "Xoá mọi thông báo đã đọc?")) return; await api("notifications", "DELETE"); items = items.filter((n) => !n.read_at); draw(); };
     if ($("#nMore")) $("#nMore").onclick = load_;
   };
   const load_ = async () => { const j = await api(`notifications?limit=50${items.length ? "&before=" + items[items.length - 1].id : ""}`); items = items.concat(j.items || []); more = (j.items || []).length === 50; draw(); };
@@ -7548,6 +7667,12 @@ const DEV_IC = {
   desktop: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="12.5" rx="2"/><path d="M8.5 20h7M12 16.5V20"/></svg>',
 };
 // bấm lần 1 đổi chữ nút thành lời xác nhận (3 giây), bấm lần 2 mới làm – thay hộp thoại confirm() của trình duyệt
+// bấm 2 lần mới làm – thay hộp xám confirm() của trình duyệt (lạc kiểu, iPhone còn ghi tên trang): lần 1 báo nhắc + nút nháy viền, bấm lại trong 4 giây mới làm
+function confirmTap(btn, msg) {
+  if (btn && btn.dataset.cft === "1") { btn.dataset.cft = ""; btn.classList.remove("cft"); clearTimeout(btn._cft); return true; }
+  if (btn) { btn.dataset.cft = "1"; btn.classList.add("cft"); clearTimeout(btn._cft); btn._cft = setTimeout(() => { btn.dataset.cft = ""; btn.classList.remove("cft"); }, 4000); }
+  toast(`⚠️ ${String(msg).split("\n")[0]} – bấm lần nữa để xác nhận`); return false;
+}
 function confirmIn(btn, msg) {
   if (btn.dataset.cf === "1") { btn.dataset.cf = ""; btn.textContent = btn.dataset.t0; return true; }
   btn.dataset.t0 = btn.dataset.t0 || btn.textContent; btn.dataset.cf = "1"; btn.textContent = msg;

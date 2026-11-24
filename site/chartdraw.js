@@ -340,7 +340,7 @@
       else if (a === "ap") apOn(!AP.on);
       else if (a === "del") {
         if (st.sel) { D = D.filter((d) => d !== st.sel); st.sel = null; }
-        else if (D.length && confirm(`Xoá hết ${D.length} hình đã vẽ trên biểu đồ này?`)) D = [];
+        else if (D.length && (window.confirmTap ? window.confirmTap(b, `Xoá hết ${D.length} hình đã vẽ trên biểu đồ này?`) : confirm(`Xoá hết ${D.length} hình đã vẽ trên biểu đồ này?`))) D = [];
         save(); if (btn) btn.classList.toggle("has", D.length > 0); req();
       }
     });

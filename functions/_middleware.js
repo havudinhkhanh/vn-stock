@@ -42,6 +42,7 @@ export async function onRequest(ctx) {
     } catch (e) { /* không phải JSON: trả nguyên */ }
   } else if (p.startsWith("/data/")) {
     res = new Response(res.body, res);
+    if (!res.ok) { res.headers.set("cache-control", "no-store"); return withCookie(res, s.setCookie); }      // tệp chưa có (404…) KHÔNG được lưu đệm 1 ngày – trước đó tệp dựng thêm sau vẫn "không có" tới hôm sau
     // ?v=<giờ tạo dữ liệu>.<gói> do app.js gắn: đổi dữ liệu hoặc đổi gói = đổi địa chỉ → giữ đệm 1 ngày an toàn
     res.headers.set("cache-control", url.searchParams.get("v") ? "private, max-age=86400" : "private, no-cache");
   } else if (res.ok && /\.(js|css)$/.test(p) && url.searchParams.has("v")) {

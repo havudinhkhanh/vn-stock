@@ -2251,3 +2251,49 @@ body.cz-lock{overflow:hidden}
 .pfx .bigs .big>b{font-size:1.2rem;white-space:nowrap}
 .pfx .pf-s td:first-child,.pfx .pf-s th:first-child{position:sticky;left:0;z-index:1;background:var(--surface)}
 .pfx .pf-g td.l{white-space:normal;min-width:130px}
+
+/* ===== ô chọn / ô ngày kiểu app – giống hệt MyBit ===== */
+/* 🔽 ô chọn → menu của app (selMenu): nằm trên cả bảng xác nhận, cuộn được khi dài, mục bị khoá mờ đi */
+.ios-menu.sel-menu{z-index:1500}
+.sel-menu .ios-menu-in{overflow-y:auto!important;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.sel-menu .ios-menu-in>button{width:100%;text-align:left;font:inherit;cursor:pointer}
+.sel-menu .ios-menu-in>button[disabled]{opacity:.4;cursor:default}
+.sel-menu .ios-t{overflow-wrap:anywhere}
+select[aria-expanded="true"]{outline:2px solid color-mix(in srgb,var(--brand) 50%,transparent);outline-offset:0}
+/* 📅 lịch chọn ngày kiểu app (datePop – thay bánh xe iPhone / lịch trắng của trình duyệt) */
+.dt-menu .dt-in{padding:10px!important;display:block}
+.dt-h{display:flex;align-items:center;justify-content:space-between;gap:6px;margin:0 0 6px}
+.dt-h b{font-size:.875rem;font-weight:700;text-transform:capitalize}
+.dt-menu .dt-in .dt-nv{display:grid!important;place-items:center;width:32px;height:32px;min-height:0!important;padding:0!important;border:0;border-radius:8px!important;background:var(--fill)!important;color:var(--ink);font:600 18px/1 inherit;cursor:pointer}
+.dt-menu .dt-in .dt-nv[disabled]{opacity:.35;cursor:default}
+.dt-g{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px}
+.dt-g i{font-style:normal;text-align:center;font-size:.6875rem;font-weight:650;color:var(--ink-3);padding:2px 0 4px}
+.dt-menu .dt-in .dt-d{display:grid!important;place-items:center;height:34px;min-height:0!important;padding:0!important;border:0;border-radius:9px!important;background:transparent!important;color:var(--ink)!important;font:500 .8125rem/1 inherit;font-variant-numeric:tabular-nums;cursor:pointer}
+.dt-menu .dt-in .dt-d:hover{background:var(--fill)!important}
+.dt-menu .dt-in .dt-d.o{color:var(--ink-3)!important;opacity:.55}
+.dt-menu .dt-in .dt-d.t{box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--brand) 60%,transparent)}
+.dt-menu .dt-in .dt-d.on{background:var(--brand)!important;color:#fff!important;font-weight:700;opacity:1}
+.dt-menu .dt-in .dt-d[disabled]{opacity:.22;cursor:default;background:transparent!important}
+.dt-t{display:flex;align-items:center;gap:4px;margin-top:8px;padding-top:8px;border-top:1px solid color-mix(in srgb,var(--ink) 8%,transparent);font-variant-numeric:tabular-nums}
+.dt-t span{flex:1;font-size:.8125rem;color:var(--ink-2);font-weight:600}
+.dt-t input{width:42px;height:34px;padding:0;border:0;border-radius:8px;background:var(--fill);color:var(--ink);text-align:center;font:inherit;font-size:16px}
+.dt-t input:focus{outline:2px solid color-mix(in srgb,var(--brand) 50%,transparent);background:var(--surface)}
+.dt-f{display:flex;align-items:center;gap:6px;margin-top:8px}
+.dt-f span{flex:1}
+.dt-menu .dt-in .dt-f .btn{display:inline-flex!important;width:auto!important;min-height:0!important;grid-template-columns:none!important}
+/* chạm ô chọn / ô ngày: lún nhẹ ngay khi đặt ngón tay */
+select,input[type=date],input[type=datetime-local]{transition:transform .12s var(--ease-out,ease),background-color .12s}
+select.tap-on,input.tap-on{transform:scale(.97);background-color:var(--fill-h,var(--fill))!important}
+.sel-menu .ios-menu-in{animation-duration:.14s!important}
+/* bấm 2 lần mới làm (confirmTap): nút đang chờ xác nhận nháy viền */
+.cft{box-shadow:0 0 0 2px var(--down)!important;animation:cftP 1s ease-in-out infinite}
+@keyframes cftP{50%{box-shadow:0 0 0 4px color-mix(in srgb,var(--down) 35%,transparent)}}
+@media (prefers-reduced-motion:reduce){.cft{animation:none}}
+.dt-menu .dt-f .btn{height:32px;padding:0 12px;font-size:.8rem;border-radius:8px}
+/* tiêu đề trang: chữ phụ ngay dưới, canh trái (không bị đẩy sang phải khi xuống dòng) */
+.pg-h{margin:0 0 4px}.pg-h h1{margin:0}.pg-h p{margin:2px 0 0;font-size:.8rem}
+/* cột Ngành: công tắc 2 lựa chọn & ô chọn ngành cùng cỡ, cùng bo góc */
+.secaside .taxsw{gap:2px;padding:3px;margin:2px 0 8px;border-radius:10px;background:var(--fill)}
+.secaside .taxsw button{height:32px;border:0!important;border-radius:8px!important;background:transparent!important;font-size:.8rem!important;color:var(--ink-2)}
+.secaside .taxsw button.on{background:var(--sel)!important;color:var(--sel-ink)!important}
+.secaside #secSel{height:38px;padding:0 12px;border:0;border-radius:10px;font-size:.88rem;margin-top:0}
