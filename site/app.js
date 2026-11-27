@@ -894,7 +894,10 @@ async function cvRot(on, w = document.querySelector(".chartp")) {
   w.classList.add("rot"); rotBox(w); w.addEventListener("rotoff", () => cvRot(false, w), { once: true });
 }
 document.addEventListener("click", (e) => {
-  const z = e.target.closest?.("[data-cvsz]"); if (z) { e.preventDefault(); lsSet("cvSize", z.dataset.cvsz); const w = cvBox(z); if (w) w.dataset.sz = z.dataset.cvsz; $$("[data-cvsz]").forEach((x) => x.classList.toggle("on", x.dataset.cvsz === z.dataset.cvsz)); if (w?.classList.contains("cv-fs")) cvFs(false, w); requestAnimationFrame(() => dispatchEvent(new Event("resize"))); return; }
+  const z = e.target.closest?.("[data-cvsz]"); if (z) { e.preventDefault();
+    // điện thoại: cụm nổi trong khung nến chỉ hiện 1 nút cỡ (cỡ đang chọn) cho gọn → chạm là đổi sang cỡ kế tiếp S → M → L → S
+    const k = z.classList.contains("on") && z.closest(".chart > .cv-ctl") && matchMedia("(max-width:700px)").matches ? { s: "m", m: "l", l: "s" }[z.dataset.cvsz] : z.dataset.cvsz;
+    lsSet("cvSize", k); const w = cvBox(z); if (w) w.dataset.sz = k; $$("[data-cvsz]").forEach((x) => x.classList.toggle("on", x.dataset.cvsz === k)); if (w?.classList.contains("cv-fs")) cvFs(false, w); requestAnimationFrame(() => dispatchEvent(new Event("resize"))); return; }
   const f = e.target.closest?.("[data-cvfs]"); if (f) { e.preventDefault(); cvFs(undefined, cvBox(f)); return; }
   const r = e.target.closest?.("[data-cvrot]"); if (r) { e.preventDefault(); cvRot(undefined, cvBox(r)); }
 });
@@ -924,7 +927,7 @@ function pxTags(el, c, cs, lines, cur) {
   const place = () => {
     if (!alive) return; if (!el.isConnected) { el._ptStop?.(); return; } if (document.hidden || !vis) return;
     if (!EH) EH = el.clientHeight; let H = EH; try { H -= c.timeScale().height(); } catch (e) { /* bỏ qua */ }
-    try { const aw = c.priceScale("right").width(); if (aw && aw !== el._aw) { el._aw = aw; el.style.setProperty("--axw", aw + "px"); } } catch (e) { /* bỏ qua */ }
+    try { const aw = c.priceScale("right").width(); if (aw && aw !== el._aw) { el._aw = aw; el.style.setProperty("--axw", aw + "px"); el._lgPos?.(); } } catch (e) { /* bỏ qua */ }
     const V = tg.map((t) => { const y0 = cs.priceToCoordinate(t.p); t.y = y0; if (!isNum(y0)) return null; const e = y0 < 0 ? -1 : y0 > H ? 1 : 0; return { t, e, y: e < 0 ? 8 : e > 0 ? H - 8 : y0 }; }).filter(Boolean).sort((a, b) => a.y - b.y || a.e - b.e);
     const key = V.map((v) => v.y.toFixed(1) + v.e).join() + H; if (key === last) return; last = key;
     const G = 16, Q = V.map((v) => ({ y: v.y }));
@@ -989,6 +992,9 @@ function chartPlus(el, c, o, opt = {}) {
     lg.innerHTML = `${opt.sym ? `<b>${esc(opt.sym)}</b>` : ""}<span>${esc(o.t[i])}</span><span>M <i>${nf(o.o[i])}</i></span><span>C <i>${nf(o.h[i])}</i></span><span>T <i>${nf(o.l[i])}</i></span><span>Đ <i class="${cls(ch)}">${nf(o.c[i])}</i></span><i class="${cls(ch)}">${pct(ch, 2)}</i><span>KL <i>${big(o.v[i])}</i></span>`;
   };
   show();
+  // đáy của dòng giá (1 hàng trên máy tính, 2–3 hàng trên điện thoại) → --clgb: các nút vẽ / đo tự nằm ngay dưới nó, không đè lên chữ
+  //   điện thoại: dòng giá nằm dưới cụm S·M·L; nếu bên trái cụm đó còn đủ chỗ (≥ 96px) thì 3 nút vẽ lên luôn hàng trên cùng (cd-row1) – đỡ 1 hàng
+  { const lgPos = () => { if (!lg.isConnected) return; el.style.setProperty("--clgb", (lg.offsetTop + lg.offsetHeight) + "px"); const ct = el.querySelector(":scope > .cv-ctl"); el.classList.toggle("cd-row1", !!ct && lg.offsetTop >= ct.offsetTop + ct.offsetHeight && ct.offsetLeft >= 96); }; el._lgPos = lgPos; lgPos(); try { el._lgRO?.disconnect(); el._lgRO = new ResizeObserver(lgPos); el._lgRO.observe(lg); el._lgRO.observe(el); } catch (e) { /* trình duyệt cũ */ } }
   c.subscribeCrosshairMove((pr) => { if (!pr || pr.time == null) return show(); const t = pr.time; const k = typeof t === "string" ? t : t.year ? `${t.year}-${String(t.month).padStart(2, "0")}-${String(t.day).padStart(2, "0")}` : new Date(t * 1000).toISOString().slice(0, 10); show(idx.get(k)); });
   if (opt.sym) c.applyOptions({ watermark: { visible: true, text: opt.sym, color: "rgba(203,167,101,.07)", fontSize: 78, fontFamily: "Barlow Condensed", fontStyle: "700" } });
 }
@@ -3023,7 +3029,8 @@ async function viewStock(sym, tabArg) {
   const tf = TFO[lsGet("tf", "D")] ? lsGet("tf", "D") : "D", o = TFO[tf], kf = TF_KEY[tf];
   const { c, cs } = candleChart($("#pChart"), o, { dkey: sym });
   chartPlus($("#pChart"), c, o, { sym });
-  if (!$("#pChart > .cv-ctl")) $("#pChart").insertAdjacentHTML("beforeend", cvCtl());      // S · M · L · ⛶ · ⟳ nổi góc trên phải trong khung nến (đỡ 1 hàng thanh công cụ)
+  if (!$("#pChart > .cv-ctl")) $("#pChart").insertAdjacentHTML("beforeend", cvCtl()); $("#pChart").classList.add("has-cvctl"); $("#pChart")._lgPos?.();      // điện thoại: dòng giá xuống dưới cụm nút này (trước đây đè nhau)
+       // S · M · L · ⛶ · ⟳ nổi góc trên phải trong khung nến (đỡ 1 hàng thanh công cụ)
   const C = o.c;
   const tset = new Set(o.t);
   const overlays = {

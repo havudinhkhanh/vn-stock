@@ -2310,5 +2310,10 @@ select.tap-on,input.tap-on{transform:scale(.97);background-color:var(--fill-h,va
 .cd-qm>button{flex:none;width:28px;height:28px;margin:-2px 0;border:0;border-radius:8px;background:var(--fill,var(--sunk));color:var(--ink-2);font-size:.8125rem;cursor:pointer;pointer-events:auto}
 .cd-qm-h small{font-size:.75rem;color:var(--ink-3)}
 @media (max-width:700px){.cd-qm{left:8px;right:8px;transform:none;max-width:none;justify-content:space-between;padding:6px 6px 6px 10px}.cd-qm>button{width:32px;height:32px;align-self:center}.cd-qm-r small{display:none}}
-/* điện thoại: dòng giá M·C·T·Đ ở góc trên trái xuống 2 hàng → các nút vẽ / đo nằm dưới nó (trước đây nút bút đè lên hàng thứ 2) */
-@media (max-width:700px){.chart>.cd-tg{top:60px}.chart>.cd-tb{top:92px}.chart>.cd-qm.qm-t{top:94px}}
+/* Đầu biểu đồ không còn đè nhau (27/11/2026): cụm S·M·L ⛶ ⟳ ở hàng trên cùng → dòng giá M·C·T·Đ ngay dưới (điện thoại) → nút vẽ / đo nằm dưới đáy dòng giá
+   (--clgb do chartPlus đo, nên dòng giá 1, 2 hay 3 hàng đều đúng). Biểu đồ không có dòng giá: giữ vị trí cũ (30px). */
+.cd-tg{top:calc(var(--clgb,24px) + 6px)}.cd-tb{top:calc(var(--clgb,24px) + 38px)}.cd-qm.qm-t{top:calc(var(--clgb,24px) + 40px)}
+.cd-row1>.cd-tg{top:14px;left:4px}.cd-row1>.cd-tg2{left:34px}.cd-row1>.cd-tg3{left:64px}.cd-row1>.cd-tb{top:calc(var(--clgb,24px) + 6px)}.cd-row1>.cd-qm.qm-t{top:calc(var(--clgb,24px) + 8px)}      /* nút vẽ cùng hàng với cụm S·M·L (điện thoại, khi đủ chỗ) */
+.has-cvctl>.clg{max-width:calc(100% - var(--axw,66px) - 160px)}      /* máy tính: dòng giá dừng trước cụm nút, thiếu chỗ thì xuống hàng */
+@media (max-width:700px){.has-cvctl>.clg{top:54px;max-width:calc(100% - var(--axw,66px) - 14px);font-size:.78rem;gap:2px 9px}
+  .chart>.cv-ctl .cv-sz button:not(.on){display:none}}      /* điện thoại: chỉ hiện cỡ đang chọn (chạm để đổi S → M → L) → cụm nút gọn, 3 nút vẽ nằm chung hàng */
