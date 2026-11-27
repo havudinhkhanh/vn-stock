@@ -825,11 +825,17 @@ function drawHook(el, c, s, o, dkey) {
   if (getComputedStyle(el).position === "static") el.style.position = "relative";
   const b2 = document.createElement("button"); b2.type = "button"; b2.className = "cd-tg cd-tg2"; b2.title = "Mẫu hình đã xảy ra: Fibonacci, tam giác / nêm, Elliott trên dữ liệu cũ – kèm đúng / sai";
   b2.setAttribute("aria-label", "Mẫu hình đã xảy ra"); b2.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 20 9 8l4 7 3-5 5 10"/><path d="M3 20h18"/></svg>`;
-  el.querySelector(":scope > .cd-tg2")?.remove();
-  el.append(b, b2);
-  const go = (open) => lazyJs("chartdraw.js").then(() => window.CDRAW.attach({ el, c, s, o, key, get: lsGet, set: lsSet, btn2: b2, fmt: (p) => nf(p), pct: (v) => pct(v, 2), btn: b, open })).catch((e) => { toast(e.message); return null; });
+  el.querySelector(":scope > .cd-tg2")?.remove(); el.querySelector(":scope > .cd-tg3")?.remove();
+  // 📏 đo lời/lỗ nhanh (1 chạm, dùng được trên điện thoại – giống MyBit): chạm điểm mua → kéo tới điểm bán → lời/lỗ ròng sau phí + thuế bán + trượt giá.
+  // Cổ phiếu VN không bán khống: kéo xuống = mua ở điểm đầu, bán ở điểm cuối (lỗ). Biểu đồ chỉ số (IX_…) không mua bán được → không có nút, thước đo chỉ hiện %.
+  const idx = String(dkey).startsWith("IX_"), cost = idx ? false : { fee: FEE_BUY, sell: +(FEE_SELL - FEE_BUY).toFixed(4), slip: 0.1, short: false, amt: 100, unit: "tr ₫ trên 100 tr", unitS: "tr ₫ / 100 tr" };
+  const b3 = document.createElement("button"); b3.type = "button"; b3.className = "cd-tg cd-tg3"; b3.title = "Đo lời/lỗ: chạm điểm mua rồi kéo tới điểm bán – đã trừ phí, thuế bán và trượt giá";
+  b3.setAttribute("aria-label", "Đo lời/lỗ giữa 2 điểm"); b3.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20 20 4"/><path d="m7 17 2 2M10 14l2 2M13 11l2 2M16 8l2 2"/></svg>`;
+  el.append(b, b2); if (!idx) el.append(b3);
+  const go = (open) => lazyJs("chartdraw.js").then(() => window.CDRAW.attach({ el, c, s, o, key, get: lsGet, set: lsSet, btn2: b2, btn3: b3, cost, fmt: (p) => nf(p), pct: (v) => pct(v, 2), btn: b, open })).catch((e) => { toast(e.message); return null; });
   b.onclick = (e) => { e.stopPropagation(); go(true); };
   b2.onclick = (e) => { e.stopPropagation(); go(false).then((x) => x && x.ap()); };
+  b3.onclick = (e) => { e.stopPropagation(); go(false).then((x) => x && x.measure(b3)); };
   if (lsGet("draw_ap", false)) go(false).then((x) => x && x.ap(true));
   else if ((lsGet(key, []) || []).length) { b.classList.add("has"); go(false); }
 }
